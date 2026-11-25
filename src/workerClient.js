@@ -43,7 +43,7 @@ export function extractErrorMessage(err) {
 /**
  * Direct OpenAI-compatible fetch helper (used by Node live tests and standalone fallback).
  */
-export async function fetchOpenAICompatible({ baseUrl, apiKey, model, messages, maxTokens = 4096, temperature = 0.25, signal = null, timeoutMs = 90000, fetchImpl = globalThis.fetch }) {
+export async function fetchOpenAICompatible({ baseUrl, apiKey, model, messages, maxTokens = 8192, temperature = 0.25, signal = null, timeoutMs = 90000, fetchImpl = globalThis.fetch }) {
     const base = normalizeBaseUrl(baseUrl);
     if (!base) throw new Error('Worker Base URL is empty.');
     if (!model) throw new Error('Worker Model is not set.');
@@ -91,6 +91,7 @@ export async function fetchOpenAICompatible({ baseUrl, apiKey, model, messages, 
     return {
         content: typeof content === 'string' ? content : '',
         reasoning: typeof reasoning === 'string' ? reasoning : '',
+        finishReason: String(choice?.finish_reason || ''),
         usage: json?.usage || null,
         raw: json,
     };
@@ -175,7 +176,7 @@ export function createWorkerClient({ getSettings, getContextSafe, onStatusChange
 
     async function sendOnce(messages, signal, opts = {}) {
         const settings = getSettings();
-        const maxTokens = Number(opts.maxTokens || settings.workerMaxTokens || 4096);
+        const maxTokens = Number(opts.maxTokens || settings.workerMaxTokens || 8192);
         const temperature = Number.isFinite(Number(opts.temperature ?? settings.workerTemperature))
             ? Number(opts.temperature ?? settings.workerTemperature)
             : 0.25;

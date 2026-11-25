@@ -29,10 +29,11 @@ export function syncSettingsUI(s) {
     $('#vse_worker_model').val(s.workerModel || '');
     $('#vse_worker_profile').val(s.workerProfileId || '');
     $('#vse_worker_mode').val(s.workerMode || 'combined');
-    $('#vse_worker_max_tokens').val(s.workerMaxTokens || 4096);
+    $('#vse_worker_max_tokens').val(s.workerMaxTokens || 8192);
     $('#vse_worker_temp').val(s.workerTemperature ?? 0.25);
     $('#vse_hud_theme').val(s.hudTheme || 'Sola');
     $('#vse_hud_style').val(s.hudStyle || 'Afterglow');
+    $('#vse_atlas_mode').val(s.atlasViewMode || '3d');
     $('#vse_show_launcher').prop('checked', s.showLauncherButton !== false);
     $('#vse_hud_collapsed').prop('checked', s.hudDefaultCollapsed !== false);
     $('#vse_pin_rules').prop('checked', s.pinNotebookRules !== false);
@@ -188,6 +189,13 @@ export function injectSettingsUI({
                             </select>
                         </div>
                     </div>
+                    <div class="vse-field">
+                        <label for="vse_atlas_mode">Default Atlas Renderer</label>
+                        <select id="vse_atlas_mode" class="text_pole">
+                            <option value="3d">3D CSS (PolyCSS)</option>
+                            <option value="2d">2D SVG Floorplan</option>
+                        </select>
+                    </div>
                     <label class="checkbox_label" for="vse_show_launcher">
                         <input id="vse_show_launcher" type="checkbox" />
                         <span>Show floating launcher button</span>
@@ -303,10 +311,11 @@ export function injectSettingsUI({
     $('#vse_worker_model').val(s.workerModel || '');
     $('#vse_worker_profile').val(s.workerProfileId || '');
     $('#vse_worker_mode').val(s.workerMode || 'combined');
-    $('#vse_worker_max_tokens').val(s.workerMaxTokens || 4096);
+    $('#vse_worker_max_tokens').val(s.workerMaxTokens || 8192);
     $('#vse_worker_temp').val(s.workerTemperature ?? 0.25);
     $('#vse_hud_theme').val(s.hudTheme || 'Sola');
     $('#vse_hud_style').val(s.hudStyle || 'Afterglow');
+    $('#vse_atlas_mode').val(s.atlasViewMode || '3d');
     $('#vse_show_launcher').prop('checked', s.showLauncherButton !== false);
     $('#vse_hud_collapsed').prop('checked', s.hudDefaultCollapsed !== false);
     $('#vse_pin_rules').prop('checked', s.pinNotebookRules !== false);
@@ -342,10 +351,11 @@ export function injectSettingsUI({
     $('#vse_worker_model').on('input change', function () { getSettings().workerModel = String($(this).val() ?? '').trim(); saveSettings(); onSettingsChanged?.(); });
     $('#vse_worker_profile').on('change', function () { getSettings().workerProfileId = String($(this).val() ?? ''); saveSettings(); onSettingsChanged?.(); });
     $('#vse_worker_mode').on('change', function () { getSettings().workerMode = $(this).val(); saveSettings(); onSettingsChanged?.(); });
-    $('#vse_worker_max_tokens').on('change', function () { getSettings().workerMaxTokens = Math.max(256, parseInt($(this).val(), 10) || 4096); saveSettings(); onSettingsChanged?.(); });
+    $('#vse_worker_max_tokens').on('change', function () { getSettings().workerMaxTokens = Math.max(256, parseInt($(this).val(), 10) || 8192); saveSettings(); onSettingsChanged?.(); });
     $('#vse_worker_temp').on('change', function () { getSettings().workerTemperature = Number($(this).val()) || 0.25; saveSettings(); onSettingsChanged?.(); });
     $('#vse_hud_theme').on('change', function () { getSettings().hudTheme = $(this).val(); saveSettings(); onSettingsChanged?.(); });
     $('#vse_hud_style').on('change', function () { getSettings().hudStyle = $(this).val(); saveSettings(); onSettingsChanged?.(); });
+    $('#vse_atlas_mode').on('change', function () { getSettings().atlasViewMode = $(this).val(); saveSettings(); onSettingsChanged?.(); });
     $('#vse_show_launcher').on('change', function () { getSettings().showLauncherButton = $(this).prop('checked'); saveSettings(); onSettingsChanged?.(); });
     $('#vse_hud_collapsed').on('change', function () { getSettings().hudDefaultCollapsed = $(this).prop('checked'); saveSettings(); onSettingsChanged?.(); });
     $('#vse_open_popup_btn').on('click', () => onOpenPopup?.());

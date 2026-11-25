@@ -113,6 +113,16 @@ function parseLocations(raw) {
         const rBlk = rm[2];
         const id = getField(rBlk, 'id');
         if (isEmptySentinel(id)) continue;
+        const rawObjects = getField(rBlk, 'objects');
+        let objects = [];
+        if (rawObjects && !isEmptySentinel(rawObjects)) {
+            try {
+                const parsed = JSON.parse(rawObjects);
+                if (Array.isArray(parsed)) objects = parsed;
+            } catch {
+                objects = [];
+            }
+        }
         rooms.push({
             id,
             kind,
@@ -126,6 +136,8 @@ function parseLocations(raw) {
             grid: getField(rBlk, 'grid'),
             occupants: getField(rBlk, 'occupants') || '∅',
             exits: getField(rBlk, 'exits') || '∅',
+            style: getField(rBlk, 'style') || '',
+            objects,
         });
     }
     out.rooms = rooms;
@@ -485,6 +497,12 @@ export function serializeInternalStates(state, { scoped = false, recentText = ''
         for (const k of ['id', 'map_id', 'name', 'dim', 'bbox', 'anchor', 'features', 'adj', 'grid', 'occupants', 'exits']) {
             lines.push(`    <${k}>${encodeXmlText(r[k])}</${k}>`);
         }
+        if (r.style && !isEmptySentinel(r.style)) {
+            lines.push(`    <style>${encodeXmlText(r.style)}</style>`);
+        }
+        if (Array.isArray(r.objects) && r.objects.length > 0) {
+            lines.push(`    <objects>${encodeXmlText(JSON.stringify(r.objects))}</objects>`);
+        }
         lines.push(`  </${tag}>`);
     }
     for (const [mid, roomIds] of omittedByMap.entries()) {
@@ -667,7 +685,14 @@ export function serializeCompactForWorker(state) {
     const availableColors = PALETTE.filter((p) => !usedColors.includes(p.name)).map((p) => `${p.name} ${p.hex}`);
 
     const activeMapId = s.locations?.map_index?.active_map_id || '∅';
-    const activeRooms = (s.locations?.rooms || []).filter((r) => !activeMapId || activeMapId === '∅' || r.map_id === activeMapId);
+    const activeRooms = (s.locations?.rooms || [])
+        .filter((r) => !activeMapId || activeMapId === '∅' || r.map_id === activeMapId)
+        .map((r) => {
+            const copy = { ...r };
+            if (!copy.style) delete copy.style;
+            if (!Array.isArray(copy.objects) || copy.objects.length === 0) delete copy.objects;
+            return copy;
+        });
     const otherRooms = (s.locations?.rooms || [])
         .filter((r) => activeMapId && activeMapId !== '∅' && r.map_id !== activeMapId)
         .map((r) => ({ id: r.id, map_id: r.map_id, name: r.name, occupants: r.occupants }));

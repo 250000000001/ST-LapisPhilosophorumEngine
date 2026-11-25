@@ -1,10 +1,13 @@
 /**
- * Interactive SVG floorplan renderer for Vexa Atlas (<state:locations>).
+ * Interactive Atlas renderer for Vexa (<state:locations>).
+ * Supports both PolyCSS 3D CSS scenes (default) and 2D SVG floorplans.
  * Pure HTML/SVG generator (no jQuery required so unit tests can inspect output too).
  */
 
 import { PALETTE, isEmptySentinel } from './schema.js';
 import { computeBbox, parseOccupantsList } from './reducer.js';
+import { renderAtlas3DViewport, inferObjectsFromFeatures } from './atlas3d.js';
+import { resolveMaterialColor } from './polyCss3d.js';
 
 function escHtml(s) {
     return String(s ?? '')
@@ -61,9 +64,22 @@ function findUserActiveRoom(state, roomsOnFloor) {
 }
 
 /**
- * Render the interactive Atlas tab HTML (map selector, floor tabs, SVG map, room cards).
+ * Render the interactive Atlas tab HTML (map selector, floor tabs, 3D CSS or 2D SVG map, room cards).
  */
-export function renderAtlasTab(state, { selectedMapId = null, selectedLevel = null, selectedRoomId = null } = {}) {
+export function renderAtlasTab(
+    state,
+    {
+        selectedMapId = null,
+        selectedLevel = null,
+        selectedRoomId = null,
+        viewMode = '3d',
+        allFloors = false,
+        cutaway = true,
+        showLabels = true,
+        camera = null,
+    } = {},
+) {
+    const mode = viewMode === '2d' ? '2d' : '3d';
     const loc = state?.locations || { map_index: { active_map_id: '∅', active_level: '0', maps: [] }, rooms: [] };
     const maps = loc.map_index?.maps || [];
     const allRooms = loc.rooms || [];
@@ -94,6 +110,7 @@ export function renderAtlasTab(state, { selectedMapId = null, selectedLevel = nu
         const box = computeBbox(r.grid, r.dim);
         return (box ? String(box.z) : '0') === activeFloor;
     });
+    const visibleRooms = mode === '3d' && allFloors ? mapRooms : floorRooms;
 
     const positioned = [];
     const unpositioned = [];
@@ -103,12 +120,21 @@ export function renderAtlasTab(state, { selectedMapId = null, selectedLevel = nu
         else unpositioned.push(r);
     }
 
-    const userRoom = findUserActiveRoom(state, floorRooms);
+    const userRoom = findUserActiveRoom(state, visibleRooms);
     const userLocalPos = parseLocalPoint(state?.world?.user_pos);
 
-    // Build SVG viewBox
-    let svgHtml = '';
-    if (positioned.length > 0) {
+    let viewportHtml = '';
+    if (mode === '3d') {
+        viewportHtml = renderAtlas3DViewport(state, {
+            selectedMapId,
+            selectedLevel,
+            selectedRoomId,
+            allFloors,
+            cutaway,
+            showLabels,
+            camera,
+        }).html;
+    } else if (positioned.length > 0) {
         let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
         for (const p of positioned) {
             minX = Math.min(minX, p.box.x1);
@@ -204,7 +230,7 @@ export function renderAtlasTab(state, { selectedMapId = null, selectedLevel = nu
             }
         }
 
-        svgHtml = `
+        viewportHtml = `
             <div class="vse-atlas-svg-wrap">
                 <svg class="vse-atlas-svg" viewBox="${vx} ${vy} ${vw} ${vh}" preserveAspectRatio="xMidYMid meet">
                     ${gridLines.join('')}
@@ -221,10 +247,27 @@ export function renderAtlasTab(state, { selectedMapId = null, selectedLevel = nu
             </div>
         `;
     } else {
-        svgHtml = `<div class="vse-empty">No positioned room coordinates on this floor yet.</div>`;
+        viewportHtml = `<div class="vse-empty">No positioned room coordinates on this floor yet.</div>`;
     }
 
-    const detailRoom = floorRooms.find((r) => r.id === selectedRoomId) || userRoom || floorRooms[0] || null;
+    const detailRoom = visibleRooms.find((r) => r.id === selectedRoomId) || floorRooms.find((r) => r.id === selectedRoomId) || userRoom || floorRooms[0] || visibleRooms[0] || null;
+    let objectsRowHtml = '';
+    if (detailRoom) {
+        const explicitObjs = Array.isArray(detailRoom.objects) ? detailRoom.objects : [];
+        const shownObjs = explicitObjs.length > 0
+            ? explicitObjs
+            : inferObjectsFromFeatures(detailRoom, computeBbox(detailRoom.grid, detailRoom.dim));
+        const objTag = explicitObjs.length > 0 ? 'explicit' : 'auto-inferred';
+        const objPills = shownObjs.length
+            ? shownObjs.map((o) => {
+                const col = resolveMaterialColor(o.color);
+                const posStr = Array.isArray(o.pos) ? `[${o.pos[0]},${o.pos[1]}]` : '';
+                return `<span class="vse-pill" style="margin:1px 3px 1px 0;"><i class="vse-dot" style="background:${escHtml(col)}"></i> [${escHtml(o.shape)}] ${escHtml(o.label)} ${escHtml(posStr)}</span>`;
+            }).join('')
+            : '∅';
+        objectsRowHtml = `<div class="wide"><span>3D Objects (${objTag})</span><b>${objPills}</b></div>`;
+    }
+
     const roomDetailHtml = detailRoom ? `
         <div class="vse-atlas-detail">
             <div class="vse-atlas-detail-head">
@@ -232,6 +275,7 @@ export function renderAtlasTab(state, { selectedMapId = null, selectedLevel = nu
                 <span class="vse-pill">${escHtml(detailRoom.id)}</span>
                 <span class="vse-pill">${escHtml(detailRoom.dim || '?')}</span>
                 <span class="vse-pill">Grid ${escHtml(detailRoom.grid || '?')}</span>
+                ${detailRoom.style ? `<span class="vse-pill">${escHtml(detailRoom.style)}</span>` : ''}
                 ${detailRoom.kind === 'load' ? '<span class="vse-pill warn">Loaded</span>' : '<span class="vse-pill ok">Rendered</span>'}
             </div>
             <div class="vse-kv-grid">
@@ -239,6 +283,7 @@ export function renderAtlasTab(state, { selectedMapId = null, selectedLevel = nu
                 <div><span>Occupants</span><b>${escHtml(detailRoom.occupants || '∅')}</b></div>
                 <div><span>Exits</span><b>${escHtml(detailRoom.exits || '∅')}</b></div>
                 <div><span>Adjacent</span><b>${escHtml(detailRoom.adj || '∅')}</b></div>
+                ${objectsRowHtml}
             </div>
         </div>
     ` : '';
@@ -248,12 +293,23 @@ export function renderAtlasTab(state, { selectedMapId = null, selectedLevel = nu
     ).join('');
 
     const floorBtns = floors.map(([z, label]) =>
-        `<button type="button" class="vse-atlas-floor-btn ${z === activeFloor ? 'active' : ''}" data-level="${escHtml(z)}">Z=${escHtml(z)} · ${escHtml(label)}</button>`,
+        `<button type="button" class="vse-atlas-floor-btn ${z === activeFloor && !(mode === '3d' && allFloors) ? 'active' : ''}" data-level="${escHtml(z)}">Z=${escHtml(z)} · ${escHtml(label)}</button>`,
     ).join('');
 
-    const roomListHtml = floorRooms.length ? `
+    const allFloorsBtn = mode === '3d' && floors.length > 1
+        ? `<button type="button" class="vse-atlas-allfloors-btn ${allFloors ? 'active' : ''}" title="Stack all floors in 3D"><i class="fa-solid fa-layer-group"></i> All Floors</button>`
+        : '';
+
+    const modeSwitcher = `
+        <div class="vse-atlas-mode-seg">
+            <button type="button" class="vse-atlas-mode-btn ${mode === '3d' ? 'active' : ''}" data-atlas-mode="3d" title="3D CSS (PolyCSS) view"><i class="fa-solid fa-cubes"></i> 3D CSS</button>
+            <button type="button" class="vse-atlas-mode-btn ${mode === '2d' ? 'active' : ''}" data-atlas-mode="2d" title="2D SVG floorplan view"><i class="fa-solid fa-vector-square"></i> 2D SVG</button>
+        </div>
+    `;
+
+    const roomListHtml = visibleRooms.length ? `
         <div class="vse-atlas-room-pills">
-            ${floorRooms.map((r) => `<button type="button" class="vse-atlas-room-pill ${detailRoom?.id === r.id ? 'active' : ''}" data-room-id="${escHtml(r.id)}">${escHtml(r.name || r.id)}</button>`).join('')}
+            ${visibleRooms.map((r) => `<button type="button" class="vse-atlas-room-pill ${detailRoom?.id === r.id ? 'active' : ''}" data-room-id="${escHtml(r.id)}">${escHtml(r.name || r.id)}</button>`).join('')}
         </div>
     ` : '';
 
@@ -261,11 +317,12 @@ export function renderAtlasTab(state, { selectedMapId = null, selectedLevel = nu
         <div class="vse-atlas-container">
             <div class="vse-atlas-toolbar">
                 <label>Map: <select class="vse-atlas-map-sel">${mapOptions}</select></label>
-                <div class="vse-atlas-floors">${floorBtns}</div>
+                <div class="vse-atlas-floors">${floorBtns}${allFloorsBtn}</div>
+                ${modeSwitcher}
                 <span class="vse-muted" style="margin-left:auto;">Main Exit: ${escHtml(currentMap.main_exit || '∅')}</span>
             </div>
             ${roomListHtml}
-            ${svgHtml}
+            ${viewportHtml}
             ${unpositioned.length ? `<div class="vse-muted" style="margin-top:6px;">Unscaled rooms: ${unpositioned.map((r) => escHtml(r.name || r.id)).join(', ')}</div>` : ''}
             ${roomDetailHtml}
         </div>

@@ -64,10 +64,11 @@ const DEFAULT_SETTINGS = Object.freeze({
     workerModel: '',
     workerProfileId: '',
     workerMode: 'combined', // 'combined' | 'split'
-    workerMaxTokens: 4096,
+    workerMaxTokens: 8192,
     workerTemperature: 0.25,
     hudTheme: 'Sola',
     hudStyle: 'Afterglow',
+    atlasViewMode: '3d',
     showLauncherButton: true,
     hudDefaultCollapsed: true,
     pinNotebookRules: true,
@@ -329,7 +330,7 @@ jQuery(() => {
                     if (signal.aborted) return { aborted: true };
                     const r2 = await send(msgs2);
                     if (signal.aborted) return { aborted: true };
-                    return { split: [r1.content, r2.content] };
+                    return { split: [r1.content, r2.content], meta: [r1, r2] };
                 }
 
                 const msgs = buildWorkerMessages({
@@ -337,7 +338,7 @@ jQuery(() => {
                     headerParsed, proseColors, cardHints, mode: 'combined',
                 });
                 const res = await send(msgs);
-                return { combined: res.content };
+                return { combined: res.content, meta: [res] };
             },
         ).catch((err) => ({ error: extractErrorMessage(err) }));
 
@@ -370,11 +371,17 @@ jQuery(() => {
         }
 
         const rawAnswers = jobRes.split ? jobRes.split : [jobRes.combined || ''];
-        for (const ans of rawAnswers) {
+        for (let i = 0; i < rawAnswers.length; i++) {
+            const ans = rawAnswers[i];
             if (!String(ans || '').trim() || isWorkerRefusal(ans)) {
+                const meta = jobRes.meta?.[i];
+                const exhaustedThinking = !String(ans || '').trim()
+                    && (meta?.finishReason === 'length' || Boolean(meta?.reasoning));
                 const msgErr = isWorkerRefusal(ans)
                     ? 'Worker model refused the story content (switch to a permissive model).'
-                    : 'Worker returned an empty response.';
+                    : exhaustedThinking
+                        ? 'Worker exhausted max_tokens while thinking; increase Worker Max Tokens.'
+                        : 'Worker returned an empty response.';
                 store.recordDelta(at, {}, {
                     source: 'worker',
                     swipe,

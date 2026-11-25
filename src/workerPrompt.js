@@ -12,12 +12,23 @@ const SYSTEM_BASE = `You are Vexa Clerk, a precise background simulation state-t
 Your ONLY job is to inspect the latest story exchange and emit a minimal JSON DELTA updating the world simulation state.
 
 CRITICAL OUTPUT RULES:
-1. Output ONLY one valid JSON object. No markdown fences, no commentary before or after.
+1. Output ONLY one valid JSON object. No markdown fences, no commentary before or after. Keep internal reasoning brief and emit compact minified JSON (no pretty-printing whitespace) so output never truncates.
 2. DELTA-ONLY: Omit any top-level key that did NOT change this turn. Never copy forward unchanged rooms, unchanged entity_state rows, dormant off-screen NPCs, or unchanged relationship pairs.
 3. STRICT EPISTEMIC SANITY (<knowledge_sanity>): Characters ONLY know facts they witnessed in 120° LOS, heard within earshot, were told, or read via message/evidence. Never leak secrets or off-screen facts into thoughts/entityMem of characters who lack a vector.
-4. ATLAS INTEGRITY: Room grids use 5m integer multiples [X,Y,Z], dim "WxHxHm", never overlap existing rooms on the same floor, and exits/adj connect reciprocally. Never drop or relocate existing rooms. Use move_occupants for movement.
-5. IMMUTABLE DIALOGUE COLORS: Never change an existing entity's fontColor. For a brand-new named NPC, pick an unused color from availableColors (or match proseColorsDetected).
-6. RESPECT MAIN-MODEL RECEIPT: Honor any world_sim outcome, fired Chekhov bullets, arc updates, and OOC directives listed in <main_model_receipt>.`;
+4. ATLAS INTEGRITY: Room grid MUST be string "[X,Y,Z]" where X,Y are 5m integer multiples and Z is integer floor index (0=ground, 1=upper, -1=cellar — NOT height in meters). Dim is "WxHxHm". Format exits as "N:room_id [x,y] | Up:room_id", adj as "N:..., S:..., E:..., W:..., Up:..., Down:...", and occupants as "Name [x,y] | Name2 [x,y]". Never overlap existing rooms on the same floor, never drop/relocate existing rooms, and use move_occupants for movement.
+5. 3D ATLAS OBJECTS (PolyCSS Engine — NEVER emit CSS or HTML):
+   The UI renders Atlas rooms and props automatically in 3D CSS. You ONLY supply compact JSON descriptors:
+   - Optional room "style": "indoor" | "outdoor" | "tower" | "cave" | "water" | "wagon".
+   - Optional room "objects" (on new_rooms, 2-8 key landmarks) or "add_objects" / "remove_objects" (on patch_rooms ONLY when props are added, moved, revealed, or destroyed):
+     { "shape": "...", "pos": [x,y] or [x,y,z], "size"?: [w,d,h], "rot"?: deg, "color": "material_or_#hex", "label": "Short Name" }
+   - Give repeated props unique labels (e.g. "Bollard 1", "Bollard 2").
+   - Allowed shapes (exact names):
+     "box" (table, bed, crate, chest, wagon, barricade), "cylinder" (pillar, barrel, well, cauldron, tub), "cone" (flame, tree, tent, spire), "wedge" (ramp, sloped roof), "stairs" (staircase), "sphere" (boulder, bush, lantern, orb), "plane" (rug, pond, grate, blood), "arch" (hearth, gate, doorway), "octahedron" (crystal, beacon), "ring" (fire-ring, stone circle).
+   - "pos" is room-local meters from NW corner [0,0,0] (same origin as occupants: X=0..W east, Y=0..D south, Z=0 floor). "size" is [width, depth, height] in meters.
+   - Material colors: "wood", "dark_wood", "stone", "dark_stone", "ice", "snow", "water", "iron", "gold", "copper", "fire", "cloth", "leather", "grass", "pine", "earth", "bone", "blood", "magic", "glass" (or #RRGGBB).
+   - Example: [{"shape":"box","pos":[8,7],"size":[3,1.4,0.9],"color":"wood","label":"Council Table"},{"shape":"arch","pos":[12,7],"size":[2.2,0.8,2.2],"color":"stone","label":"Pine Hearth"},{"shape":"cone","pos":[12,7,0.2],"size":[0.9,0.9,1.2],"color":"fire","label":"Hearth Fire"}]
+6. IMMUTABLE DIALOGUE COLORS: Never change an existing entity's fontColor. For a brand-new named NPC, pick an unused color from availableColors (or match proseColorsDetected).
+7. RESPECT MAIN-MODEL RECEIPT: Honor any world_sim outcome, fired Chekhov bullets, arc updates, and OOC directives listed in <main_model_receipt>.`;
 
 const COMBINED_SCHEMA_GUIDE = `Return a JSON object containing ONLY the keys that changed this turn:
 {
@@ -27,8 +38,8 @@ const COMBINED_SCHEMA_GUIDE = `Return a JSON object containing ONLY the keys tha
   "locations": {
     "set_active"?: { "active_map_id", "active_level" },
     "new_maps"?: [ { "id", "name", "levels": [{"z":"0","name":"..."}], "main_exit": "room_id [X,Y,Z]" } ],
-    "new_rooms"?: [ { "id", "map_id", "name", "dim": "15x15x5m", "grid": "[X,Y,Z]", "anchor", "features", "adj", "occupants", "exits" } ],
-    "patch_rooms"?: [ { "id", "features"?, "adj"?, "exits"?, "occupants"? } ],
+    "new_rooms"?: [ { "id", "map_id", "name", "dim": "15x15x5m", "grid": "[X,Y,Z]", "style"?: "indoor|outdoor|tower|cave|water|wagon", "anchor", "features", "objects"?: [ { "shape": "box|cylinder|cone|wedge|stairs|sphere|plane|arch|octahedron|ring", "pos": [x,y,0], "size"?: [w,d,h], "rot"?: 0, "color": "wood", "label": "..." } ], "adj", "occupants", "exits" } ],
+    "patch_rooms"?: [ { "id", "style"?, "features"?, "add_objects"?: [...], "remove_objects"?: ["label"], "adj"?, "exits"?, "occupants"? } ],
     "move_occupants"?: [ { "name", "to_room", "pos": "[x,y]" } ]
   },
   "entity_state": { "upsert": [ { "name", "fontColor": "color #HEX", "look", "voice", "persona", "private" } ] },
@@ -54,7 +65,7 @@ const SPATIAL_ENTITY_SCHEMA_GUIDE = `Return a JSON object containing ONLY the SP
   "world"?: { ... },
   "onscreen"?: [ ... ],
   "offscreen_agendas"?: [ ... ],
-  "locations"?: { "set_active"?, "new_maps"?, "new_rooms"?, "patch_rooms"?, "move_occupants"? },
+  "locations"?: { "set_active"?: { "active_map_id", "active_level" }, "new_maps"?: [ { "id", "name", "levels": [{"z":"0","name":"..."}], "main_exit"?: "room_id [X,Y,Z]" } ], "new_rooms"?: [ { "id", "map_id", "name", "dim": "15x15x5m", "grid": "[X,Y,Z]", "style"?: "indoor|outdoor|tower|cave|water|wagon", "features", "objects"?: [ { "shape", "pos": [x,y,0], "size"?: [w,d,h], "rot"?: 0, "color", "label" } ], "adj": "N:..., Up:...", "occupants": "Name [x,y] | ...", "exits": "N:id [x,y] | Up:id" } ], "patch_rooms"?: [ { "id", "style"?, "features"?, "add_objects"?, "remove_objects"?, "adj"?, "exits"?, "occupants"? } ], "move_occupants"?: [ { "name", "to_room", "pos": "[x,y]" } ] },
   "entity_state"?: { "upsert": [...] },
   "entityMem_append"?: [ { "name", "mem" } ],
   "dam_delta"?: [ ... ],

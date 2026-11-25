@@ -10,6 +10,7 @@
 import { VEXA_THEMES, VEXA_STYLES, PALETTE, isEmptySentinel } from './schema.js';
 import { serializeInternalStates } from './parser.js';
 import { renderAtlasTab } from './atlasSvg.js';
+import { bindPolyOrbitControls } from './polyCss3d.js';
 
 export const HUD_TABS = [
     { id: 'world', label: 'World', icon: 'fa-globe' },
@@ -44,6 +45,11 @@ function getView(msgId, defaults) {
             mapId: null,
             level: null,
             roomId: null,
+            atlasMode: null,
+            allFloors: false,
+            cutaway: true,
+            showLabels: true,
+            camera: { rotX: 56, rotZ: 32, zoom: 1, panX: 0, panY: 0 },
         });
     }
     return viewState.get(msgId);
@@ -65,7 +71,7 @@ function hexFromFontColor(fc) {
     return p ? p.hex : 'var(--ist-blue)';
 }
 
-function renderTabBody(tabId, state, view) {
+function renderTabBody(tabId, state, view, settings) {
     switch (tabId) {
         case 'world': {
             const w = state.world || {};
@@ -124,7 +130,16 @@ function renderTabBody(tabId, state, view) {
             }).join('')}</div>`;
         }
         case 'locations':
-            return renderAtlasTab(state, { selectedMapId: view.mapId, selectedLevel: view.level, selectedRoomId: view.roomId });
+            return renderAtlasTab(state, {
+                selectedMapId: view.mapId,
+                selectedLevel: view.level,
+                selectedRoomId: view.roomId,
+                viewMode: view.atlasMode || settings?.atlasViewMode || '3d',
+                allFloors: view.allFloors,
+                cutaway: view.cutaway,
+                showLabels: view.showLabels,
+                camera: view.camera,
+            });
         case 'entityMem': {
             const list = state.entityMem || [];
             if (!list.length) return `<div class="vse-empty">No entity memories recorded.</div>`;
@@ -369,6 +384,7 @@ export function refreshAllHudCards({ store, settings, workerStatus, onOpenEditor
         );
         const proposalCount = (state.tracker_proposals || []).length;
         const trackerCount = (state.custom_trackers || []).filter((t) => t && !t.archived).length;
+        const effectiveAtlasMode = view.atlasMode || settings.atlasViewMode || '3d';
         const stamp = [
             store.version,
             swipe,
@@ -379,6 +395,10 @@ export function refreshAllHudCards({ store, settings, workerStatus, onOpenEditor
             view.mapId || '',
             view.level || '',
             view.roomId || '',
+            effectiveAtlasMode,
+            view.allFloors ? '1' : '0',
+            view.cutaway ? '1' : '0',
+            view.showLabels ? '1' : '0',
             entry?.status || '',
             isBusyForThis ? 'busy' : 'idle',
             trackerCount,
@@ -443,9 +463,21 @@ export function refreshAllHudCards({ store, settings, workerStatus, onOpenEditor
                     <label>Style: <select class="vse-style-sel">${VEXA_STYLES.map((st) => `<option value="${esc(st)}" ${st === view.style ? 'selected' : ''}>${esc(st)}</option>`).join('')}</select></label>
                 </div>
                 <div class="vse-tabs">${tabsHtml}</div>
-                <div class="vse-tab-panel">${view.collapsed ? '' : renderTabBody(view.tab, state, view)}</div>
+                <div class="vse-tab-panel">${view.collapsed ? '' : renderTabBody(view.tab, state, view, settings)}</div>
             </div>
         `);
+
+        if (!view.collapsed && view.tab === 'locations' && effectiveAtlasMode === '3d') {
+            const vpEl = $card.find('.vse-poly-viewport')[0];
+            if (vpEl) {
+                bindPolyOrbitControls(vpEl, view.camera, {
+                    onSelectRoom: (roomId) => {
+                        view.roomId = roomId;
+                        refreshAllHudCards({ store, settings, workerStatus, onOpenEditor, onRetryMsg, onStopWorker, onCopyXml, onApproveProposal, onDismissProposal });
+                    },
+                });
+            }
+        }
 
         // Wire card controls cleanly via scoped delegation
         $card.off('click change');
@@ -473,7 +505,26 @@ export function refreshAllHudCards({ store, settings, workerStatus, onOpenEditor
         });
         $card.on('click', '.vse-atlas-floor-btn', function () {
             view.level = String($(this).data('level'));
+            view.allFloors = false;
             view.roomId = null;
+            refreshAllHudCards({ store, settings, workerStatus, onOpenEditor, onRetryMsg, onStopWorker, onCopyXml, onApproveProposal, onDismissProposal });
+        });
+        $card.on('click', '.vse-atlas-allfloors-btn', function () {
+            view.allFloors = !view.allFloors;
+            refreshAllHudCards({ store, settings, workerStatus, onOpenEditor, onRetryMsg, onStopWorker, onCopyXml, onApproveProposal, onDismissProposal });
+        });
+        $card.on('click', '.vse-atlas-mode-btn', function () {
+            view.atlasMode = String($(this).data('atlas-mode') || '3d');
+            refreshAllHudCards({ store, settings, workerStatus, onOpenEditor, onRetryMsg, onStopWorker, onCopyXml, onApproveProposal, onDismissProposal });
+        });
+        $card.on('click', '.vse-poly-cutaway-btn', function (e) {
+            e.stopPropagation();
+            view.cutaway = !view.cutaway;
+            refreshAllHudCards({ store, settings, workerStatus, onOpenEditor, onRetryMsg, onStopWorker, onCopyXml, onApproveProposal, onDismissProposal });
+        });
+        $card.on('click', '.vse-poly-labels-btn', function (e) {
+            e.stopPropagation();
+            view.showLabels = !view.showLabels;
             refreshAllHudCards({ store, settings, workerStatus, onOpenEditor, onRetryMsg, onStopWorker, onCopyXml, onApproveProposal, onDismissProposal });
         });
         $card.on('click', '.vse-atlas-room-g, .vse-atlas-room-pill', function () {

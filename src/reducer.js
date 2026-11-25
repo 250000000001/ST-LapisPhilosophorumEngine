@@ -22,6 +22,30 @@ import {
 export const MAX_CUSTOM_TRACKERS = 6;
 export const MAX_TRACKER_FIELDS = 8;
 
+export const ATLAS_OBJECT_SHAPES = Object.freeze([
+    'box',
+    'cylinder',
+    'cone',
+    'wedge',
+    'stairs',
+    'sphere',
+    'plane',
+    'arch',
+    'octahedron',
+    'ring',
+]);
+
+export const ATLAS_ROOM_STYLES = Object.freeze([
+    'indoor',
+    'outdoor',
+    'tower',
+    'cave',
+    'water',
+    'wagon',
+]);
+
+export const MAX_ROOM_OBJECTS = 16;
+
 const MATRIX_EMOJIS = ['🌶️', '🎲', '🤝', '🛠️', '🏠', '🕊️', '😠', '🥊', '❄️', '🪨', '🌫️', '🐍'];
 
 /** Strip <think>...</think> blocks, code fences, and trailing commas to extract JSON object. */
@@ -155,9 +179,24 @@ function validateDeltaObject(obj, raw) {
 // ── Atlas Geometry Helpers ──────────────────────────────────────────────────
 
 export function parseGridCoords(gridStr) {
-    const m = String(gridStr || '').match(/\[\s*(-?\d+)\s*,\s*(-?\d+)\s*,\s*(-?\d+)\s*\]/);
+    if (Array.isArray(gridStr) && gridStr.length >= 3) {
+        const x = parseInt(gridStr[0], 10);
+        const y = parseInt(gridStr[1], 10);
+        const z = parseInt(gridStr[2], 10);
+        if (Number.isFinite(x) && Number.isFinite(y) && Number.isFinite(z)) return { x, y, z };
+        return null;
+    }
+    const s = String(gridStr ?? '');
+    const m = s.match(/\[\s*(-?\d+)\s*,\s*(-?\d+)\s*,\s*(-?\d+)\s*\]/)
+        || s.match(/^\s*(-?\d+)\s*,\s*(-?\d+)\s*,\s*(-?\d+)\s*$/);
     if (!m) return null;
     return { x: parseInt(m[1], 10), y: parseInt(m[2], 10), z: parseInt(m[3], 10) };
+}
+
+export function formatGridCoords(gridVal) {
+    const g = parseGridCoords(gridVal);
+    if (g) return `[${g.x},${g.y},${g.z}]`;
+    return String(gridVal ?? '').trim();
 }
 
 export function parseDimMeters(dimStr) {
@@ -182,6 +221,210 @@ export function computeBbox(gridStr, dimStr) {
 
 function aabbOverlaps(a, b) {
     return a.x1 < b.x2 && a.x2 > b.x1 && a.y1 < b.y2 && a.y2 > b.y1;
+}
+
+const SHAPE_SYNONYMS = Object.freeze({
+    cube: 'box',
+    cuboid: 'box',
+    table: 'box',
+    bed: 'box',
+    crate: 'box',
+    chest: 'box',
+    wall: 'box',
+    bench: 'box',
+    desk: 'box',
+    barricade: 'box',
+    trestle: 'box',
+    counter: 'box',
+    altar: 'box',
+    trunk: 'box',
+    cage: 'box',
+    pillar: 'cylinder',
+    column: 'cylinder',
+    barrel: 'cylinder',
+    well: 'cylinder',
+    wellhead: 'cylinder',
+    cauldron: 'cylinder',
+    tub: 'cylinder',
+    cask: 'cylinder',
+    post: 'cylinder',
+    pyramid: 'cone',
+    spire: 'cone',
+    flame: 'cone',
+    fire: 'cone',
+    tent: 'cone',
+    tree: 'cone',
+    pine: 'cone',
+    prism: 'wedge',
+    ramp: 'wedge',
+    slope: 'wedge',
+    roof: 'wedge',
+    stair: 'stairs',
+    staircase: 'stairs',
+    steps: 'stairs',
+    ladder: 'stairs',
+    ball: 'sphere',
+    orb: 'sphere',
+    dome: 'sphere',
+    boulder: 'sphere',
+    rock: 'sphere',
+    bush: 'sphere',
+    globe: 'sphere',
+    lantern: 'sphere',
+    quad: 'plane',
+    rug: 'plane',
+    carpet: 'plane',
+    pond: 'plane',
+    pool: 'plane',
+    patch: 'plane',
+    grate: 'plane',
+    drain: 'plane',
+    gate: 'arch',
+    door: 'arch',
+    doorway: 'arch',
+    hearth: 'arch',
+    fireplace: 'arch',
+    portal: 'arch',
+    archway: 'arch',
+    crystal: 'octahedron',
+    diamond: 'octahedron',
+    gem: 'octahedron',
+    beacon: 'octahedron',
+    circle: 'ring',
+    halo: 'ring',
+    'fire-ring': 'ring',
+    fire_ring: 'ring',
+});
+
+const DEFAULT_SHAPE_SIZES = Object.freeze({
+    box: [1.8, 1.2, 1.0],
+    cylinder: [1.2, 1.2, 1.4],
+    cone: [1.2, 1.2, 1.6],
+    wedge: [2.0, 2.0, 1.4],
+    stairs: [2.0, 2.8, 2.2],
+    sphere: [1.2, 1.2, 1.2],
+    plane: [2.0, 2.0, 0.25],
+    arch: [2.0, 0.6, 2.2],
+    octahedron: [1.0, 1.0, 1.4],
+    ring: [1.6, 1.6, 0.25],
+});
+
+function round2(n) {
+    const r = Math.round(n * 100) / 100;
+    return Object.is(r, -0) ? 0 : r;
+}
+
+/**
+ * Normalize an Atlas room architectural style (`indoor`, `outdoor`, `tower`, `cave`, `water`, `wagon`).
+ */
+export function normalizeRoomStyle(raw) {
+    const s = String(raw ?? '').trim().toLowerCase();
+    if (!s || s === '∅' || s === 'none') return '';
+    if (ATLAS_ROOM_STYLES.includes(s)) return s;
+    if (/water|lake|river|pond|sea|ocean|harbor|canal/.test(s)) return 'water';
+    if (/wagon|cart|carriage|tent|pavilion/.test(s)) return 'wagon';
+    if (/cave|cavern|mine|tunnel|sewer|crypt|dungeon|vault|undercroft/.test(s)) return 'cave';
+    if (/tower|solar|spire|keep|battlement|turret|rookery/.test(s)) return 'tower';
+    if (/outdoor|exterior|yard|courtyard|street|square|road|shore|camp|forest|field|garden|open/.test(s)) return 'outdoor';
+    if (/indoor|interior|room|hall|chamber|tavern|inn/.test(s)) return 'indoor';
+    return '';
+}
+
+function parseVectorNumbers(raw) {
+    if (Array.isArray(raw)) {
+        return raw.map((n) => Number(n)).filter((n) => Number.isFinite(n));
+    }
+    if (typeof raw === 'string') {
+        const matches = raw.match(/-?\d+(?:\.\d+)?/g);
+        if (matches) return matches.map(Number).filter((n) => Number.isFinite(n));
+    }
+    return [];
+}
+
+/**
+ * Normalize a worker/user 3D Atlas object into canonical PolyCSS shape data,
+ * clamping coordinates and dimensions to optional room bounds.
+ */
+export function normalizeAtlasObject(raw, roomDim = null) {
+    const obj = raw && typeof raw === 'object' ? raw : {};
+    const rawShape = String(obj.shape || obj.type || 'box').trim().toLowerCase();
+    let shape = ATLAS_OBJECT_SHAPES.includes(rawShape)
+        ? rawShape
+        : (SHAPE_SYNONYMS[rawShape] || '');
+    if (!shape) {
+        const synHit = Object.entries(SHAPE_SYNONYMS).find(([k]) => rawShape.includes(k));
+        shape = synHit ? synHit[1] : 'box';
+    }
+
+    const posNums = parseVectorNumbers(obj.pos);
+    let px = Number.isFinite(posNums[0]) ? posNums[0] : 1;
+    let py = Number.isFinite(posNums[1]) ? posNums[1] : 1;
+    let pz = Number.isFinite(posNums[2]) ? posNums[2] : 0;
+
+    if (roomDim && Number.isFinite(roomDim.w) && Number.isFinite(roomDim.h)) {
+        px = Math.max(0, Math.min(roomDim.w, px));
+        py = Math.max(0, Math.min(roomDim.h, py));
+        const maxZ = Number.isFinite(roomDim.zH) && roomDim.zH > 0 ? roomDim.zH : 6;
+        pz = Math.max(0, Math.min(maxZ, pz));
+    } else {
+        pz = Math.max(0, pz);
+    }
+
+    const defSize = DEFAULT_SHAPE_SIZES[shape] || [1.4, 1.4, 1.2];
+    const sizeNums = parseVectorNumbers(obj.size);
+    const maxW = roomDim && Number.isFinite(roomDim.w) ? Math.max(2, roomDim.w) : 30;
+    const maxD = roomDim && Number.isFinite(roomDim.h) ? Math.max(2, roomDim.h) : 30;
+    const maxH = roomDim && Number.isFinite(roomDim.zH) ? Math.max(4, roomDim.zH) : 20;
+
+    const sw = Math.max(0.25, Math.min(maxW, Number.isFinite(sizeNums[0]) ? sizeNums[0] : defSize[0]));
+    const sd = Math.max(0.25, Math.min(maxD, Number.isFinite(sizeNums[1]) ? sizeNums[1] : (Number.isFinite(sizeNums[0]) ? sizeNums[0] : defSize[1])));
+    const sh = Math.max(0.25, Math.min(maxH, Number.isFinite(sizeNums[2]) ? sizeNums[2] : defSize[2]));
+
+    const rotNum = Number(obj.rot);
+    const rot = Number.isFinite(rotNum) ? round2(((rotNum % 360) + 360) % 360) : 0;
+    const color = String(obj.color || '').trim();
+    const label = String(obj.label || obj.name || shape).trim().slice(0, 60) || shape;
+
+    return {
+        shape,
+        pos: [round2(px), round2(py), round2(pz)],
+        size: [round2(sw), round2(sd), round2(sh)],
+        rot,
+        color,
+        label,
+    };
+}
+
+/**
+ * Normalize an array of room 3D objects, deduplicating by case-insensitive label (last wins)
+ * and capping at MAX_ROOM_OBJECTS (16). When `disambiguateSameBatch` is true, duplicate labels
+ * placed at distinct coordinates within the same batch are auto-suffixed instead of dropped.
+ */
+export function normalizeRoomObjects(list, roomDim = null, { disambiguateSameBatch = false } = {}) {
+    if (!Array.isArray(list)) return [];
+    const byLabel = new Map();
+    for (const item of list) {
+        if (!item || typeof item !== 'object') continue;
+        const norm = normalizeAtlasObject(item, roomDim);
+        let key = norm.label.toLowerCase();
+        if (disambiguateSameBatch && byLabel.has(key)) {
+            const existing = byLabel.get(key);
+            const dist = Math.hypot((existing.pos?.[0] ?? 0) - norm.pos[0], (existing.pos?.[1] ?? 0) - norm.pos[1]);
+            if (dist > 0.25) {
+                let n = 2;
+                const base = norm.label.slice(0, 56).trim() || norm.shape;
+                while (byLabel.has(`${base} ${n}`.toLowerCase())) n++;
+                norm.label = `${base} ${n}`;
+                key = norm.label.toLowerCase();
+            } else {
+                byLabel.delete(key);
+            }
+        } else if (byLabel.has(key)) {
+            byLabel.delete(key);
+        }
+        byLabel.set(key, norm);
+    }
+    return [...byLabel.values()].slice(-MAX_ROOM_OBJECTS);
 }
 
 /** Parse occupant strings like "Jon Snow [15,21] | Bramm [16,22]" into [{ name, pos }]. */
@@ -523,13 +766,83 @@ export function applyDelta(prevState, delta = {}, ctx = {}) {
         if (dl.active_map_id !== undefined) next.locations.map_index.active_map_id = String(dl.active_map_id);
         if (dl.active_level !== undefined) next.locations.map_index.active_level = String(dl.active_level);
 
+        const CANON_MAP_DIR = { n: 'N', s: 'S', e: 'E', w: 'W', up: 'Up', down: 'Down', main_exit: 'main_exit' };
+        const formatMapLevels = (levels) => {
+            if (!Array.isArray(levels)) return [{ z: '0', name: 'Ground Floor' }];
+            const out = [];
+            for (const lv of levels) {
+                if (lv && typeof lv === 'object') {
+                    out.push({ z: String(lv.z ?? 0), name: String(lv.name || '') });
+                } else if (lv !== null && lv !== undefined && String(lv).trim() !== '') {
+                    const zStr = String(lv).trim();
+                    out.push({ z: zStr, name: zStr === '0' ? 'Ground Floor' : `Floor ${zStr}` });
+                }
+            }
+            return out.length ? out : [{ z: '0', name: 'Ground Floor' }];
+        };
+        const formatRoomExits = (val) => {
+            if (typeof val === 'string') return val;
+            if (Array.isArray(val)) {
+                const items = val.map((x) => String(x || '').trim()).filter((x) => x && x !== '∅');
+                return items.length ? items.join(' | ') : '∅';
+            }
+            if (val && typeof val === 'object') {
+                const parts = [];
+                for (const [k, target] of Object.entries(val)) {
+                    const t = String(target ?? '').trim();
+                    if (!t || isEmptySentinel(t)) continue;
+                    const canon = CANON_MAP_DIR[k.toLowerCase()] || k;
+                    parts.push(`${canon}:${t}`);
+                }
+                return parts.length ? parts.join(' | ') : '∅';
+            }
+            return String(val ?? '∅');
+        };
+        const formatRoomAdj = (val) => {
+            if (typeof val === 'string') return val;
+            if (Array.isArray(val)) {
+                const items = val.map((x) => String(x || '').trim()).filter((x) => x && x !== '∅');
+                return items.length ? items.join(', ') : '∅';
+            }
+            if (val && typeof val === 'object') {
+                const slots = new Map([['N', '∅'], ['S', '∅'], ['E', '∅'], ['W', '∅'], ['Up', '∅'], ['Down', '∅']]);
+                for (const [k, target] of Object.entries(val)) {
+                    const canon = CANON_MAP_DIR[k.toLowerCase()];
+                    const t = String(target ?? '').trim();
+                    if (canon && canon !== 'main_exit' && t && !isEmptySentinel(t)) {
+                        slots.set(canon, t);
+                    }
+                }
+                return [...slots.entries()].map(([k, v]) => `${k}:${v}`).join(', ');
+            }
+            return String(val ?? '∅');
+        };
+        const formatRoomOccupants = (val) => {
+            if (typeof val === 'string') return val;
+            if (Array.isArray(val)) {
+                const items = [];
+                for (const o of val) {
+                    if (typeof o === 'string') {
+                        const s = o.trim();
+                        if (!s || s === '∅') continue;
+                        const m = s.match(/^(.+?)\s*(\[[^\]]+\])$/);
+                        items.push(m ? { name: m[1].trim(), pos: m[2].trim() } : { name: s, pos: '' });
+                    } else if (o && typeof o === 'object' && o.name) {
+                        items.push({ name: String(o.name).trim(), pos: o.pos ? String(o.pos).trim() : '' });
+                    }
+                }
+                return formatOccupantsList(items);
+            }
+            return String(val ?? '∅');
+        };
+
         const mapsToUpsert = [...(dl.new_maps || []), ...(dl.upsert_maps || []), ...(dl.maps || [])];
         for (const m of mapsToUpsert) {
             if (!m?.id) continue;
             upsertByName(next.locations.map_index.maps, {
                 id: String(m.id).trim(),
                 name: String(m.name || m.id),
-                levels: Array.isArray(m.levels) ? m.levels.map((l) => ({ z: String(l.z ?? 0), name: String(l.name || '') })) : [{ z: '0', name: 'Ground Floor' }],
+                levels: formatMapLevels(m.levels),
                 main_exit: String(m.main_exit || '∅'),
             }, (x) => x.id === m.id);
         }
@@ -538,22 +851,48 @@ export function applyDelta(prevState, delta = {}, ctx = {}) {
         for (const r of roomsToUpsert) {
             if (!r?.id) continue;
             const existingIdx = next.locations.rooms.findIndex((x) => x.id === r.id);
-            const merged = existingIdx >= 0
-                ? { ...next.locations.rooms[existingIdx], ...r }
+            const existing = existingIdx >= 0 ? next.locations.rooms[existingIdx] : null;
+            const merged = existing
+                ? { ...existing, objects: Array.isArray(existing.objects) ? existing.objects.map((o) => ({ ...o })) : [] }
                 : {
                     id: String(r.id).trim(),
-                    kind: r.kind || 'rend',
+                    kind: 'rend',
                     map_id: String(r.map_id || next.locations.map_index.active_map_id || '∅'),
                     name: String(r.name || r.id),
-                    dim: String(r.dim || ''),
-                    bbox: String(r.bbox || ''),
-                    anchor: String(r.anchor || '∅'),
-                    features: String(r.features || '∅'),
-                    adj: String(r.adj || '∅'),
-                    grid: String(r.grid || ''),
-                    occupants: String(r.occupants || '∅'),
-                    exits: String(r.exits || '∅'),
+                    dim: '',
+                    bbox: '',
+                    anchor: '∅',
+                    features: '∅',
+                    adj: '∅',
+                    grid: '',
+                    occupants: '∅',
+                    exits: '∅',
+                    style: '',
+                    objects: [],
                 };
+            for (const k of ['kind', 'map_id', 'name', 'dim', 'bbox', 'anchor', 'features']) {
+                if (r[k] !== undefined) merged[k] = String(r[k]);
+            }
+            if (r.grid !== undefined) merged.grid = formatGridCoords(r.grid);
+            if (r.exits !== undefined) merged.exits = formatRoomExits(r.exits);
+            if (r.adj !== undefined) merged.adj = formatRoomAdj(r.adj);
+            if (r.occupants !== undefined) merged.occupants = formatRoomOccupants(r.occupants);
+            if (r.style !== undefined) {
+                merged.style = normalizeRoomStyle(r.style);
+            } else if (merged.style === undefined) {
+                merged.style = '';
+            }
+            const roomDim = parseDimMeters(merged.dim);
+            if (Array.isArray(r.objects)) {
+                merged.objects = normalizeRoomObjects(r.objects, roomDim, { disambiguateSameBatch: true });
+            }
+            if (Array.isArray(r.remove_objects) && r.remove_objects.length > 0) {
+                const rmSet = new Set(r.remove_objects.map((lbl) => String(lbl || '').trim().toLowerCase()).filter(Boolean));
+                merged.objects = merged.objects.filter((o) => !rmSet.has(String(o.label || '').trim().toLowerCase()));
+            }
+            if (Array.isArray(r.add_objects) && r.add_objects.length > 0) {
+                merged.objects = normalizeRoomObjects([...merged.objects, ...r.add_objects], roomDim);
+            }
             // Deterministic bbox derivation from grid + dim
             const derived = computeBbox(merged.grid, merged.dim);
             if (derived) {
@@ -561,6 +900,27 @@ export function applyDelta(prevState, delta = {}, ctx = {}) {
             }
             if (existingIdx >= 0) next.locations.rooms[existingIdx] = merged;
             else next.locations.rooms.push(merged);
+        }
+
+        // Top-level object add/remove fallbacks
+        if (Array.isArray(dl.remove_objects)) {
+            for (const rm of dl.remove_objects) {
+                const rid = String(rm?.room_id || rm?.id || '').trim();
+                const target = next.locations.rooms.find((x) => x.id === rid);
+                if (!target || !Array.isArray(target.objects)) continue;
+                const labels = Array.isArray(rm.labels) ? rm.labels : (rm.label ? [rm.label] : []);
+                const rmSet = new Set(labels.map((l) => String(l || '').trim().toLowerCase()).filter(Boolean));
+                target.objects = target.objects.filter((o) => !rmSet.has(String(o.label || '').trim().toLowerCase()));
+            }
+        }
+        if (Array.isArray(dl.add_objects)) {
+            for (const item of dl.add_objects) {
+                const rid = String(item?.room_id || '').trim();
+                const target = next.locations.rooms.find((x) => x.id === rid);
+                if (!target) continue;
+                const roomDim = parseDimMeters(target.dim);
+                target.objects = normalizeRoomObjects([...(target.objects || []), item], roomDim);
+            }
         }
 
         // Reciprocal Atlas <adj> & <exits> mirroring for newly added/patched rooms

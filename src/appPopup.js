@@ -16,8 +16,16 @@ import {
     slugifyTrackerId,
 } from './schema.js';
 import { serializeInternalStates } from './parser.js';
-import { computeBbox, approveTrackerProposal, dismissTrackerProposal } from './reducer.js';
+import {
+    computeBbox,
+    parseDimMeters,
+    normalizeAtlasObject,
+    normalizeRoomObjects,
+    approveTrackerProposal,
+    dismissTrackerProposal,
+} from './reducer.js';
 import { renderAtlasTab } from './atlasSvg.js';
+import { bindPolyOrbitControls, POLY_SHAPES, POLY_MATERIALS } from './polyCss3d.js';
 import { fetchModelsList, extractErrorMessage } from './workerClient.js';
 import { DEFAULT_END_MARKER } from './retryDetector.js';
 import { getChatCompletionProfiles } from './st.js';
@@ -194,7 +202,16 @@ export function createVexaAppPopup({
         relations: 'pair',
         narrative: 'chekhov',
     };
-    const atlasView = { mapId: null, level: null, roomId: null };
+    const atlasView = {
+        mapId: null,
+        level: null,
+        roomId: null,
+        mode: null,
+        allFloors: false,
+        cutaway: true,
+        showLabels: true,
+        camera: { rotX: 56, rotZ: 32, zoom: 1, panX: 0, panY: 0 },
+    };
     let previewScoped = true;
     let inspectSeq = null;
     let inspectMesId = null;
@@ -670,8 +687,18 @@ export function createVexaAppPopup({
 
     function renderAtlasPopupTab($stage, state, settings) {
         const meta = tabMeta('atlas');
-        const roomCount = state.locations?.rooms?.length || 0;
+        const allRooms = state.locations?.rooms || [];
+        const roomCount = allRooms.length;
         const mapCount = state.locations?.map_index?.maps?.length || 0;
+        const activeObjRoomId = (atlasView.roomId && allRooms.some((r) => r.id === atlasView.roomId))
+            ? atlasView.roomId
+            : (allRooms[0]?.id || '');
+
+        const roomOptsHtml = allRooms.length
+            ? allRooms.map((r) => `<option value="${esc(r.id)}" ${r.id === activeObjRoomId ? 'selected' : ''}>${esc(r.name || r.id)} (${esc(r.id)})</option>`).join('')
+            : '<option value="">-- No rooms yet --</option>';
+        const shapeOptsHtml = POLY_SHAPES.map((sh) => `<option value="${esc(sh)}">${esc(sh)}</option>`).join('');
+        const matDatalistHtml = Object.keys(POLY_MATERIALS).map((m) => `<option value="${esc(m)}">`).join('');
 
         $stage.html(`
             ${renderPageHeader({ ...meta, badgeHtml: `<span class="vse-head-badge ok">${mapCount} map${mapCount === 1 ? '' : 's'} · ${roomCount} room${roomCount === 1 ? '' : 's'}</span>` })}
@@ -679,6 +706,40 @@ export function createVexaAppPopup({
             <div class="vse-glass-card">
                 <div class="vse-atlas-mount" id="vse_pop_atlas_mount"></div>
             </div>
+            <details class="vse-glass-card vse-fold-card">
+                <summary class="vse-fold-summary"><i class="fa-solid fa-cubes"></i> Add / Remove 3D Object (PolyCSS)</summary>
+                <div class="vse-fold-body">
+                    <div class="vse-form-grid">
+                        <label>Target Room
+                            <select id="vse_pop_obj_room" class="vse-app-input">${roomOptsHtml}</select>
+                        </label>
+                        <label>Shape Primitive
+                            <select id="vse_pop_obj_shape" class="vse-app-input">${shapeOptsHtml}</select>
+                        </label>
+                        <label>Label
+                            <input id="vse_pop_obj_label" type="text" class="vse-app-input" placeholder="e.g. Oak Table" />
+                        </label>
+                        <label>Material / Hex Color
+                            <input id="vse_pop_obj_color" type="text" list="vse_pop_mat_list" class="vse-app-input" value="wood" placeholder="wood, stone, fire, #e6b44c" />
+                            <datalist id="vse_pop_mat_list">${matDatalistHtml}</datalist>
+                        </label>
+                        <label>Local Pos [x,y,z] (m)
+                            <input id="vse_pop_obj_pos" type="text" class="vse-app-input vse-mono" value="3,3,0" placeholder="x,y,z" />
+                        </label>
+                        <label>Size [w,d,h] (m)
+                            <input id="vse_pop_obj_size" type="text" class="vse-app-input vse-mono" value="1.8,1.2,1.0" placeholder="w,d,h" />
+                        </label>
+                        <label>Rotation Z (deg)
+                            <input id="vse_pop_obj_rot" type="number" class="vse-app-input" value="0" step="15" />
+                        </label>
+                    </div>
+                    <div class="vse-inline-actions" style="margin-top:8px;">
+                        <span class="vse-err-text" id="vse_pop_obj_err"></span>
+                        <button type="button" class="vse-app-btn primary" id="vse_pop_add_obj" ${allRooms.length ? '' : 'disabled'}><i class="fa-solid fa-plus"></i> Add 3D Object</button>
+                    </div>
+                    <div id="vse_pop_obj_list" style="margin-top:10px;"></div>
+                </div>
+            </details>
             <details class="vse-glass-card vse-fold-card">
                 <summary class="vse-fold-summary"><i class="fa-solid fa-code"></i> Edit Atlas JSON (auto-recomputes room bbox)</summary>
                 <div class="vse-fold-body">
@@ -694,29 +755,136 @@ export function createVexaAppPopup({
         const $mount = $stage.find('#vse_pop_atlas_mount');
         applyThemeVarsToEl($mount, settings.hudTheme || 'Sola');
 
-        function drawSvg() {
+        function refreshObjList(roomId) {
+            const targetRoom = allRooms.find((r) => r.id === roomId);
+            const objs = Array.isArray(targetRoom?.objects) ? targetRoom.objects : [];
+            const $list = $stage.find('#vse_pop_obj_list');
+            if (!targetRoom) {
+                $list.html('');
+                return;
+            }
+            if (!objs.length) {
+                $list.html(`<div class="vse-muted">No explicit 3D objects on <b>${esc(targetRoom.name || targetRoom.id)}</b> (auto-inferred from features).</div>`);
+                return;
+            }
+            $list.html(`
+                <div class="vse-muted" style="margin-bottom:4px;">Explicit 3D objects in <b>${esc(targetRoom.name || targetRoom.id)}</b>:</div>
+                <div style="display:flex;flex-wrap:wrap;gap:6px;">
+                    ${objs.map((o) => `
+                        <span class="vse-pill">
+                            [${esc(o.shape)}] ${esc(o.label)} [${esc((o.pos || []).join(','))}]
+                            <button type="button" class="vse-mini-btn vse-pop-rm-obj" data-room-id="${esc(targetRoom.id)}" data-obj-label="${esc(o.label)}" title="Remove object" style="margin-left:4px;"><i class="fa-solid fa-xmark"></i></button>
+                        </span>
+                    `).join('')}
+                </div>
+            `);
+        }
+
+        function drawAtlas() {
+            const effectiveMode = atlasView.mode || settings.atlasViewMode || '3d';
             $mount.html(renderAtlasTab(state, {
                 selectedMapId: atlasView.mapId,
                 selectedLevel: atlasView.level,
                 selectedRoomId: atlasView.roomId,
+                viewMode: effectiveMode,
+                allFloors: atlasView.allFloors,
+                cutaway: atlasView.cutaway,
+                showLabels: atlasView.showLabels,
+                camera: atlasView.camera,
             }));
+            if (effectiveMode === '3d') {
+                const vpEl = $mount.find('.vse-poly-viewport')[0];
+                if (vpEl) {
+                    bindPolyOrbitControls(vpEl, atlasView.camera, {
+                        onSelectRoom: (roomId) => {
+                            atlasView.roomId = roomId;
+                            if ($stage.find(`#vse_pop_obj_room option[value="${roomId}"]`).length) {
+                                $stage.find('#vse_pop_obj_room').val(roomId);
+                                refreshObjList(roomId);
+                            }
+                            drawAtlas();
+                        },
+                    });
+                }
+            }
         }
-        drawSvg();
+        drawAtlas();
+        refreshObjList(activeObjRoomId);
 
         $mount.on('change', '.vse-atlas-map-sel', function () {
             atlasView.mapId = String($(this).val() || '');
             atlasView.level = null;
             atlasView.roomId = null;
-            drawSvg();
+            drawAtlas();
         });
         $mount.on('click', '.vse-atlas-floor-btn', function () {
             atlasView.level = String($(this).data('level'));
+            atlasView.allFloors = false;
             atlasView.roomId = null;
-            drawSvg();
+            drawAtlas();
+        });
+        $mount.on('click', '.vse-atlas-allfloors-btn', function () {
+            atlasView.allFloors = !atlasView.allFloors;
+            drawAtlas();
+        });
+        $mount.on('click', '.vse-atlas-mode-btn', function () {
+            atlasView.mode = String($(this).data('atlas-mode') || '3d');
+            drawAtlas();
+        });
+        $mount.on('click', '.vse-poly-cutaway-btn', function (e) {
+            e.stopPropagation();
+            atlasView.cutaway = !atlasView.cutaway;
+            drawAtlas();
+        });
+        $mount.on('click', '.vse-poly-labels-btn', function (e) {
+            e.stopPropagation();
+            atlasView.showLabels = !atlasView.showLabels;
+            drawAtlas();
         });
         $mount.on('click', '.vse-atlas-room-g, .vse-atlas-room-pill', function () {
-            atlasView.roomId = String($(this).data('room-id') || '');
-            drawSvg();
+            const rid = String($(this).data('room-id') || '');
+            atlasView.roomId = rid;
+            if ($stage.find(`#vse_pop_obj_room option[value="${rid}"]`).length) {
+                $stage.find('#vse_pop_obj_room').val(rid);
+                refreshObjList(rid);
+            }
+            drawAtlas();
+        });
+
+        $stage.find('#vse_pop_obj_room').on('change', function () {
+            refreshObjList(String($(this).val() || ''));
+        });
+
+        $stage.find('#vse_pop_add_obj').on('click', () => {
+            $('#vse_pop_obj_err').text('');
+            const rid = String($stage.find('#vse_pop_obj_room').val() || '').trim();
+            const draft = cloneState(state);
+            const targetRoom = (draft.locations?.rooms || []).find((r) => r.id === rid);
+            if (!targetRoom) {
+                $('#vse_pop_obj_err').text('Select a valid target room.');
+                return;
+            }
+            const shape = String($stage.find('#vse_pop_obj_shape').val() || 'box');
+            const label = String($stage.find('#vse_pop_obj_label').val() || '').trim() || shape;
+            const color = String($stage.find('#vse_pop_obj_color').val() || 'wood').trim();
+            const posRaw = String($stage.find('#vse_pop_obj_pos').val() || '2,2,0');
+            const sizeRaw = String($stage.find('#vse_pop_obj_size').val() || '1.8,1.2,1.0');
+            const rot = Number($stage.find('#vse_pop_obj_rot').val()) || 0;
+
+            const obj = normalizeAtlasObject({ shape, label, color, pos: posRaw, size: sizeRaw, rot }, parseDimMeters(targetRoom.dim));
+            targetRoom.objects = normalizeRoomObjects([...(targetRoom.objects || []), obj], parseDimMeters(targetRoom.dim));
+            atlasView.roomId = rid;
+            commitEditedState(draft, `Added 3D ${obj.shape} "${obj.label}" to ${targetRoom.name || rid}.`);
+        });
+
+        $stage.on('click', '.vse-pop-rm-obj', function () {
+            const rid = String($(this).data('room-id') || '');
+            const lbl = String($(this).data('obj-label') || '').toLowerCase();
+            const draft = cloneState(state);
+            const targetRoom = (draft.locations?.rooms || []).find((r) => r.id === rid);
+            if (!targetRoom || !Array.isArray(targetRoom.objects)) return;
+            targetRoom.objects = targetRoom.objects.filter((o) => String(o.label || '').toLowerCase() !== lbl);
+            commitEditedState(draft, `Removed 3D object "${lbl}".`);
         });
 
         $stage.find('#vse_pop_save_atlas').on('click', () => {
@@ -1259,7 +1427,7 @@ export function createVexaAppPopup({
                 <div class="vse-form-grid">
                     <div class="vse-field-col">
                         <label class="vse-field-lbl">Max Tokens</label>
-                        <input id="vse_pop_w_tokens" type="number" min="512" max="32768" step="256" class="vse-app-input" value="${esc(settings.workerMaxTokens || 4096)}" />
+                        <input id="vse_pop_w_tokens" type="number" min="512" max="32768" step="256" class="vse-app-input" value="${esc(settings.workerMaxTokens || 8192)}" />
                     </div>
                     <div class="vse-field-col">
                         <label class="vse-field-lbl">Temperature</label>
@@ -1302,7 +1470,7 @@ export function createVexaAppPopup({
         });
         $stage.find('#vse_pop_w_profile').on('change', function () { getSettings().workerProfileId = String($(this).val() ?? ''); notifySettingsChanged(); });
         $stage.find('#vse_pop_refresh_profiles').on('click', () => renderWorkerTab($stage, getSettings()));
-        $stage.find('#vse_pop_w_tokens').on('change', function () { getSettings().workerMaxTokens = Math.max(256, parseInt($(this).val(), 10) || 4096); notifySettingsChanged(); });
+        $stage.find('#vse_pop_w_tokens').on('change', function () { getSettings().workerMaxTokens = Math.max(256, parseInt($(this).val(), 10) || 8192); notifySettingsChanged(); });
         $stage.find('#vse_pop_w_temp').on('change', function () { getSettings().workerTemperature = Number($(this).val()) || 0.25; notifySettingsChanged(); });
 
         $stage.find('#vse_pop_fetch_models').on('click', async function () {
@@ -1714,6 +1882,14 @@ export function createVexaAppPopup({
             </div>
 
             <div class="vse-glass-card">
+                <div class="vse-card-title">Default Atlas Renderer</div>
+                ${renderTiles('atlasmode', [
+                    { id: '3d', label: '3D CSS (PolyCSS)', desc: 'Interactive CSS matrix3d rooms & 10 object primitives' },
+                    { id: '2d', label: '2D SVG Floorplan', desc: 'Classic flat schematic blueprint' },
+                ], settings.atlasViewMode || '3d')}
+            </div>
+
+            <div class="vse-glass-card">
                 <div class="vse-card-title">Engine &amp; UI Rules</div>
                 ${renderSwitchRow({
                     id: 'vse_pop_show_launcher',
@@ -1790,6 +1966,13 @@ export function createVexaAppPopup({
         });
         $stage.find('[data-tile-group="hudstyle"]').on('click', '.vse-tile', function () {
             getSettings().hudStyle = String($(this).data('tile-val') || 'Afterglow');
+            $(this).siblings().removeClass('on');
+            $(this).addClass('on');
+            notifySettingsChanged();
+        });
+        $stage.find('[data-tile-group="atlasmode"]').on('click', '.vse-tile', function () {
+            getSettings().atlasViewMode = String($(this).data('tile-val') || '3d');
+            atlasView.mode = null;
             $(this).siblings().removeClass('on');
             $(this).addClass('on');
             notifySettingsChanged();
