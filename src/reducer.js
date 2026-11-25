@@ -18,6 +18,7 @@ import {
     isEmptySentinel,
     slugifyTrackerId,
 } from './schema.js';
+import { applyHealthDelta, normalizeHealthState } from './healthDoll.js';
 
 export const MAX_CUSTOM_TRACKERS = 6;
 export const MAX_TRACKER_FIELDS = 8;
@@ -79,6 +80,8 @@ const KNOWN_DELTA_KEYS = new Set([
     'arc',
     'chekhov_delta',
     'inv',
+    'health_delta',
+    'health',
     'story_notes',
     'notebook_append',
     'custom_trackers_patch',
@@ -585,6 +588,7 @@ export function approveTrackerProposal(state, proposalId, overrides = null) {
     if (!Array.isArray(next.custom_trackers)) next.custom_trackers = [];
     if (!Array.isArray(next.tracker_proposals)) next.tracker_proposals = [];
     if (!Array.isArray(next.dismissed_proposals)) next.dismissed_proposals = [];
+    next.health = normalizeHealthState(next.health);
 
     const needle = String(proposalId || '').trim().toLowerCase();
     const idx = next.tracker_proposals.findIndex((p) => String(p.id || '').trim().toLowerCase() === needle);
@@ -628,6 +632,7 @@ export function applyDelta(prevState, delta = {}, ctx = {}) {
     if (!Array.isArray(next.custom_trackers)) next.custom_trackers = [];
     if (!Array.isArray(next.tracker_proposals)) next.tracker_proposals = [];
     if (!Array.isArray(next.dismissed_proposals)) next.dismissed_proposals = [];
+    next.health = normalizeHealthState(next.health);
     const warnings = [];
     const changedSections = new Set();
 
@@ -1230,6 +1235,15 @@ export function applyDelta(prevState, delta = {}, ctx = {}) {
             if (delta.inv[k] !== undefined) next.inv[k] = String(delta.inv[k]);
         }
         changedSections.add('inv');
+    }
+
+    // 13b. Persona Body Health (Nice Health System)
+    const healthDelta = delta.health_delta && typeof delta.health_delta === 'object'
+        ? delta.health_delta
+        : (delta.health && typeof delta.health === 'object' ? delta.health : null);
+    if (healthDelta) {
+        next.health = applyHealthDelta(next.health, healthDelta);
+        changedSections.add('health');
     }
 
     // 14. Story Notes

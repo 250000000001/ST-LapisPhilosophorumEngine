@@ -6,6 +6,7 @@
 
 import { PALETTE, cloneState, emptyState } from './schema.js';
 import { computeBbox, parseOccupantsList, formatOccupantsList } from './reducer.js';
+import { normalizeHealthState } from './healthDoll.js';
 
 function esc(s) {
     return String(s ?? '')
@@ -24,6 +25,7 @@ const EDITOR_TABS = [
     { id: 'notebook', label: 'Notebook' },
     { id: 'chekhov', label: 'Chekhov' },
     { id: 'inv', label: 'Inv & Notes' },
+    { id: 'health', label: 'Health' },
     { id: 'pair_dam', label: 'Pair & Dam' },
     { id: 'tracks_arc', label: 'Tracks & ARC' },
     { id: 'raw', label: 'Raw JSON' },
@@ -118,6 +120,9 @@ export function openStateEditorModal({ store, seq = null, onSaved = () => {} }) 
                 const parsed = JSON.parse(String($b.find('#vse_ed_json_sec').val() || '{}'));
                 if (parsed.tracks) draft.tracks = parsed.tracks;
                 if (parsed.arc) draft.arc = parsed.arc;
+            } else if (activeTab === 'health') {
+                const parsed = JSON.parse(String($b.find('#vse_ed_json_sec').val() || '{}'));
+                draft.health = normalizeHealthState(parsed);
             } else if (activeTab === 'raw') {
                 draft = JSON.parse(String($b.find('#vse_ed_json_sec').val() || '{}'));
             }
@@ -226,6 +231,7 @@ export function openStateEditorModal({ store, seq = null, onSaved = () => {} }) 
             else if (activeTab === 'locations') { obj = draft.locations; hint = 'Atlas map_index & rooms (bbox auto-recomputed on save)'; }
             else if (activeTab === 'pair_dam') { obj = { pair: draft.pair, dam: draft.dam }; hint = 'Aether Pair & Dam arrays'; }
             else if (activeTab === 'tracks_arc') { obj = { tracks: draft.tracks, arc: draft.arc }; hint = 'Tracks & ARC objects'; }
+            else if (activeTab === 'health') { obj = draft.health || normalizeHealthState({}); hint = 'Persona Body Health JSON (Nice Health System)'; }
             $b.html(`
                 <div class="vse-muted" style="margin-bottom:6px;">${esc(hint)}</div>
                 <textarea id="vse_ed_json_sec" class="text_pole vse-code-area" rows="18">${esc(JSON.stringify(obj, null, 2))}</textarea>

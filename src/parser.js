@@ -13,9 +13,11 @@ import {
     decodeXmlEntities,
     encodeXmlText,
     emptyState,
+    emptyHealth,
     cloneState,
     isEmptySentinel,
 } from './schema.js';
+import { normalizeHealthState, hasExplicitHealthData } from './healthDoll.js';
 
 function getSectionRaw(body, name) {
     const re = new RegExp(`<state:${name}\\b[^>]*>([\\s\\S]*?)<\\/state:${name}\\s*>`, 'i');
@@ -313,6 +315,75 @@ function parseCustomTrackers(raw) {
     return out;
 }
 
+function parseBoolAttr(val) {
+    return val === '1' || /^true$/i.test(String(val || '').trim());
+}
+
+function parseHealth(raw) {
+    if (!raw || !raw.trim()) return emptyHealth();
+    const btRaw = getField(raw, 'bodyType') || 'male';
+    const blRaw = parseInt(getField(raw, 'bloodLoss'), 10);
+    const painMatch = raw.match(/<pain\b[^>]*>([\s\S]*?)<\/pain\s*>/i);
+    const painVal = painMatch ? parseInt(decodeXmlEntities(painMatch[1].trim()), 10) : undefined;
+
+    const wholeBody = [];
+    const wholeRe = /<whole\b([^>]*)>([\s\S]*?)<\/whole\s*>/gi;
+    let wm;
+    while ((wm = wholeRe.exec(raw)) !== null) {
+        const attrs = wm[1];
+        const label = decodeXmlEntities(wm[2].trim());
+        if (!label) continue;
+        wholeBody.push({
+            type: parseAttr(attrs, 'type') || 'other',
+            label,
+            severity: parseInt(parseAttr(attrs, 'sev'), 10) || 25,
+            treated: parseBoolAttr(parseAttr(attrs, 'treated')),
+            note: parseAttr(attrs, 'note') || '',
+        });
+    }
+
+    const parts = {};
+    const partRe = /<part\b([^>]*)>([\s\S]*?)<\/part\s*>/gi;
+    let pm;
+    while ((pm = partRe.exec(raw)) !== null) {
+        const attrs = pm[1];
+        const body = pm[2];
+        const id = parseAttr(attrs, 'id');
+        if (!id) continue;
+        const conditions = [];
+        const condRe = /<cond\b([^>]*)>([\s\S]*?)<\/cond\s*>/gi;
+        let cm;
+        while ((cm = condRe.exec(body)) !== null) {
+            const cAttrs = cm[1];
+            const label = decodeXmlEntities(cm[2].trim());
+            if (!label) continue;
+            conditions.push({
+                kind: parseAttr(cAttrs, 'kind') || 'other',
+                label,
+                severity: parseInt(parseAttr(cAttrs, 'sev'), 10) || 25,
+                bleeding: parseBoolAttr(parseAttr(cAttrs, 'bleed')),
+                treated: parseBoolAttr(parseAttr(cAttrs, 'treated')),
+                scar: parseBoolAttr(parseAttr(cAttrs, 'scar')),
+                note: parseAttr(cAttrs, 'note') || '',
+            });
+        }
+        parts[id] = {
+            missing: parseBoolAttr(parseAttr(attrs, 'missing')),
+            prosthetic: parseAttr(attrs, 'prosthetic') || '',
+            armor: parseAttr(attrs, 'armor') || '',
+            conditions,
+        };
+    }
+
+    return normalizeHealthState({
+        bodyType: btRaw,
+        bloodLoss: Number.isFinite(blRaw) ? blRaw : 0,
+        ...(Number.isFinite(painVal) ? { pain: painVal } : {}),
+        wholeBody,
+        parts,
+    });
+}
+
 /**
  * Parse a full <internal_states>...</internal_states> block from text.
  * Returns null if no <internal_states> block is present.
@@ -345,6 +416,7 @@ export function parseInternalStates(rawText) {
     state.story_notes = parseStoryNotes(getSectionRaw(body, 'story_notes'));
     state.notebook = parseNotebook(getSectionRaw(body, 'notebook'));
     state.custom_trackers = parseCustomTrackers(getSectionRaw(body, 'custom_trackers'));
+    state.health = parseHealth(getSectionRaw(body, 'health'));
     state.vent = parseVent(getSectionRaw(body, 'vent'));
     return state;
 }
@@ -657,6 +729,47 @@ export function serializeInternalStates(state, { scoped = false, recentText = ''
         lines.push('</state:custom_trackers>');
     }
 
+    // 15c. health (emitted only when persona has explicit injuries/conditions/bodyType -> 0 token overhead otherwise)
+    const normHealth = normalizeHealthState(s.health);
+    if (hasExplicitHealthData(normHealth)) {
+        lines.push('', '<state:health>');
+        lines.push(`  <bodyType>${encodeXmlText(normHealth.bodyType)}</bodyType>`);
+        lines.push(`  <bloodLoss>${encodeXmlText(normHealth.bloodLoss)}</bloodLoss>`);
+        lines.push(`  <pain>${encodeXmlText(normHealth.pain)}</pain>`);
+        for (const wb of normHealth.wholeBody) {
+            const wAttrs = [
+                `type="${encodeXmlAttr(wb.type)}"`,
+                `sev="${encodeXmlAttr(wb.severity)}"`,
+                wb.treated ? 'treated="1"' : '',
+                wb.note ? `note="${encodeXmlAttr(wb.note)}"` : '',
+            ].filter(Boolean).join(' ');
+            lines.push(`  <whole ${wAttrs}>${encodeXmlText(wb.label)}</whole>`);
+        }
+        for (const [pid, part] of Object.entries(normHealth.parts)) {
+            const pAttrs = [
+                `id="${encodeXmlAttr(pid)}"`,
+                `hp="${encodeXmlAttr(part.hp)}"`,
+                part.missing ? 'missing="1"' : '',
+                part.prosthetic ? `prosthetic="${encodeXmlAttr(part.prosthetic)}"` : '',
+                part.armor ? `armor="${encodeXmlAttr(part.armor)}"` : '',
+            ].filter(Boolean).join(' ');
+            lines.push(`  <part ${pAttrs}>`);
+            for (const c of part.conditions || []) {
+                const cAttrs = [
+                    `kind="${encodeXmlAttr(c.kind)}"`,
+                    `sev="${encodeXmlAttr(c.severity)}"`,
+                    c.bleeding ? 'bleed="1"' : '',
+                    c.treated ? 'treated="1"' : '',
+                    c.scar ? 'scar="1"' : '',
+                    c.note ? `note="${encodeXmlAttr(c.note)}"` : '',
+                ].filter(Boolean).join(' ');
+                lines.push(`    <cond ${cAttrs}>${encodeXmlText(c.label)}</cond>`);
+            }
+            lines.push('  </part>');
+        }
+        lines.push('</state:health>');
+    }
+
     // 16. vent
     if (includeVent) {
         lines.push('', '<state:vent>');
@@ -725,6 +838,7 @@ export function serializeCompactForWorker(state) {
         arc: s.arc,
         chekhov: s.chekhov,
         inv: s.inv,
+        health: hasExplicitHealthData(s.health) ? s.health : { healthy: true, bodyType: s.health?.bodyType || 'male' },
         story_notes: s.story_notes,
         notebook: s.notebook,
         ...(s.custom_trackers?.some((t) => t && !t.archived)

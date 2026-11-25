@@ -69,6 +69,7 @@ const DEFAULT_SETTINGS = Object.freeze({
     hudTheme: 'Sola',
     hudStyle: 'Afterglow',
     atlasViewMode: '3d',
+    defaultBodyType: 'male',
     showLauncherButton: true,
     hudDefaultCollapsed: true,
     pinNotebookRules: true,

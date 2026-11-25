@@ -28,7 +28,8 @@ CRITICAL OUTPUT RULES:
    - Material colors: "wood", "dark_wood", "stone", "dark_stone", "ice", "snow", "water", "iron", "gold", "copper", "fire", "cloth", "leather", "grass", "pine", "earth", "bone", "blood", "magic", "glass" (or #RRGGBB).
    - Example: [{"shape":"box","pos":[8,7],"size":[3,1.4,0.9],"color":"wood","label":"Council Table"},{"shape":"arch","pos":[12,7],"size":[2.2,0.8,2.2],"color":"stone","label":"Pine Hearth"},{"shape":"cone","pos":[12,7,0.2],"size":[0.9,0.9,1.2],"color":"fire","label":"Hearth Fire"}]
 6. IMMUTABLE DIALOGUE COLORS: Never change an existing entity's fontColor. For a brand-new named NPC, pick an unused color from availableColors (or match proseColorsDetected).
-7. RESPECT MAIN-MODEL RECEIPT: Honor any world_sim outcome, fired Chekhov bullets, arc updates, and OOC directives listed in <main_model_receipt>.`;
+7. RESPECT MAIN-MODEL RECEIPT: Honor any world_sim outcome, fired Chekhov bullets, arc updates, and OOC directives listed in <main_model_receipt>.
+8. PERSONA BODY HEALTH (Nice Health System): Omit "health_delta" completely unless the user persona suffers, heals, tends, or changes an injury, bleeding, scar, fracture, burn, frostbite, disease, toxin, hypothermia/heatstroke, exhaustion, missing part, or prosthetic this turn. Valid part IDs: head, left_eye, right_eye, neck, torso, left_shoulder, right_shoulder, left_arm, right_arm, left_hand, right_hand, left_leg, right_leg, left_foot, right_foot, brain, heart, left_lung, right_lung, stomach, liver, left_kidney, right_kidney, skull, ribcage, spine, pelvis. Valid condition kinds: sharp, blunt, burn, frost, bleeding, fracture, infection, toxin, scar, other. Severity is 1-100; JS auto-computes part HP, pain, and capacities.`;
 
 const COMBINED_SCHEMA_GUIDE = `Return a JSON object containing ONLY the keys that changed this turn:
 {
@@ -51,6 +52,7 @@ const COMBINED_SCHEMA_GUIDE = `Return a JSON object containing ONLY the keys tha
   "arc": { "info"?, "timeline"?, "ki"?: ["..."], "sho"?: ["..."], "ten"?: ["..."], "ketsu"?: ["..."] },
   "chekhov_delta": { "fire"?: ["bullet desc"], "unlock"?: ["bullet desc"], "add_chamber"?: ["desc | w# age0"], "add_locked"?: ["desc | w# age0 [lock]"], "prune"?: ["desc"] },
   "inv": { "inv"?, "titles"?, "status"? },
+  "health_delta"?: { "bodyType"?: "male|female|athletic|heavy", "bloodLoss"?: 0, "tend_all"?: true, "full_heal"?: true, "add_conditions"?: [{ "part": "left_arm", "kind": "sharp|blunt|burn|frost|bleeding|fracture|infection|toxin|scar|other", "label": "Deep Slash", "severity": 40, "bleeding"?: true, "treated"?: false, "scar"?: false, "note"?: "..." }], "patch_conditions"?: [{ "part"?: "left_arm", "label": "Deep Slash", "severity"?, "bleeding"?, "treated"?, "scar"? }], "heal_conditions"?: [{ "part"?: "left_arm", "label": "Deep Slash" }], "set_parts"?: { "part_id": { "missing"?: true, "prosthetic"?: "Clockwork Hand", "armor"?: "Steel Pauldron" } }, "whole_body_upsert"?: [{ "type": "disease|toxin|malnutrition|hypothermia|heatstroke|exhaustion|intoxication|bleeding|buff|other", "label": "...", "severity": 35, "treated"?: false }], "whole_body_remove"?: ["label"] },
   "story_notes": { "threads", "seeds", "motives", "horizon", "GremlinNote", "heckle" },
   "notebook_append": [ "[R|T|D] concise entry" ]
 }
@@ -70,7 +72,8 @@ const SPATIAL_ENTITY_SCHEMA_GUIDE = `Return a JSON object containing ONLY the SP
   "entityMem_append"?: [ { "name", "mem" } ],
   "dam_delta"?: [ ... ],
   "pair_delta"?: [ ... ],
-  "inv"?: { ... }
+  "inv"?: { ... },
+  "health_delta"?: { "add_conditions"?: [{ "part", "kind", "label", "severity", "bleeding"?, "treated"?, "scar"? }], "patch_conditions"?: [...], "heal_conditions"?: [...], "set_parts"?: {...}, "whole_body_upsert"?: [...], "whole_body_remove"?: [...], "bloodLoss"?, "tend_all"?, "full_heal"? }
 }`;
 
 const NARRATIVE_SIM_SCHEMA_GUIDE = `Return a JSON object containing ONLY the THOUGHTS, TRACKS, ARC, CHEKHOV, NOTES & NOTEBOOK keys that changed this turn:

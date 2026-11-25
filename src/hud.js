@@ -11,6 +11,13 @@ import { VEXA_THEMES, VEXA_STYLES, PALETTE, isEmptySentinel } from './schema.js'
 import { serializeInternalStates } from './parser.js';
 import { renderAtlasTab } from './atlasSvg.js';
 import { bindPolyOrbitControls } from './polyCss3d.js';
+import {
+    renderHealthTab,
+    computeHealthMetrics,
+    inferHealthFromStatusText,
+    hasExplicitHealthData,
+    normalizeHealthState,
+} from './healthDoll.js';
 
 export const HUD_TABS = [
     { id: 'world', label: 'World', icon: 'fa-globe' },
@@ -26,6 +33,7 @@ export const HUD_TABS = [
     { id: 'arc', label: 'ARC', icon: 'fa-diagram-project' },
     { id: 'chekhov', label: 'Chekhov', icon: 'fa-crosshairs' },
     { id: 'inv', label: 'Inv', icon: 'fa-suitcase' },
+    { id: 'health', label: 'Health', icon: 'fa-kit-medical' },
     { id: 'custom_trackers', label: 'Trackers', icon: 'fa-chart-simple' },
     { id: 'story_notes', label: 'Notes', icon: 'fa-note-sticky' },
     { id: 'notebook', label: 'Notebook', icon: 'fa-book' },
@@ -50,6 +58,8 @@ function getView(msgId, defaults) {
             cutaway: true,
             showLabels: true,
             camera: { rotX: 56, rotZ: 32, zoom: 1, panX: 0, panY: 0 },
+            healthLayer: 'body',
+            healthPart: null,
         });
     }
     return viewState.get(msgId);
@@ -246,6 +256,14 @@ function renderTabBody(tabId, state, view, settings) {
                 <div class="wide"><span>Status & Conditions</span><b>${esc(inv.status || '∅')}</b></div>
             </div>`;
         }
+        case 'health':
+            return renderHealthTab(state, {
+                layer: view.healthLayer,
+                selectedPart: view.healthPart,
+                bodyTypeOverride: settings?.defaultBodyType,
+                compact: true,
+                showActions: false,
+            });
         case 'custom_trackers': {
             const props = state.tracker_proposals || [];
             const active = (state.custom_trackers || []).filter((t) => t && !t.archived);
@@ -385,6 +403,17 @@ export function refreshAllHudCards({ store, settings, workerStatus, onOpenEditor
         const proposalCount = (state.tracker_proposals || []).length;
         const trackerCount = (state.custom_trackers || []).filter((t) => t && !t.archived).length;
         const effectiveAtlasMode = view.atlasMode || settings.atlasViewMode || '3d';
+        const effHealth = hasExplicitHealthData(state.health)
+            ? normalizeHealthState({ ...state.health, bodyType: state.health?.bodyType || settings.defaultBodyType || 'male' })
+            : inferHealthFromStatusText(state.inv?.status || '', settings.defaultBodyType || state.health?.bodyType || 'male');
+        const hMetrics = computeHealthMetrics(effHealth);
+        const hasHealthAlert = hMetrics.totalWounds > 0
+            || hMetrics.bloodLoss > 0
+            || hMetrics.missingCount > 0
+            || (effHealth.wholeBody || []).length > 0;
+        const healthPillHtml = hasHealthAlert
+            ? `<button type="button" class="vse-mini-btn vse-health-bar-pill ${hMetrics.bleedingCount > 0 ? 'bleeding' : (hMetrics.overallHp < 80 ? 'warn' : '')}" title="Inspect Body Health Doll"><i class="fa-solid fa-heart-pulse"></i> ${hMetrics.overallHp}%${hMetrics.totalWounds ? ` · ${hMetrics.totalWounds}w` : ''}</button>`
+            : '';
         const stamp = [
             store.version,
             swipe,
@@ -399,6 +428,9 @@ export function refreshAllHudCards({ store, settings, workerStatus, onOpenEditor
             view.allFloors ? '1' : '0',
             view.cutaway ? '1' : '0',
             view.showLabels ? '1' : '0',
+            view.healthLayer || 'body',
+            view.healthPart || '',
+            `${hMetrics.overallHp}:${hMetrics.totalWounds}:${hMetrics.bleedingCount}:${hMetrics.bloodLoss}:${settings.defaultBodyType || 'male'}`,
             entry?.status || '',
             isBusyForThis ? 'busy' : 'idle',
             trackerCount,
@@ -451,6 +483,7 @@ export function refreshAllHudCards({ store, settings, workerStatus, onOpenEditor
                     ${proposalCount ? `<span class="vse-pill warn" title="Pending custom tracker proposal"><i class="fa-solid fa-sparkles"></i> ${proposalCount} Proposal</span>` : ''}
                 </button>
                 <div class="vse-hud-actions">
+                    ${healthPillHtml}
                     ${statusBadge}
                     <button type="button" class="vse-icon-btn vse-reread-btn" title="Re-run worker on this reply"><i class="fa-solid fa-rotate"></i></button>
                     <button type="button" class="vse-icon-btn vse-edit-btn" title="Edit Vexa state"><i class="fa-solid fa-pen-to-square"></i></button>
@@ -538,6 +571,33 @@ export function refreshAllHudCards({ store, settings, workerStatus, onOpenEditor
         $card.on('click', '.vse-hud-dismiss-prop', function (e) {
             e.stopPropagation();
             onDismissProposal?.(String($(this).data('prop-id') || ''));
+        });
+        $card.on('click', '.vse-doll-part', function (e) {
+            e.stopPropagation();
+            const pid = String($(this).data('part-id') || '');
+            view.healthPart = view.healthPart === pid ? null : (pid || null);
+            refreshAllHudCards({ store, settings, workerStatus, onOpenEditor, onRetryMsg, onStopWorker, onCopyXml, onApproveProposal, onDismissProposal });
+        });
+        $card.on('click', '.vse-health-part-chip', function (e) {
+            e.stopPropagation();
+            view.healthPart = String($(this).data('part-id') || '') || null;
+            refreshAllHudCards({ store, settings, workerStatus, onOpenEditor, onRetryMsg, onStopWorker, onCopyXml, onApproveProposal, onDismissProposal });
+        });
+        $card.on('click', '.vse-health-clear-sel', function (e) {
+            e.stopPropagation();
+            view.healthPart = null;
+            refreshAllHudCards({ store, settings, workerStatus, onOpenEditor, onRetryMsg, onStopWorker, onCopyXml, onApproveProposal, onDismissProposal });
+        });
+        $card.on('click', '.vse-health-layer-btn, .vse-doll-internal-alert', function (e) {
+            e.stopPropagation();
+            view.healthLayer = String($(this).data('health-layer') || $(this).data('layer-jump') || 'body');
+            refreshAllHudCards({ store, settings, workerStatus, onOpenEditor, onRetryMsg, onStopWorker, onCopyXml, onApproveProposal, onDismissProposal });
+        });
+        $card.on('click', '.vse-health-bar-pill, .vse-health-jump-btn', function (e) {
+            e.stopPropagation();
+            view.collapsed = false;
+            view.tab = 'health';
+            refreshAllHudCards({ store, settings, workerStatus, onOpenEditor, onRetryMsg, onStopWorker, onCopyXml, onApproveProposal, onDismissProposal });
         });
         $card.on('click', '.vse-stop-btn', (e) => { e.stopPropagation(); onStopWorker?.(); });
         $card.on('click', '.vse-retry-btn, .vse-reread-btn', (e) => { e.stopPropagation(); onRetryMsg?.(mesId); });

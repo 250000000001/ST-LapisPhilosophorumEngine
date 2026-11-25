@@ -34,6 +34,7 @@ export function syncSettingsUI(s) {
     $('#vse_hud_theme').val(s.hudTheme || 'Sola');
     $('#vse_hud_style').val(s.hudStyle || 'Afterglow');
     $('#vse_atlas_mode').val(s.atlasViewMode || '3d');
+    $('#vse_body_type').val(s.defaultBodyType || 'male');
     $('#vse_show_launcher').prop('checked', s.showLauncherButton !== false);
     $('#vse_hud_collapsed').prop('checked', s.hudDefaultCollapsed !== false);
     $('#vse_pin_rules').prop('checked', s.pinNotebookRules !== false);
@@ -189,12 +190,23 @@ export function injectSettingsUI({
                             </select>
                         </div>
                     </div>
-                    <div class="vse-field">
-                        <label for="vse_atlas_mode">Default Atlas Renderer</label>
-                        <select id="vse_atlas_mode" class="text_pole">
-                            <option value="3d">3D CSS (PolyCSS)</option>
-                            <option value="2d">2D SVG Floorplan</option>
-                        </select>
+                    <div class="vse-two-col">
+                        <div class="vse-field">
+                            <label for="vse_atlas_mode">Default Atlas Renderer</label>
+                            <select id="vse_atlas_mode" class="text_pole">
+                                <option value="3d">3D CSS (PolyCSS)</option>
+                                <option value="2d">2D SVG Floorplan</option>
+                            </select>
+                        </div>
+                        <div class="vse-field">
+                            <label for="vse_body_type">Default Body Silhouette</label>
+                            <select id="vse_body_type" class="text_pole">
+                                <option value="male">Male</option>
+                                <option value="female">Female</option>
+                                <option value="athletic">Athletic</option>
+                                <option value="heavy">Heavy</option>
+                            </select>
+                        </div>
                     </div>
                     <label class="checkbox_label" for="vse_show_launcher">
                         <input id="vse_show_launcher" type="checkbox" />
@@ -316,6 +328,7 @@ export function injectSettingsUI({
     $('#vse_hud_theme').val(s.hudTheme || 'Sola');
     $('#vse_hud_style').val(s.hudStyle || 'Afterglow');
     $('#vse_atlas_mode').val(s.atlasViewMode || '3d');
+    $('#vse_body_type').val(s.defaultBodyType || 'male');
     $('#vse_show_launcher').prop('checked', s.showLauncherButton !== false);
     $('#vse_hud_collapsed').prop('checked', s.hudDefaultCollapsed !== false);
     $('#vse_pin_rules').prop('checked', s.pinNotebookRules !== false);
@@ -356,6 +369,7 @@ export function injectSettingsUI({
     $('#vse_hud_theme').on('change', function () { getSettings().hudTheme = $(this).val(); saveSettings(); onSettingsChanged?.(); });
     $('#vse_hud_style').on('change', function () { getSettings().hudStyle = $(this).val(); saveSettings(); onSettingsChanged?.(); });
     $('#vse_atlas_mode').on('change', function () { getSettings().atlasViewMode = $(this).val(); saveSettings(); onSettingsChanged?.(); });
+    $('#vse_body_type').on('change', function () { getSettings().defaultBodyType = $(this).val(); saveSettings(); onSettingsChanged?.(); });
     $('#vse_show_launcher').on('change', function () { getSettings().showLauncherButton = $(this).prop('checked'); saveSettings(); onSettingsChanged?.(); });
     $('#vse_hud_collapsed').on('change', function () { getSettings().hudDefaultCollapsed = $(this).prop('checked'); saveSettings(); onSettingsChanged?.(); });
     $('#vse_open_popup_btn').on('click', () => onOpenPopup?.());

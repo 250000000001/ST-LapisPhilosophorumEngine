@@ -26,6 +26,19 @@ import {
 } from './reducer.js';
 import { renderAtlasTab } from './atlasSvg.js';
 import { bindPolyOrbitControls, POLY_SHAPES, POLY_MATERIALS } from './polyCss3d.js';
+import {
+    renderHealthTab,
+    BODY_TYPES,
+    BODY_PARTS,
+    BODY_PART_BY_ID,
+    CONDITION_KINDS,
+    WHOLE_BODY_TYPES,
+    applyHealthDelta,
+    computeHealthMetrics,
+    normalizeHealthState,
+    hasExplicitHealthData,
+    inferHealthFromStatusText,
+} from './healthDoll.js';
 import { fetchModelsList, extractErrorMessage } from './workerClient.js';
 import { DEFAULT_END_MARKER } from './retryDetector.js';
 import { getChatCompletionProfiles } from './st.js';
@@ -40,6 +53,7 @@ export const APP_DOCK_GROUPS = Object.freeze([
 export const APP_TABS = Object.freeze([
     { id: 'overview', group: 'world', title: 'World & Scene', sub: 'Turn counter, environment, obstacles, and quick scene edits.', icon: 'fa-globe' },
     { id: 'atlas', group: 'world', title: 'Atlas Map', sub: 'Interactive floorplans, rooms, doorways, and occupant positions.', icon: 'fa-map' },
+    { id: 'health', group: 'world', title: 'Health & Body', sub: 'Anatomical body-part condition doll, injury indicators, capacities, and medical editor (inspired by Nice Health Tab).', icon: 'fa-kit-medical' },
     { id: 'cast', group: 'world', title: 'Cast & Entities', sub: 'On-screen cast, off-screen agendas, profiles, memories, and thoughts.', icon: 'fa-users' },
     { id: 'relations', group: 'world', title: 'Aether & Bonds', sub: 'Dynamic pair matrices, emotional sluices, and filters.', icon: 'fa-heart-pulse' },
     { id: 'narrative', group: 'world', title: 'Plot & Notes', sub: 'Chekhov bullets, Notebook rules, Tracks & ARC, Inventory, and Vent.', icon: 'fa-crosshairs' },
@@ -88,6 +102,7 @@ export function getCharacterBannerInfo(ctx) {
 const HUD_TO_APP_MAP = Object.freeze({
     world: { tab: 'overview', sub: null },
     locations: { tab: 'atlas', sub: null },
+    health: { tab: 'health', sub: null },
     onscreen: { tab: 'cast', sub: 'onscreen' },
     offscreen_agendas: { tab: 'cast', sub: 'offscreen' },
     entity_state: { tab: 'cast', sub: 'entities' },
@@ -211,6 +226,10 @@ export function createVexaAppPopup({
         cutaway: true,
         showLabels: true,
         camera: { rotX: 56, rotZ: 32, zoom: 1, panX: 0, panY: 0 },
+    };
+    const healthView = {
+        layer: 'body',
+        selectedPart: null,
     };
     let previewScoped = true;
     let inspectSeq = null;
@@ -592,8 +611,14 @@ export function createVexaAppPopup({
                 ? `<span class="vse-head-badge ok"><i class="fa-solid fa-circle-check"></i> Tracked · ct:${esc(w.ct ?? 0)}</span>`
                 : `<span class="vse-head-badge"><i class="fa-solid fa-circle"></i> Turn 1 Pending</span>`;
 
+        const ovHealth = hasExplicitHealthData(state.health)
+            ? normalizeHealthState({ ...state.health, bodyType: state.health?.bodyType || settings.defaultBodyType || 'male' })
+            : inferHealthFromStatusText(state.inv?.status || '', settings.defaultBodyType || state.health?.bodyType || 'male');
+        const ovHealthMetrics = computeHealthMetrics(ovHealth);
+
         const stats = [
             ['Turn (ct)', w.ct ?? 0],
+            ['Health', `${ovHealthMetrics.overallHp}%${ovHealthMetrics.totalWounds ? ` (${ovHealthMetrics.totalWounds}w)` : ''}`],
             ['On-Screen', (state.onscreen || []).length],
             ['Off-Screen', (state.offscreen_agendas || []).length],
             ['Atlas Rooms', (state.locations?.rooms || []).length],
@@ -900,6 +925,336 @@ export function createVexaAppPopup({
                 commitEditedState(draft, 'Saved Atlas layout.');
             } catch (err) {
                 $('#vse_pop_atlas_err').text(`Invalid JSON: ${err.message}`);
+            }
+        });
+    }
+
+    function renderHealthPopupTab($stage, state, settings) {
+        const meta = tabMeta('health');
+        const explicit = hasExplicitHealthData(state.health);
+        const effHealth = explicit
+            ? normalizeHealthState({
+                ...state.health,
+                bodyType: state.health?.bodyType || settings.defaultBodyType || 'male',
+            })
+            : inferHealthFromStatusText(state.inv?.status || '', settings.defaultBodyType || state.health?.bodyType || 'male');
+        const isInferred = !explicit && Boolean(effHealth.inferred);
+        const metrics = computeHealthMetrics(effHealth);
+
+        const activePartId = (healthView.selectedPart && BODY_PART_BY_ID[healthView.selectedPart])
+            ? healthView.selectedPart
+            : 'torso';
+        const activePartRec = effHealth.parts?.[activePartId] || null;
+
+        const partOptsHtml = BODY_PARTS.map((bp) =>
+            `<option value="${esc(bp.id)}" ${bp.id === activePartId ? 'selected' : ''}>${esc(bp.label)} (${esc(bp.layer)})</option>`,
+        ).join('');
+        const kindOptsHtml = CONDITION_KINDS.map((k) =>
+            `<option value="${esc(k)}">${esc(k.charAt(0).toUpperCase() + k.slice(1))}</option>`,
+        ).join('');
+        const wbOptsHtml = WHOLE_BODY_TYPES.map((t) =>
+            `<option value="${esc(t)}">${esc(t.charAt(0).toUpperCase() + t.slice(1))}</option>`,
+        ).join('');
+        const bodyTypePills = BODY_TYPES.map((bt) =>
+            `<button type="button" class="vse-app-btn secondary vse-btn-sm ${effHealth.bodyType === bt ? 'vse-pop-bt-on' : ''}" data-body-type="${esc(bt)}">${esc(bt.charAt(0).toUpperCase() + bt.slice(1))}</button>`,
+        ).join('');
+
+        const badgeCls = metrics.bleedingCount > 0 || metrics.overallHp < 50 ? 'warm' : 'ok';
+        const badgeText = `${metrics.overallHp}% HP · ${metrics.totalWounds} WOUND${metrics.totalWounds === 1 ? '' : 'S'}${metrics.bleedingCount ? ` · ${metrics.bleedingCount} BLEEDING` : ''}`;
+
+        $stage.html(`
+            ${renderPageHeader({ ...meta, badgeHtml: `<span class="vse-head-badge ${badgeCls}">${esc(badgeText)}</span>` })}
+            ${historyBannerHtml(state)}
+            <div class="vse-glass-card">
+                <div class="vse-card-head">
+                    <div class="vse-inline-actions" style="justify-content:flex-start;">
+                        <span class="vse-field-lbl" style="margin:0;">Silhouette:</span>
+                        ${bodyTypePills}
+                    </div>
+                    <div class="vse-inline-actions">
+                        ${isInferred ? `<button type="button" class="vse-app-btn gold vse-btn-sm" id="vse_pop_adopt_inferred" title="Save inferred injuries into canonical health state"><i class="fa-solid fa-wand-magic-sparkles"></i> Adopt Inferred</button>` : ''}
+                        <button type="button" class="vse-app-btn secondary vse-btn-sm" id="vse_pop_tend_all"><i class="fa-solid fa-bandage"></i> Tend All</button>
+                        <button type="button" class="vse-app-btn primary vse-btn-sm" id="vse_pop_full_heal"><i class="fa-solid fa-heart"></i> Full Heal</button>
+                    </div>
+                </div>
+                <div id="vse_pop_health_doll_wrap">
+                    ${renderHealthTab(state, {
+                        layer: healthView.layer,
+                        selectedPart: healthView.selectedPart,
+                        bodyTypeOverride: settings.defaultBodyType,
+                        compact: false,
+                        showActions: true,
+                    })}
+                </div>
+            </div>
+
+            <div class="vse-glass-card">
+                <div class="vse-card-head">
+                    <div>
+                        <div class="vse-card-title">Add / Update Body Part Condition</div>
+                        <div class="vse-card-sub">Click any part on the silhouette above to target it, or pick a part below.</div>
+                    </div>
+                </div>
+                <div class="vse-form-grid">
+                    <div class="vse-field-col">
+                        <label class="vse-field-lbl">Body Part</label>
+                        <select id="vse_pop_hp_part" class="vse-app-input">${partOptsHtml}</select>
+                    </div>
+                    <div class="vse-field-col">
+                        <label class="vse-field-lbl">Condition Kind</label>
+                        <select id="vse_pop_hp_kind" class="vse-app-input">${kindOptsHtml}</select>
+                    </div>
+                    <div class="vse-field-col">
+                        <label class="vse-field-lbl">Label</label>
+                        <input id="vse_pop_hp_label" type="text" class="vse-app-input" placeholder="e.g. Deep Sword Cut" />
+                    </div>
+                    <div class="vse-field-col">
+                        <label class="vse-field-lbl">Severity (1–100%)</label>
+                        <input id="vse_pop_hp_sev" type="number" min="1" max="100" step="5" class="vse-app-input" value="30" />
+                    </div>
+                    <div class="vse-field-col wide">
+                        <label class="vse-field-lbl">Note</label>
+                        <input id="vse_pop_hp_note" type="text" class="vse-app-input" placeholder="Optional cause or healing detail" />
+                    </div>
+                </div>
+                <div class="vse-inline-actions" style="justify-content:space-between;">
+                    <div class="vse-inline-actions" style="justify-content:flex-start;">
+                        <label class="vse-check-inline"><input type="checkbox" id="vse_pop_hp_bleed" /> Bleeding</label>
+                        <label class="vse-check-inline"><input type="checkbox" id="vse_pop_hp_treated" /> Bandaged / Treated</label>
+                        <label class="vse-check-inline"><input type="checkbox" id="vse_pop_hp_scar" /> Permanent Scar</label>
+                    </div>
+                    <button type="button" class="vse-app-btn primary" id="vse_pop_hp_add_btn"><i class="fa-solid fa-plus"></i> Record Condition</button>
+                </div>
+                <hr class="vse-sep" />
+                <div class="vse-form-grid">
+                    <div class="vse-field-col">
+                        <label class="vse-field-lbl">Prosthetic / Implant (<span id="vse_pop_hp_part_lbl">${esc(BODY_PART_BY_ID[activePartId]?.label || activePartId)}</span>)</label>
+                        <input id="vse_pop_hp_prosthetic" type="text" class="vse-app-input" value="${esc(activePartRec?.prosthetic || '')}" placeholder="e.g. Clockwork Hand (blank to clear)" />
+                    </div>
+                    <div class="vse-field-col">
+                        <label class="vse-field-lbl">Armor Cover</label>
+                        <input id="vse_pop_hp_armor" type="text" class="vse-app-input" value="${esc(activePartRec?.armor || '')}" placeholder="e.g. Steel Vambrace" />
+                    </div>
+                </div>
+                <div class="vse-inline-actions" style="justify-content:space-between;">
+                    <label class="vse-check-inline"><input type="checkbox" id="vse_pop_hp_missing" ${activePartRec?.missing ? 'checked' : ''} /> Part Missing (0% HP)</label>
+                    <button type="button" class="vse-app-btn secondary" id="vse_pop_hp_save_part"><i class="fa-solid fa-shield-halved"></i> Save Part Status</button>
+                </div>
+            </div>
+
+            <div class="vse-glass-card">
+                <div class="vse-card-title">Systemic Vitals &amp; Whole-Body Conditions</div>
+                <div class="vse-form-grid">
+                    <div class="vse-field-col">
+                        <label class="vse-field-lbl">Blood Loss (0–100%)</label>
+                        <input id="vse_pop_hp_bloodloss" type="number" min="0" max="100" step="5" class="vse-app-input" value="${esc(effHealth.bloodLoss || 0)}" />
+                    </div>
+                    <div class="vse-field-col">
+                        <label class="vse-field-lbl">Pain Override (0–100%)</label>
+                        <input id="vse_pop_hp_pain" type="number" min="0" max="100" step="5" class="vse-app-input" value="${esc(effHealth.pain || 0)}" />
+                    </div>
+                </div>
+                <div class="vse-inline-actions" style="justify-content:flex-end;">
+                    <button type="button" class="vse-app-btn secondary" id="vse_pop_hp_save_vitals"><i class="fa-solid fa-droplet"></i> Save Vitals</button>
+                </div>
+                <hr class="vse-sep" />
+                <div class="vse-form-grid">
+                    <div class="vse-field-col">
+                        <label class="vse-field-lbl">Whole-Body Type</label>
+                        <select id="vse_pop_wb_type" class="vse-app-input">${wbOptsHtml}</select>
+                    </div>
+                    <div class="vse-field-col">
+                        <label class="vse-field-lbl">Condition Label</label>
+                        <input id="vse_pop_wb_label" type="text" class="vse-app-input" placeholder="e.g. Swamp Fever" />
+                    </div>
+                    <div class="vse-field-col">
+                        <label class="vse-field-lbl">Severity (1–100%)</label>
+                        <input id="vse_pop_wb_sev" type="number" min="1" max="100" step="5" class="vse-app-input" value="35" />
+                    </div>
+                </div>
+                <div class="vse-inline-actions" style="justify-content:flex-end;">
+                    <button type="button" class="vse-app-btn secondary" id="vse_pop_wb_add"><i class="fa-solid fa-biohazard"></i> Add Whole-Body Condition</button>
+                </div>
+            </div>
+
+            <details class="vse-glass-card vse-fold-card">
+                <summary class="vse-fold-summary"><i class="fa-solid fa-code"></i> Edit Health JSON</summary>
+                <div class="vse-fold-body">
+                    <textarea id="vse_pop_health_json" class="vse-app-input vse-mono" rows="12">${esc(JSON.stringify(effHealth, null, 2))}</textarea>
+                    <div class="vse-inline-actions">
+                        <span class="vse-err-text" id="vse_pop_health_err"></span>
+                        <button type="button" class="vse-app-btn primary" id="vse_pop_save_health_json"><i class="fa-solid fa-floppy-disk"></i> Save Health JSON</button>
+                    </div>
+                </div>
+            </details>
+        `);
+
+        const baseHealthForEdit = (useEff = false) => {
+            if (useEff && isInferred) return normalizeHealthState(effHealth);
+            return normalizeHealthState(state.health);
+        };
+
+        $stage.find('[data-body-type]').on('click', function () {
+            const bt = String($(this).data('body-type') || 'male');
+            const draft = cloneState(state);
+            draft.health = applyHealthDelta(baseHealthForEdit(false), { bodyType: bt });
+            commitEditedState(draft, `Body silhouette set to ${bt}.`);
+        });
+
+        $stage.find('#vse_pop_adopt_inferred').on('click', () => {
+            const draft = cloneState(state);
+            draft.health = normalizeHealthState(effHealth);
+            commitEditedState(draft, 'Adopted inferred injuries into canonical health state.');
+        });
+
+        $stage.find('#vse_pop_tend_all').on('click', () => {
+            const draft = cloneState(state);
+            draft.health = applyHealthDelta(baseHealthForEdit(true), { tend_all: true });
+            commitEditedState(draft, 'Tended and bandaged all active wounds.');
+        });
+
+        $stage.find('#vse_pop_full_heal').on('click', () => {
+            const draft = cloneState(state);
+            draft.health = applyHealthDelta(baseHealthForEdit(false), { full_heal: true });
+            commitEditedState(draft, 'Restored persona to full health.');
+        });
+
+        $stage.on('click', '.vse-doll-part', function () {
+            const pid = String($(this).data('part-id') || '');
+            healthView.selectedPart = healthView.selectedPart === pid ? null : (pid || null);
+            renderHealthPopupTab($stage, state, settings);
+        });
+        $stage.on('click', '.vse-health-part-chip', function () {
+            healthView.selectedPart = String($(this).data('part-id') || '') || null;
+            renderHealthPopupTab($stage, state, settings);
+        });
+        $stage.on('click', '.vse-health-clear-sel', () => {
+            healthView.selectedPart = null;
+            renderHealthPopupTab($stage, state, settings);
+        });
+        $stage.on('click', '.vse-health-layer-btn, .vse-doll-internal-alert', function () {
+            healthView.layer = String($(this).data('health-layer') || $(this).data('layer-jump') || 'body');
+            renderHealthPopupTab($stage, state, settings);
+        });
+
+        $stage.find('#vse_pop_hp_part').on('change', function () {
+            const pid = String($(this).val() || 'torso');
+            healthView.selectedPart = pid;
+            const rec = effHealth.parts?.[pid] || null;
+            $stage.find('#vse_pop_hp_part_lbl').text(BODY_PART_BY_ID[pid]?.label || pid);
+            $stage.find('#vse_pop_hp_prosthetic').val(rec?.prosthetic || '');
+            $stage.find('#vse_pop_hp_armor').val(rec?.armor || '');
+            $stage.find('#vse_pop_hp_missing').prop('checked', Boolean(rec?.missing));
+        });
+
+        $stage.on('click', '.vse-health-treat-btn', function () {
+            const pid = String($(this).data('part-id') || '');
+            const idx = Number($(this).data('cond-idx'));
+            const cur = baseHealthForEdit(true);
+            const cond = cur.parts?.[pid]?.conditions?.[idx];
+            if (!cond) return;
+            const draft = cloneState(state);
+            draft.health = applyHealthDelta(cur, {
+                patch_conditions: [{ part: pid, label: cond.label, treated: true, bleeding: false }],
+            });
+            commitEditedState(draft, `Bandaged "${cond.label}" on ${BODY_PART_BY_ID[pid]?.label || pid}.`);
+        });
+
+        $stage.on('click', '.vse-health-scar-btn', function () {
+            const pid = String($(this).data('part-id') || '');
+            const idx = Number($(this).data('cond-idx'));
+            const cur = baseHealthForEdit(true);
+            const cond = cur.parts?.[pid]?.conditions?.[idx];
+            if (!cond) return;
+            const draft = cloneState(state);
+            draft.health = applyHealthDelta(cur, {
+                patch_conditions: [{ part: pid, label: cond.label, scar: true, treated: false, bleeding: false, severity: Math.min(15, cond.severity || 10) }],
+            });
+            commitEditedState(draft, `Marked "${cond.label}" as a permanent scar.`);
+        });
+
+        $stage.on('click', '.vse-health-heal-btn', function () {
+            const pid = String($(this).data('part-id') || '');
+            const idx = Number($(this).data('cond-idx'));
+            const cur = baseHealthForEdit(true);
+            const cond = cur.parts?.[pid]?.conditions?.[idx];
+            if (!cond) return;
+            const draft = cloneState(state);
+            draft.health = applyHealthDelta(cur, {
+                heal_conditions: [{ part: pid, label: cond.label }],
+            });
+            commitEditedState(draft, `Healed "${cond.label}" on ${BODY_PART_BY_ID[pid]?.label || pid}.`);
+        });
+
+        $stage.on('click', '.vse-health-rm-whole', function () {
+            const lbl = String($(this).data('wb-label') || '');
+            const draft = cloneState(state);
+            draft.health = applyHealthDelta(baseHealthForEdit(true), { whole_body_remove: [lbl] });
+            commitEditedState(draft, `Removed whole-body condition "${lbl}".`);
+        });
+
+        $stage.find('#vse_pop_hp_add_btn').on('click', () => {
+            const part = String($stage.find('#vse_pop_hp_part').val() || 'torso');
+            const kind = String($stage.find('#vse_pop_hp_kind').val() || 'sharp');
+            const label = String($stage.find('#vse_pop_hp_label').val() || '').trim()
+                || `${kind.charAt(0).toUpperCase() + kind.slice(1)} Injury`;
+            const severity = parseInt(String($stage.find('#vse_pop_hp_sev').val()), 10) || 25;
+            const bleeding = Boolean($stage.find('#vse_pop_hp_bleed').prop('checked'));
+            const treated = Boolean($stage.find('#vse_pop_hp_treated').prop('checked'));
+            const scar = Boolean($stage.find('#vse_pop_hp_scar').prop('checked'));
+            const note = String($stage.find('#vse_pop_hp_note').val() || '').trim();
+
+            healthView.selectedPart = part;
+            const draft = cloneState(state);
+            draft.health = applyHealthDelta(baseHealthForEdit(false), {
+                add_conditions: [{ part, kind, label, severity, bleeding, treated, scar, note }],
+            });
+            commitEditedState(draft, `Recorded "${label}" on ${BODY_PART_BY_ID[part]?.label || part}.`);
+        });
+
+        $stage.find('#vse_pop_hp_save_part').on('click', () => {
+            const part = String($stage.find('#vse_pop_hp_part').val() || 'torso');
+            const prosthetic = String($stage.find('#vse_pop_hp_prosthetic').val() || '').trim();
+            const armor = String($stage.find('#vse_pop_hp_armor').val() || '').trim();
+            const missing = Boolean($stage.find('#vse_pop_hp_missing').prop('checked'));
+
+            healthView.selectedPart = part;
+            const draft = cloneState(state);
+            draft.health = applyHealthDelta(baseHealthForEdit(false), {
+                set_parts: { [part]: { missing, prosthetic, armor } },
+            });
+            commitEditedState(draft, `Updated ${BODY_PART_BY_ID[part]?.label || part} status.`);
+        });
+
+        $stage.find('#vse_pop_hp_save_vitals').on('click', () => {
+            const bloodLoss = parseInt(String($stage.find('#vse_pop_hp_bloodloss').val()), 10) || 0;
+            const pain = parseInt(String($stage.find('#vse_pop_hp_pain').val()), 10) || 0;
+            const draft = cloneState(state);
+            draft.health = applyHealthDelta(baseHealthForEdit(false), { bloodLoss, pain });
+            commitEditedState(draft, 'Saved systemic blood loss & pain.');
+        });
+
+        $stage.find('#vse_pop_wb_add').on('click', () => {
+            const type = String($stage.find('#vse_pop_wb_type').val() || 'other');
+            const label = String($stage.find('#vse_pop_wb_label').val() || '').trim()
+                || `${type.charAt(0).toUpperCase() + type.slice(1)}`;
+            const severity = parseInt(String($stage.find('#vse_pop_wb_sev').val()), 10) || 35;
+            const draft = cloneState(state);
+            draft.health = applyHealthDelta(baseHealthForEdit(false), {
+                whole_body_upsert: [{ type, label, severity }],
+            });
+            commitEditedState(draft, `Added whole-body condition "${label}".`);
+        });
+
+        $stage.find('#vse_pop_save_health_json').on('click', () => {
+            $('#vse_pop_health_err').text('');
+            try {
+                const parsed = JSON.parse(String($stage.find('#vse_pop_health_json').val() || '{}'));
+                const draft = cloneState(state);
+                draft.health = normalizeHealthState(parsed);
+                commitEditedState(draft, 'Saved Health JSON.');
+            } catch (err) {
+                $('#vse_pop_health_err').text(`Invalid JSON: ${err.message}`);
             }
         });
     }
@@ -1890,6 +2245,16 @@ export function createVexaAppPopup({
             </div>
 
             <div class="vse-glass-card">
+                <div class="vse-card-title">Default Body Silhouette (Health Doll)</div>
+                ${renderTiles('bodytype', [
+                    { id: 'male', label: 'Male', desc: 'Standard masculine proportions' },
+                    { id: 'female', label: 'Female', desc: 'Feminine proportions' },
+                    { id: 'athletic', label: 'Athletic', desc: 'Broad-shouldered lean build' },
+                    { id: 'heavy', label: 'Heavy', desc: 'Stocky, burly build' },
+                ], settings.defaultBodyType || 'male')}
+            </div>
+
+            <div class="vse-glass-card">
                 <div class="vse-card-title">Engine &amp; UI Rules</div>
                 ${renderSwitchRow({
                     id: 'vse_pop_show_launcher',
@@ -1973,6 +2338,12 @@ export function createVexaAppPopup({
         $stage.find('[data-tile-group="atlasmode"]').on('click', '.vse-tile', function () {
             getSettings().atlasViewMode = String($(this).data('tile-val') || '3d');
             atlasView.mode = null;
+            $(this).siblings().removeClass('on');
+            $(this).addClass('on');
+            notifySettingsChanged();
+        });
+        $stage.find('[data-tile-group="bodytype"]').on('click', '.vse-tile', function () {
+            getSettings().defaultBodyType = String($(this).data('tile-val') || 'male');
             $(this).siblings().removeClass('on');
             $(this).addClass('on');
             notifySettingsChanged();
@@ -2110,6 +2481,9 @@ export function createVexaAppPopup({
                 break;
             case 'atlas':
                 renderAtlasPopupTab($stage, state, settings);
+                break;
+            case 'health':
+                renderHealthPopupTab($stage, state, settings);
                 break;
             case 'cast':
                 renderCastTab($stage, state);

@@ -328,6 +328,17 @@ export function extractVexaTail(text) {
     };
 }
 
+/** Empty persona health state (Nice Health Tab model). */
+export function emptyHealth(bodyType = 'male') {
+    return {
+        bodyType: bodyType || 'male',
+        bloodLoss: 0,
+        pain: 0,
+        wholeBody: [],
+        parts: {},
+    };
+}
+
 /** Empty canonical Vexa state matching all 16 sections. */
 export function emptyState() {
     return {
@@ -394,6 +405,7 @@ export function emptyState() {
         custom_trackers: [],
         tracker_proposals: [],
         dismissed_proposals: [],
+        health: emptyHealth(),
         vent: '',
         lastReceipt: null,
     };

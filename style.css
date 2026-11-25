@@ -1905,3 +1905,353 @@
     font-family: monospace;
     color: rgba(249, 226, 175, 0.85);
 }
+
+/* ── Nice Health Tab Inspired Persona Body Doll & Injury HUD ─────────────── */
+@keyframes vse-pulse-bleed {
+    0%, 100% { filter: drop-shadow(0 0 2px rgba(239, 68, 68, 0.45)); }
+    50% { filter: drop-shadow(0 0 7px rgba(239, 68, 68, 0.95)); }
+}
+
+.vse-health-bar-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-weight: 600;
+}
+.vse-health-bar-pill.warn {
+    border-color: #f59e0b;
+    color: #fbbf24;
+}
+.vse-health-bar-pill.bleeding {
+    border-color: #ef4444;
+    color: #fca5a5;
+    background: rgba(127, 29, 29, 0.45);
+    animation: vse-pulse-bleed 1.6s ease-in-out infinite;
+}
+
+.vse-health-layout {
+    display: grid;
+    grid-template-columns: minmax(215px, 260px) 1fr;
+    gap: 12px;
+    align-items: start;
+}
+@media (max-width: 768px) {
+    .vse-health-layout {
+        grid-template-columns: 1fr;
+    }
+}
+
+.vse-health-doll-col {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+.vse-health-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+.vse-health-layers {
+    display: inline-flex;
+    gap: 4px;
+    flex-wrap: wrap;
+}
+.vse-health-layer-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 7px;
+    border-radius: 5px;
+    border: 1px solid var(--ist-border, rgba(255, 255, 255, 0.16));
+    background: var(--ist-mantle, rgba(16, 18, 28, 0.72));
+    color: var(--ist-subtext, #cbd5e1);
+    cursor: pointer;
+    font-size: 0.79em;
+}
+.vse-health-layer-btn.active {
+    background: var(--ist-surface, rgba(245, 158, 11, 0.2));
+    border-color: var(--ist-blue, #f4a261);
+    color: var(--ist-title, #fdf6f0);
+    font-weight: 600;
+}
+
+.vse-health-doll-stage {
+    background:
+        radial-gradient(circle at 50% 35%, rgba(56, 189, 248, 0.06), transparent 65%),
+        linear-gradient(to right, rgba(255, 255, 255, 0.025) 1px, transparent 1px),
+        linear-gradient(to bottom, rgba(255, 255, 255, 0.025) 1px, transparent 1px),
+        var(--ist-mantle, #11131b);
+    background-size: 100% 100%, 16px 16px, 16px 16px, 100% 100%;
+    border: 1px solid var(--ist-border, rgba(255, 255, 255, 0.14));
+    border-radius: 9px;
+    padding: 8px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+.vse-doll-svg {
+    width: 100%;
+    max-width: 245px;
+    max-height: 410px;
+    height: auto;
+    color: var(--ist-subtext, #94a3b8);
+    overflow: visible;
+}
+.vse-doll-svg.compact {
+    max-width: 215px;
+    max-height: 350px;
+}
+
+.vse-doll-ghost {
+    fill: rgba(148, 163, 184, 0.07);
+    stroke: rgba(148, 163, 184, 0.26);
+    stroke-width: 1;
+    pointer-events: none;
+}
+
+.vse-doll-part {
+    cursor: pointer;
+    transition: filter 0.14s ease;
+    outline: none;
+}
+.vse-doll-part:hover,
+.vse-doll-part:focus-visible {
+    filter: brightness(1.22) drop-shadow(0 0 4px rgba(250, 204, 21, 0.55));
+}
+.vse-doll-part.is-selected {
+    filter: drop-shadow(0 0 6px rgba(250, 204, 21, 0.75));
+}
+.vse-doll-part.is-bleeding,
+.vse-doll-part.is-critical,
+.vse-doll-bleed-badge,
+.vse-doll-internal-alert {
+    animation: vse-pulse-bleed 1.5s ease-in-out infinite;
+}
+
+.vse-health-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    font-size: 0.74em;
+    color: var(--ist-muted, #94a3b8);
+    justify-content: center;
+}
+.vse-health-legend span {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+.vse-health-legend i {
+    width: 8px;
+    height: 8px;
+    border-radius: 2px;
+    display: inline-block;
+}
+
+.vse-health-info-col {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    min-width: 0;
+}
+
+.vse-health-vitals {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+    gap: 7px;
+}
+.vse-vital-box {
+    background: var(--ist-mantle, rgba(16, 18, 28, 0.75));
+    border: 1px solid var(--ist-border, rgba(255, 255, 255, 0.1));
+    border-radius: 7px;
+    padding: 6px 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+}
+.vse-vital-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.79em;
+}
+.vse-vital-top span {
+    color: var(--ist-muted, #94a3b8);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+.vse-vital-top b {
+    color: var(--ist-title, #f8fafc);
+}
+
+.vse-bar {
+    height: 7px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.08);
+    overflow: hidden;
+}
+.vse-bar.thin {
+    height: 5px;
+}
+.vse-bar-fill {
+    display: block;
+    height: 100%;
+    border-radius: 999px;
+    transition: width 0.2s ease;
+}
+.vse-bar-fill.ok { background: #22c55e; }
+.vse-bar-fill.mid { background: #eab308; }
+.vse-bar-fill.warn { background: #f97316; }
+.vse-bar-fill.crit { background: #ef4444; }
+
+.vse-health-caps {
+    background: var(--ist-mantle, rgba(16, 18, 28, 0.68));
+    border: 1px solid var(--ist-border, rgba(255, 255, 255, 0.1));
+    border-radius: 7px;
+    padding: 7px 9px;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(175px, 1fr));
+    gap: 6px 12px;
+}
+.vse-cap-row {
+    display: grid;
+    grid-template-columns: 95px 1fr 34px;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.78em;
+}
+.vse-cap-row span {
+    color: var(--ist-subtext, #cbd5e1);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.vse-cap-row b {
+    text-align: right;
+    color: var(--ist-title, #f8fafc);
+    font-variant-numeric: tabular-nums;
+}
+
+.vse-health-whole-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+.vse-health-whole-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 3px 8px;
+    border-radius: 999px;
+    font-size: 0.78em;
+    background: rgba(168, 85, 247, 0.15);
+    border: 1px solid rgba(168, 85, 247, 0.45);
+    color: var(--ist-text, #f3e8ff);
+}
+.vse-health-whole-pill.type-buff {
+    background: rgba(34, 197, 94, 0.15);
+    border-color: rgba(34, 197, 94, 0.45);
+}
+.vse-health-whole-pill.type-hypothermia {
+    background: rgba(56, 189, 248, 0.15);
+    border-color: rgba(56, 189, 248, 0.45);
+}
+.vse-health-whole-pill.type-heatstroke {
+    background: rgba(251, 146, 60, 0.15);
+    border-color: rgba(251, 146, 60, 0.45);
+}
+
+.vse-health-conds-wrap {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+.vse-health-conds-title,
+.vse-health-selected-head {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+    font-size: 0.84em;
+    color: var(--ist-title, #fdf6f0);
+    font-weight: 600;
+}
+
+.vse-health-cond-card {
+    background: var(--ist-mantle, rgba(16, 18, 28, 0.74));
+    border: 1px solid var(--ist-border, rgba(255, 255, 255, 0.12));
+    border-radius: 7px;
+    padding: 6px 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+.vse-health-cond-head {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+.vse-health-part-chip {
+    background: var(--ist-surface, rgba(255, 255, 255, 0.08));
+    color: var(--ist-subtext, #e2e8f0);
+    border: 1px solid var(--ist-border, rgba(255, 255, 255, 0.16));
+    border-radius: 5px;
+    padding: 1px 6px;
+    font-size: 0.78em;
+    cursor: pointer;
+}
+.vse-health-part-chip:hover {
+    border-color: var(--ist-blue, #f4a261);
+    color: var(--ist-title, #ffffff);
+}
+.vse-health-kind-pill {
+    display: inline-block;
+    padding: 1px 6px;
+    border-radius: 999px;
+    border: 1px solid currentColor;
+    font-size: 0.74em;
+    font-weight: 600;
+}
+.vse-pill-bleed {
+    border-color: #ef4444;
+    color: #fca5a5;
+    background: rgba(127, 29, 29, 0.45);
+}
+.vse-health-cond-actions {
+    display: flex;
+    gap: 5px;
+    flex-wrap: wrap;
+    margin-top: 2px;
+}
+
+.vse-health-status-note {
+    font-size: 0.79em;
+    color: var(--ist-subtext, #cbd5e1);
+    padding: 5px 8px;
+    border-radius: 6px;
+    background: rgba(0, 0, 0, 0.22);
+    border: 1px dashed var(--ist-border, rgba(255, 255, 255, 0.14));
+}
+.vse-health-status-note span {
+    color: var(--ist-muted, #94a3b8);
+    font-weight: 600;
+}
+
+.vse-pop-bt-on {
+    border-color: var(--vse-brand, #f59e0b) !important;
+    color: var(--vse-brand, #f59e0b) !important;
+    background: rgba(245, 158, 11, 0.16) !important;
+}
+.vse-check-inline {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 0.8em;
+    color: var(--vse-text, #f4f4f5);
+    cursor: pointer;
+}
