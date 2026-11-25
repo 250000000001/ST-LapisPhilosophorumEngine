@@ -34,32 +34,6 @@ Vanilla Vexa emits all 16 `<internal_states>` XML sections at the end of every r
 - **Nice Health Tab (RimWorld Mod)** by **Andromeda** — https://steamcommunity.com/sharedfiles/filedetails/?id=3328729902
   - The anatomical paper-doll health display, body-part injury/bandage/scar visualization, organ/bone layers, and physiological capacity breakdown in `src/healthDoll.js` are directly inspired by Andromeda's **Nice Health Tab** mod. All SVG vectors, patterns, and UI code in this extension are original implementations.
 
-## Modified Preset
-
-Generated from `/home/user/Projects/myVexapreset/ST.+.Tavo.Vexa.v1.0 (Dynamic World).json` via:
-
-```bash
-node scripts/build-preset.mjs
-```
-
-Preset output:
-- `Presets/ST.+.Tavo.Vexa.v1.0 (Dynamic World - External State).json`
-
-## Running Tests
-
-Offline parser, reducer, store, and prompt injector tests (using the 36-turn ASOIAF chat fixture):
-
-```bash
-node --test test/parser-roundtrip.test.mjs test/reducer-store.test.mjs
-```
-
-Live OpenAI-compatible worker + preset contract tests (never commit keys):
-
-```bash
-VEXA_TEST_BASE_URL=https://linkapi.ai/v1 \
-VEXA_TEST_API_KEY="sk-..." \
-node --test test/live-worker.test.mjs
-```
 
 ## License
 
