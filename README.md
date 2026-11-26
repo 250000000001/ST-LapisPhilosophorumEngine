@@ -33,10 +33,11 @@ Vanilla Vexa emits all 16 `<internal_states>` XML sections at the end of every r
    - Emits compact JSON deltas (omitting unchanged rooms, dormant NPCs, and unchanged pairs).
 4. **Integrated Refusal Auto-Retry & Non-Stream Continue (Toggleable)**:
    - Built directly into **Extensions → Vexa State Engine** (`Enable built-in Refusal Auto-Retry & End-Marker Guard`), with **Continue (No Stream)** send-bar/options controls, surgical safety-refusal cleanup, end-marker validation (`auto` / `external` / `classic` / `marker`), and custom refusal regex patterns. Standalone `ST-VexaRefusalAutoRetry` is no longer required when this toggle is enabled.
-5. **Native JS Tabbed HUD, Hybrid Three.js WebGL + PolyCSS 3D Atlas & Control Center**:
-   - Never mutates `msg.mes`; renders a collapsible themed card under each message with diff dots and a fast **2D SVG** inline floorplan default (`Open WebGL` jumps directly into the Control Center, while **3D CSS** keeps `IntersectionObserver` animation pausing for long chats).
-   - **Hybrid Three.js WebGL Atlas** (`src/atlasWebgl.js` + vendored `lib/three/`) pairs render-on-demand Three.js rooms and **physical doorway wall cutouts** (`splitWallWithDoorways`, hinged/sliding doors, archways, and low-curb outdoor courtyards) with normalized **CC BY 4.0** textured `.glb` packs (`assets/models/psx-industrial.glb` & `assets/models/scifi-lab-props.glb`) and MIT procedural medieval/tavern furniture — plus optional gitignored `assets/models/custom/` local prop overrides.
-   - **PolyCSS 3D CSS fallback engine** (`src/polyCss3d.js` + `src/polyAssets.js` + `src/atlas3d.js`) renders **10 geometric primitives** and **28 diorama/kit prefabs** (`table`, `chair`, `couch`, `bed`, `bookshelf`, `desk`, `hearth`, `brazier`, `lamp`, `chest`, `tree`, `crystal`, `ladder`, `hourglass`, `container`, `barrel`, `crate`, `dumpster`, `generator`, `pallet`, `propane`, `pipes`, `locker`, `vat`, `console`, `cabinet`, `airlock`, `screen`) with extruded plinths, contact shadows, radial light pools, multi-floor stacking (`All Floors`), cutaway walls, orbit/pan/zoom, and JSON `objects` / `add_objects` / `remove_objects` deltas.
+5. **Native JS Tabbed HUD, Unified 3D/2D Atlas & Control Center**:
+   - Never mutates `msg.mes`; renders a collapsible themed card under each AI message with a Megumin-inspired inline **"Changed in this reply"** diff strip (`All` / `This tab` filters, clickable section jump badges, per-turn **Revert / Restore**, **Read again**, and reducer notes), a separate collapsible **CoT Receipt** drawer (`world_sim`, `chekhov`, `arc`, `ooc`) positioned cleanly outside/behind `Vexa State`, and a one-click **Align All Chat HUDs to Current Theme** action that updates existing chat HUD cards in place.
+   - **Shared Atlas Topology & Intra-Level Height (`src/atlasTopology.js`)**: Unifies adjacent touching rooms with flush wall corners, coordinated cutaway heights, **1 unified doorway** (shared texture/style across connected rooms without duplicate outer wall boxes or exit airlocks), vertical ceiling heights (`dim` `WxDxHm`), per-room floor elevation offsets (`elev`), elevated `platform` walkways/mezzanines, and `[x,y,z]` 3D occupant/user positioning, plus an optional toggleable `<spatial_grounding>` prompt guide for the story model.
+   - **Hybrid Three.js WebGL Atlas** (`src/atlasWebgl.js` + vendored `lib/three/`) pairs render-on-demand Three.js rooms and **physical doorway wall cutouts** (`splitWallWithDoorways`, hinged/sliding doors, archways, elevated plinths, and low-curb outdoor courtyards) with normalized **CC BY 4.0** textured `.glb` packs (`assets/models/psx-industrial.glb` & `assets/models/scifi-lab-props.glb`) and original procedural furniture — plus optional gitignored `assets/models/custom/` local prop overrides.
+   - **PolyCSS 3D CSS & Zoomable 2D SVG Atlas** (`src/polyCss3d.js`, `src/polyAssets.js`, `src/atlas3d.js`, `src/atlasSvg.js`) render **10 geometric primitives** and **29 diorama/kit prefabs** (`table`, `chair`, `couch`, `bed`, `bookshelf`, `desk`, `hearth`, `brazier`, `lamp`, `chest`, `tree`, `crystal`, `ladder`, `hourglass`, `container`, `barrel`, `crate`, `dumpster`, `generator`, `pallet`, `propane`, `pipes`, `locker`, `vat`, `console`, `cabinet`, `airlock`, `screen`, `platform`), zoom-invariant projected 3D overlay labels, clipped non-overlapping 2D room titles with pan/zoom `+`/`−`/`Reset` controls and golden-angle crowd decluttering, and **divergent 6-pair Aether Matrix bars** (`src/matrixView.js`) with plain-English `acc`/`E`/`L`/`Gate`/`Wall` explanations.
    - Scaled for long multi-hundred-turn chats via indexed `store.js` timeline/swipe lookups (`O(1)`/`O(log N)`), local single-card HUD refreshes without global version cache-busting, `content-visibility: auto`, and a single lazily loaded WebGL context torn down cleanly on close/tab switch.
    - Includes a draggable floating compass launcher (`#vse_fab_btn`) and frosted-glass **Vexa Control Center** popup (`#vse_app_overlay`) featuring character banner artwork, left glass dock (collapsible floating pill bar on mobile), live token readout, interactive WebGL/3D/2D Atlas & object builder, state inspection/editing across all tabs, worker & refusal-retry configuration, visual theme swatches, and raw snapshot/JSON tools.
 6. **Main-Model-Proposed Custom Trackers (Toggleable)**:
@@ -45,6 +46,17 @@ Vanilla Vexa emits all 16 `<internal_states>` XML sections at the end of every r
 7. **Anatomical Body-Part Health System (Nice Health Tab–Inspired)**:
    - Replaces plain status text with an interactive 27-part anatomical SVG paper doll (`src/healthDoll.js`) supporting 4 silhouettes (`Male`, `Female`, `Athletic`, `Heavy`), 4 inspection layers (`Body`, `Organs`, `Bones`, `X-Ray`), and visual injury indicators (bleeding droplets, bandaged wraps, scars, sharp slashes, burns, frostbite, fractures, toxins/infections, missing parts, and prosthetics).
    - Computes vital gauges (`Overall HP`, `Pain`, `Blood Loss`) and 7 RimWorld-style physiological capacities (`Consciousness`, `Moving`, `Manipulation`, `Breathing`, `Blood Pumping`, `Sight`, `Metabolism`), updated via delta-only `health_delta` worker patches or directly edited in the **Health & Body** Control Center tab (with automatic non-destructive fallback preview from legacy `<state:inv><status>` text).
+
+## Preset Setup
+
+Ryah's Vexa preset JSON files are **not redistributed** in this repository. To generate an External-State preset locally:
+
+1. Obtain your copy of Vexa directly from Ryah's project (`https://ryah.github.io/vexa/`).
+2. Run the local conversion helper:
+   ```bash
+   node scripts/build-preset.mjs /path/to/your-vexa-preset.json /path/to/output-external-state-preset.json
+   ```
+3. Import the generated `- External State.json` file into SillyTavern (even without converting first, turning on **Force Active on Non-Vexa Presets** or using Vexa auto-detection activates prompt stripping & snapshot injection).
 
 ## Credits & Acknowledgements
 
@@ -67,5 +79,6 @@ Vanilla Vexa emits all 16 `<internal_states>` XML sections at the end of every r
 
 ## License
 
-- **Extension Code & Procedural 3D Geometry:** All JavaScript, CSS, HTML, procedural Three.js/PolyCSS builders, and vendored `lib/three/` modules are licensed under the **[MIT License](LICENSE)**.
+- **Extension Code & Procedural 3D Geometry:** All original JavaScript, CSS, HTML, procedural Three.js/PolyCSS builders, and tooling scripts in this repository are licensed under **[Creative Commons Attribution-NonCommercial 4.0 International (CC BY-NC 4.0)](LICENSE)**.
+- **Vendored Three.js (`lib/three/`):** Licensed separately under the **[MIT License](lib/three/LICENSE)**.
 - **Bundled 3D Model Assets (`assets/models/*.glb`):** Licensed under **[Creative Commons Attribution 4.0 International (CC BY 4.0)](https://creativecommons.org/licenses/by/4.0/)** as detailed in [`assets/models/ATTRIBUTION.md`](assets/models/ATTRIBUTION.md). No endorsement by original model authors is implied.

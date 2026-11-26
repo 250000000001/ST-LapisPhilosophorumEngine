@@ -6,8 +6,11 @@
 
 import { PALETTE, isEmptySentinel } from './schema.js';
 import { computeBbox, parseOccupantsList } from './reducer.js';
-import { renderAtlas3DViewport, inferObjectsFromFeatures } from './atlas3d.js';
+import { renderAtlas3DViewport, inferObjectsFromFeatures, inferRoomStyle } from './atlas3d.js';
 import { resolveMaterialColor } from './polyCss3d.js';
+import { buildAtlasTopology, parseLocalPoint3D, parseRoomHeight } from './atlasTopology.js';
+
+let svgClipSeq = 0;
 
 function escHtml(s) {
     return String(s ?? '')
@@ -15,6 +18,67 @@ function escHtml(s) {
         .replace(/</g, '&lt;')
         .replace(/>/g, '&gt;')
         .replace(/"/g, '&quot;');
+}
+
+function clamp(v, lo, hi) {
+    return Math.max(lo, Math.min(hi, v));
+}
+
+function wrapRoomTitleLines(text, maxChars) {
+    const clean = String(text || '').trim();
+    if (!clean) return ['Room'];
+    const cap = Math.max(4, Math.floor(maxChars));
+    if (clean.length <= cap) return [clean];
+    const words = clean.split(/\s+/);
+    const lines = [];
+    let cur = '';
+    for (const w of words) {
+        if (!cur) {
+            cur = w;
+        } else if (cur.length + 1 + w.length <= cap) {
+            cur += ' ' + w;
+        } else {
+            lines.push(cur);
+            cur = w;
+            if (lines.length === 1) break;
+        }
+    }
+    if (cur && lines.length < 2) {
+        // Append remaining text when break happened early or finish line 2
+        const usedWords = lines.length === 1 ? lines[0].split(/\s+/).length : 0;
+        const rest = usedWords > 0 && lines.length === 1
+            ? words.slice(usedWords).join(' ')
+            : cur;
+        lines.push(rest);
+    } else if (lines.length === 2) {
+        // Ensure we include tail info ellipsized
+    }
+    if (lines.length > 2) lines.length = 2;
+    return lines.map((ln) => {
+        if (ln.length <= cap) return ln;
+        return `${ln.slice(0, Math.max(1, cap - 1))}…`;
+    });
+}
+
+function computeSvgViewBox(baseVb, cam) {
+    const zoom = clamp(Number(cam?.zoom) || 1, 0.35, 8);
+    const curW = baseVb.w / zoom;
+    const curH = baseVb.h / zoom;
+    const maxPanX = baseVb.w * 0.9;
+    const maxPanY = baseVb.h * 0.9;
+    const panX = clamp(Number(cam?.panX) || 0, -maxPanX, maxPanX);
+    const panY = clamp(Number(cam?.panY) || 0, -maxPanY, maxPanY);
+    const cx = baseVb.x + baseVb.w / 2 + panX;
+    const cy = baseVb.y + baseVb.h / 2 + panY;
+    return {
+        zoom,
+        panX,
+        panY,
+        x: cx - curW / 2,
+        y: cy - curH / 2,
+        w: curW,
+        h: curH,
+    };
 }
 
 function colorForEntity(name, entityStates = []) {
@@ -49,6 +113,66 @@ function parseExitsCoords(exitsStr) {
     return out;
 }
 
+function spreadRoomMarkers(rawPins, box) {
+    if (!rawPins.length) return [];
+    const minX = box.x1 + 0.85;
+    const maxX = Math.max(minX, box.x2 - 0.85);
+    const minY = box.y1 + 0.85;
+    const maxY = Math.max(minY, box.y2 - 0.85);
+    const minDist = rawPins.length > 7 ? 1.32 : 1.55;
+    const placed = [];
+    const golden = 2.399963229728653;
+
+    for (let i = 0; i < rawPins.length; i++) {
+        const pin = rawPins[i];
+        const baseX = clamp(pin.x, minX, maxX);
+        const baseY = clamp(pin.y, minY, maxY);
+
+        const minDistToPlaced = (cx, cy) => {
+            let best = Infinity;
+            for (const p of placed) {
+                const d = Math.hypot(cx - p.sx, cy - p.sy);
+                if (d < best) best = d;
+            }
+            return best;
+        };
+
+        let bestX = baseX;
+        let bestY = baseY;
+        let bestClear = minDistToPlaced(baseX, baseY);
+
+        if (bestClear < minDist) {
+            const rings = [minDist * 0.85, minDist * 1.45, minDist * 2.05, minDist * 2.7];
+            let solved = false;
+            for (const r of rings) {
+                for (let k = 0; k < 14; k++) {
+                    const ang = (i * 0.8 + k * golden);
+                    const cx = clamp(baseX + Math.cos(ang) * r, minX, maxX);
+                    const cy = clamp(baseY + Math.sin(ang) * r, minY, maxY);
+                    const clear = minDistToPlaced(cx, cy);
+                    if (clear >= minDist) {
+                        bestX = cx;
+                        bestY = cy;
+                        bestClear = clear;
+                        solved = true;
+                        break;
+                    }
+                    if (clear > bestClear) {
+                        bestX = cx;
+                        bestY = cy;
+                        bestClear = clear;
+                    }
+                }
+                if (solved) break;
+            }
+        }
+
+        const out = { ...pin, sx: bestX, sy: bestY };
+        placed.push(out);
+    }
+    return placed;
+}
+
 function findUserActiveRoom(state, roomsOnFloor) {
     const locStr = String(state?.world?.loc || '').toLowerCase();
     for (const r of roomsOnFloor) {
@@ -77,6 +201,7 @@ export function renderAtlasTab(
         cutaway = true,
         showLabels = true,
         camera = null,
+        svgCamera = null,
         allowWebgl = false,
     } = {},
 ) {
@@ -125,7 +250,7 @@ export function renderAtlasTab(
     }
 
     const userRoom = findUserActiveRoom(state, visibleRooms);
-    const userLocalPos = parseLocalPoint(state?.world?.user_pos);
+    const userLocalPos = parseLocalPoint3D(state?.world?.user_pos);
 
     let viewportHtml = '';
     if (mode === 'webgl') {
@@ -176,18 +301,44 @@ export function renderAtlasTab(
         const vw = Math.max(20, (maxX - minX) + pad * 2);
         const vh = Math.max(20, (maxY - minY) + pad * 2);
 
-        // 5m gridlines
+        // 5m gridlines (padded for zoom-out panning)
         const gridLines = [];
-        for (let gx = Math.floor(vx / 5) * 5; gx <= vx + vw; gx += 5) {
-            gridLines.push(`<line x1="${gx}" y1="${vy}" x2="${gx}" y2="${vy + vh}" stroke="var(--ist-border)" stroke-opacity="0.22" stroke-width="0.15" />`);
+        const gxStart = Math.floor((vx - vw * 0.6) / 5) * 5;
+        const gxEnd = vx + vw * 1.6;
+        const gyStart = Math.floor((vy - vh * 0.6) / 5) * 5;
+        const gyEnd = vy + vh * 1.6;
+        for (let gx = gxStart; gx <= gxEnd; gx += 5) {
+            gridLines.push(`<line x1="${gx}" y1="${gyStart}" x2="${gx}" y2="${gyEnd}" stroke="var(--ist-border)" stroke-opacity="0.22" stroke-width="0.15" />`);
         }
-        for (let gy = Math.floor(vy / 5) * 5; gy <= vy + vh; gy += 5) {
-            gridLines.push(`<line x1="${vx}" y1="${gy}" x2="${vx + vw}" y2="${gy}" stroke="var(--ist-border)" stroke-opacity="0.22" stroke-width="0.15" />`);
+        for (let gy = gyStart; gy <= gyEnd; gy += 5) {
+            gridLines.push(`<line x1="${gxStart}" y1="${gy}" x2="${gxEnd}" y2="${gy}" stroke="var(--ist-border)" stroke-opacity="0.22" stroke-width="0.15" />`);
         }
 
+        const defsHtml = [];
         const roomRects = [];
+        const propOutlines = [];
         const doorDots = [];
         const markers = [];
+
+        const topoInput = positioned.map((p) => {
+            const { h: rh, elev: re } = parseRoomHeight(p.room);
+            return { ...p, roomH: rh, baseY: re, styleId: inferRoomStyle(p.room) };
+        });
+        const topology = buildAtlasTopology(topoInput, { getTheme: inferRoomStyle, wallT: 0.22 });
+
+        const rawDoorsSeen = new Set();
+        for (const d of topology.doors) {
+            const k = `${Math.round(d.worldX * 2)},${Math.round(d.worldZ * 2)}`;
+            if (rawDoorsSeen.has(k)) continue;
+            rawDoorsSeen.add(k);
+            const tip = d.roomB ? `${d.roomA} <-> ${d.roomB}` : (d.label || `${d.roomA} (${d.axis})`);
+            doorDots.push(
+                `<circle cx="${d.worldX}" cy="${d.worldZ}" r="${d.isMain ? '0.82' : '0.52'}"
+                         fill="${d.isMain ? 'var(--ist-green)' : 'var(--ist-yellow)'}" stroke="var(--ist-crust)" stroke-width="0.18">
+                    <title>${escHtml(tip)}</title>
+                </circle>`,
+            );
+        }
 
         for (const { room, box } of positioned) {
             const w = box.x2 - box.x1;
@@ -198,74 +349,166 @@ export function renderAtlasTab(
             const stroke = isSelected ? 'var(--ist-yellow)' : isUserHere ? 'var(--ist-blue)' : 'var(--ist-border)';
             const fill = isUserHere ? 'var(--ist-surface)' : 'var(--ist-mantle)';
             const dash = isLoaded ? 'stroke-dasharray="0.8 0.5"' : '';
+            const safeClipId = `vse-rc-${++svgClipSeq}-${String(room.id || 'rm').replace(/[^a-zA-Z0-9_-]/g, '_')}`;
+            const { h: roomH, elev } = parseRoomHeight(room);
+
+            defsHtml.push(
+                `<clipPath id="${safeClipId}"><rect x="${box.x1 + 0.35}" y="${box.y1 + 0.35}" width="${Math.max(0.5, w - 0.7)}" height="${Math.max(0.5, h - 0.7)}" rx="0.4" /></clipPath>`,
+            );
+
+            const titleFont = Math.max(0.76, Math.min(1.55, w * 0.068, h * 0.14));
+            const subFont = Math.max(0.66, Math.min(1.02, titleFont * 0.72));
+            const maxChars = Math.max(5, Math.floor((w - 1.1) / (titleFont * 0.56)));
+            const titleLines = wrapRoomTitleLines(room.name || room.id, maxChars);
+            const titleStartY = box.y1 + Math.min(titleLines.length > 1 ? 1.85 : 2.2, h * 0.24) + titleFont * 0.32;
+            const lineStep = titleFont * 1.12;
+            const dimBase = room.dim || `${w}x${h}x${roomH}m`;
+            const elevTag = elev ? ` · ${elev > 0 ? '+' : ''}${elev}m` : '';
+            const subY = titleStartY + (titleLines.length - 1) * lineStep + subFont * 1.25;
+            const titleTspans = titleLines.map((ln, idx) =>
+                `<tspan x="${box.x1 + w / 2}" dy="${idx === 0 ? 0 : lineStep}">${escHtml(ln)}</tspan>`,
+            ).join('');
 
             roomRects.push(`
                 <g class="vse-atlas-room-g" data-room-id="${escHtml(room.id)}" style="cursor:pointer;">
+                    <title>${escHtml(`${room.name || room.id} (${dimBase}${elevTag})`)}</title>
                     <rect x="${box.x1}" y="${box.y1}" width="${w}" height="${h}" rx="0.6"
                           fill="${fill}" fill-opacity="${isUserHere ? '0.92' : '0.78'}"
                           stroke="${stroke}" stroke-width="${isSelected || isUserHere ? '0.45' : '0.28'}" ${dash} />
-                    <text x="${box.x1 + w / 2}" y="${box.y1 + Math.min(2.6, h * 0.36)}"
-                          text-anchor="middle" fill="var(--ist-title)" font-size="${Math.max(1.15, Math.min(2.1, w * 0.095))}" font-weight="600">
-                        ${escHtml(room.name || room.id)}
-                    </text>
-                    <text x="${box.x1 + w / 2}" y="${box.y1 + Math.min(4.6, h * 0.36 + 1.8)}"
-                          text-anchor="middle" fill="var(--ist-muted)" font-size="1.1">
-                        ${escHtml(room.dim)}
-                    </text>
+                    <g clip-path="url(#${safeClipId})" pointer-events="none">
+                        <text x="${box.x1 + w / 2}" y="${titleStartY}"
+                              text-anchor="middle" fill="var(--ist-title)" font-size="${titleFont.toFixed(2)}" font-weight="600">
+                            ${titleTspans}
+                        </text>
+                        <text x="${box.x1 + w / 2}" y="${subY.toFixed(2)}"
+                              text-anchor="middle" fill="var(--ist-muted)" font-size="${subFont.toFixed(2)}">
+                            ${escHtml(`${dimBase}${elevTag}`)}
+                        </text>
+                    </g>
                 </g>
             `);
 
-            // Exits / doorways
-            for (const ex of parseExitsCoords(room.exits)) {
-                doorDots.push(
-                    `<circle cx="${ex.x}" cy="${ex.y}" r="${ex.isMain ? '0.85' : '0.55'}"
-                             fill="${ex.isMain ? 'var(--ist-green)' : 'var(--ist-yellow)'}" stroke="var(--ist-crust)" stroke-width="0.18">
-                        <title>${escHtml(`${ex.dir}: ${ex.target} [${ex.x},${ex.y}]`)}</title>
-                    </circle>`,
-                );
+            // Elevated platform footprints & props
+            const explicitObjs = Array.isArray(room.objects) ? room.objects : [];
+            for (const obj of explicitObjs) {
+                const sh = String(obj?.shape || '').toLowerCase();
+                if (sh !== 'platform') continue;
+                const ow = Math.min(Math.max(0.6, Number(obj.size?.[0]) || 3), Math.max(0.6, w - 0.5));
+                const od = Math.min(Math.max(0.6, Number(obj.size?.[1]) || 2), Math.max(0.6, h - 0.5));
+                const ox = clamp(box.x1 + (Number(obj.pos?.[0]) || w / 2), box.x1 + ow / 2 + 0.25, box.x2 - ow / 2 - 0.25);
+                const oy = clamp(box.y1 + (Number(obj.pos?.[1]) || h / 2), box.y1 + od / 2 + 0.25, box.y2 - od / 2 - 0.25);
+                const oz = Number(obj.pos?.[2]) || 0;
+                const topZ = Math.round((oz + (Number(obj.size?.[2]) || 0.25)) * 10) / 10;
+                propOutlines.push(`
+                    <rect x="${(ox - ow / 2).toFixed(2)}" y="${(oy - od / 2).toFixed(2)}" width="${ow.toFixed(2)}" height="${od.toFixed(2)}" rx="0.25"
+                          fill="var(--ist-accent, #89b4fa)" fill-opacity="0.16"
+                          stroke="var(--ist-accent, #89b4fa)" stroke-width="0.16" stroke-dasharray="0.45 0.3">
+                        <title>${escHtml(`${obj.label || 'Platform'} [↑${topZ}m]`)}</title>
+                    </rect>
+                `);
             }
 
-            // Occupants
+            // Up/Down stairwell indicators (horizontal doorways come unified from topology.doors)
+            for (const ex of parseExitsCoords(room.exits)) {
+                if (/^(?:up|down)$/i.test(ex.dir)) {
+                    const ux = clamp(ex.x, box.x1 + 0.8, box.x2 - 0.8);
+                    const uy = clamp(ex.y, box.y1 + 0.8, box.y2 - 0.8);
+                    const isUp = /^up$/i.test(ex.dir);
+                    doorDots.push(`
+                        <g pointer-events="all">
+                            <rect x="${ux - 0.55}" y="${uy - 0.55}" width="1.1" height="1.1" rx="0.22"
+                                  fill="var(--ist-surface)" stroke="var(--ist-mauve, #cba6f7)" stroke-width="0.18">
+                                <title>${escHtml(`${ex.dir}: ${ex.target} [${ex.x},${ex.y}]`)}</title>
+                            </rect>
+                            <text x="${ux}" y="${uy + 0.28}" text-anchor="middle" fill="var(--ist-mauve, #cba6f7)" font-size="0.68" font-weight="700">${isUp ? '▲' : '▼'}</text>
+                        </g>
+                    `);
+                }
+            }
+
+            // Collect & de-overlap Occupants + User marker
+            const rawPins = [];
             const occs = parseOccupantsList(room.occupants);
             occs.forEach((occ, idx) => {
-                const pt = parseLocalPoint(occ.pos);
-                const ox = pt ? Math.max(box.x1 + 0.8, Math.min(box.x2 - 0.8, box.x1 + pt.x)) : (box.x1 + 2 + (idx % 3) * 2.5);
-                const oy = pt ? Math.max(box.y1 + 0.8, Math.min(box.y2 - 0.8, box.y1 + pt.y)) : (box.y1 + h - 2);
-                const col = colorForEntity(occ.name, state?.entity_state);
-                const initials = occ.name.split(/\s+/).map((w) => w[0]).join('').slice(0, 2).toUpperCase();
-                markers.push(`
-                    <g>
-                        <circle cx="${ox}" cy="${oy}" r="0.9" fill="${col}" stroke="var(--ist-crust)" stroke-width="0.22">
-                            <title>${escHtml(`${occ.name} ${occ.pos || ''} in ${room.name}`)}</title>
-                        </circle>
-                        <text x="${ox}" y="${oy + 0.32}" text-anchor="middle" fill="#11111b" font-size="0.72" font-weight="700">${escHtml(initials)}</text>
-                    </g>
-                `);
+                const pt = parseLocalPoint3D(occ.pos);
+                const px = pt ? box.x1 + pt.x : (box.x1 + 2 + (idx % 3) * 2.5);
+                const py = pt ? box.y1 + pt.y : (box.y1 + h - 2);
+                const pz = pt ? pt.z : 0;
+                rawPins.push({
+                    kind: 'occ',
+                    x: px,
+                    y: py,
+                    z: pz,
+                    col: colorForEntity(occ.name, state?.entity_state),
+                    initials: occ.name.split(/\s+/).map((w2) => w2[0]).join('').slice(0, 2).toUpperCase(),
+                    title: `${occ.name} ${occ.pos || ''} in ${room.name}${pz > 0.2 ? ` (↑${Math.round(pz * 10) / 10}m)` : ''}`,
+                });
             });
 
-            // User marker
             if (isUserHere) {
-                const ux = userLocalPos ? Math.max(box.x1 + 0.8, Math.min(box.x2 - 0.8, box.x1 + userLocalPos.x)) : box.x1 + w / 2;
-                const uy = userLocalPos ? Math.max(box.y1 + 0.8, Math.min(box.y2 - 0.8, box.y1 + userLocalPos.y)) : box.y1 + h / 2;
-                markers.push(`
-                    <g>
-                        <polygon points="${ux},${uy - 1.15} ${ux + 1.0},${uy + 0.8} ${ux - 1.0},${uy + 0.8}"
-                                 fill="var(--ist-cyan)" stroke="#11111b" stroke-width="0.22">
-                            <title>YOU (${escHtml(state?.world?.user_pos || 'center')})</title>
-                        </polygon>
-                    </g>
-                `);
+                const ux = userLocalPos ? box.x1 + userLocalPos.x : box.x1 + w / 2;
+                const uy = userLocalPos ? box.y1 + userLocalPos.y : box.y1 + h / 2;
+                const uz = userLocalPos ? userLocalPos.z : 0;
+                rawPins.push({
+                    kind: 'user',
+                    x: ux,
+                    y: uy,
+                    z: uz,
+                    title: `YOU (${state?.world?.user_pos || 'center'})${uz > 0.2 ? ` ↑${Math.round(uz * 10) / 10}m` : ''}`,
+                });
+            }
+
+            const spreadPins = spreadRoomMarkers(rawPins, box);
+            for (const p of spreadPins) {
+                const elevBadge = p.z > 0.2
+                    ? `<text x="${(p.sx + 0.85).toFixed(2)}" y="${(p.sy - 0.55).toFixed(2)}" fill="var(--ist-cyan, #89dceb)" font-size="0.56" font-weight="700">↑${Math.round(p.z * 10) / 10}</text>`
+                    : '';
+                if (p.kind === 'user') {
+                    markers.push(`
+                        <g pointer-events="all">
+                            <polygon points="${p.sx.toFixed(2)},${(p.sy - 1.05).toFixed(2)} ${(p.sx + 0.92).toFixed(2)},${(p.sy + 0.72).toFixed(2)} ${(p.sx - 0.92).toFixed(2)},${(p.sy + 0.72).toFixed(2)}"
+                                     fill="var(--ist-cyan)" stroke="#11111b" stroke-width="0.22">
+                                <title>${escHtml(p.title)}</title>
+                            </polygon>
+                            ${elevBadge}
+                        </g>
+                    `);
+                } else {
+                    markers.push(`
+                        <g pointer-events="all">
+                            <circle cx="${p.sx.toFixed(2)}" cy="${p.sy.toFixed(2)}" r="0.82" fill="${p.col}" stroke="var(--ist-crust)" stroke-width="0.2">
+                                <title>${escHtml(p.title)}</title>
+                            </circle>
+                            <text x="${p.sx.toFixed(2)}" y="${(p.sy + 0.28).toFixed(2)}" text-anchor="middle" fill="#11111b" font-size="0.66" font-weight="700">${escHtml(p.initials)}</text>
+                            ${elevBadge}
+                        </g>
+                    `);
+                }
             }
         }
 
+        const baseVb = { x: vx, y: vy, w: vw, h: vh };
+        const curVb = computeSvgViewBox(baseVb, svgCamera);
+
         viewportHtml = `
             <div class="vse-atlas-svg-wrap">
-                <svg class="vse-atlas-svg" viewBox="${vx} ${vy} ${vw} ${vh}" preserveAspectRatio="xMidYMid meet">
-                    ${gridLines.join('')}
-                    ${roomRects.join('')}
-                    ${doorDots.join('')}
-                    ${markers.join('')}
-                </svg>
+                <div class="vse-atlas-svg-stage">
+                    <svg class="vse-atlas-svg" data-base-vb="${vx} ${vy} ${vw} ${vh}" viewBox="${curVb.x.toFixed(3)} ${curVb.y.toFixed(3)} ${curVb.w.toFixed(3)} ${curVb.h.toFixed(3)}" preserveAspectRatio="xMidYMid meet">
+                        <defs>${defsHtml.join('')}</defs>
+                        ${gridLines.join('')}
+                        ${roomRects.join('')}
+                        ${propOutlines.join('')}
+                        ${doorDots.join('')}
+                        ${markers.join('')}
+                    </svg>
+                    <div class="vse-svg-controls">
+                        <button type="button" class="vse-svg-btn" data-svg-act="in" title="Zoom in">+</button>
+                        <span class="vse-svg-zoom-lbl">${Math.round(curVb.zoom * 100)}%</span>
+                        <button type="button" class="vse-svg-btn" data-svg-act="out" title="Zoom out">−</button>
+                        <button type="button" class="vse-svg-btn" data-svg-act="reset" title="Reset camera">Reset</button>
+                    </div>
+                    <div class="vse-svg-hint">Wheel: Zoom · Drag: Pan · Click room: Inspect</div>
+                </div>
                 <div class="vse-atlas-legend">
                     <span><i class="vse-dot" style="background:var(--ist-cyan)"></i> You (${escHtml(state?.world?.user_pos || '?')})</span>
                     <span><i class="vse-dot" style="background:var(--ist-yellow)"></i> Doorway</span>
@@ -289,13 +532,16 @@ export function renderAtlasTab(
         const objPills = shownObjs.length
             ? shownObjs.map((o) => {
                 const col = resolveMaterialColor(o.color);
-                const posStr = Array.isArray(o.pos) ? `[${o.pos[0]},${o.pos[1]}]` : '';
+                const posStr = Array.isArray(o.pos)
+                    ? `[${o.pos[0]},${o.pos[1]}${Number(o.pos[2]) ? `,${o.pos[2]}` : ''}]`
+                    : '';
                 return `<span class="vse-pill" style="margin:1px 3px 1px 0;"><i class="vse-dot" style="background:${escHtml(col)}"></i> [${escHtml(o.shape)}] ${escHtml(o.label)} ${escHtml(posStr)}</span>`;
             }).join('')
             : '∅';
         objectsRowHtml = `<div class="wide"><span>3D Objects (${objTag})</span><b>${objPills}</b></div>`;
     }
 
+    const detailHeight = detailRoom ? parseRoomHeight(detailRoom) : null;
     const roomDetailHtml = detailRoom ? `
         <div class="vse-atlas-detail">
             <div class="vse-atlas-detail-head">
@@ -303,6 +549,7 @@ export function renderAtlasTab(
                 <span class="vse-pill">${escHtml(detailRoom.id)}</span>
                 <span class="vse-pill">${escHtml(detailRoom.dim || '?')}</span>
                 <span class="vse-pill">Grid ${escHtml(detailRoom.grid || '?')}</span>
+                ${detailHeight?.elev ? `<span class="vse-pill">Elev ${detailHeight.elev > 0 ? '+' : ''}${detailHeight.elev}m</span>` : ''}
                 ${detailRoom.style ? `<span class="vse-pill">${escHtml(detailRoom.style)}</span>` : ''}
                 ${detailRoom.kind === 'load' ? '<span class="vse-pill warn">Loaded</span>' : '<span class="vse-pill ok">Rendered</span>'}
             </div>
@@ -360,4 +607,163 @@ export function renderAtlasTab(
             ${roomDetailHtml}
         </div>
     `;
+}
+
+/**
+ * Attach zoom/pan controls to a rendered 2D SVG Atlas viewport without breaking
+ * room click inspection (`< 5px` pointer movement still triggers click).
+ */
+export function bindAtlasSvgControls(wrapEl, svgCamState = { zoom: 1, panX: 0, panY: 0 }, { onCameraChange } = {}) {
+    if (!wrapEl) return;
+    const stage = wrapEl.classList?.contains('vse-atlas-svg-stage')
+        ? wrapEl
+        : wrapEl.querySelector?.('.vse-atlas-svg-stage');
+    if (!stage) return;
+    const svg = stage.querySelector('.vse-atlas-svg');
+    if (!svg) return;
+    if (stage.dataset.vseSvgBound === '1') return;
+    stage.dataset.vseSvgBound = '1';
+
+    const rawVb = String(svg.getAttribute('data-base-vb') || svg.getAttribute('viewBox') || '0 0 20 20')
+        .trim()
+        .split(/\s+/)
+        .map(Number);
+    const baseVb = rawVb.length >= 4 && rawVb.every(Number.isFinite)
+        ? { x: rawVb[0], y: rawVb[1], w: Math.max(1, rawVb[2]), h: Math.max(1, rawVb[3]) }
+        : { x: 0, y: 0, w: 20, h: 20 };
+
+    const cam = svgCamState && typeof svgCamState === 'object'
+        ? svgCamState
+        : { zoom: 1, panX: 0, panY: 0 };
+    if (!Number.isFinite(cam.zoom)) cam.zoom = 1;
+    if (!Number.isFinite(cam.panX)) cam.panX = 0;
+    if (!Number.isFinite(cam.panY)) cam.panY = 0;
+
+    const zoomLbl = stage.querySelector('.vse-svg-zoom-lbl');
+    let suppressClickUntil = 0;
+
+    const apply = (emit = false) => {
+        const vb = computeSvgViewBox(baseVb, cam);
+        cam.zoom = vb.zoom;
+        cam.panX = vb.panX;
+        cam.panY = vb.panY;
+        svg.setAttribute('viewBox', `${vb.x.toFixed(3)} ${vb.y.toFixed(3)} ${vb.w.toFixed(3)} ${vb.h.toFixed(3)}`);
+        if (zoomLbl) zoomLbl.textContent = `${Math.round(cam.zoom * 100)}%`;
+        if (emit && typeof onCameraChange === 'function') {
+            onCameraChange({ zoom: cam.zoom, panX: cam.panX, panY: cam.panY });
+        }
+    };
+
+    stage.querySelectorAll('.vse-svg-btn').forEach((btn) => {
+        btn.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            const act = btn.dataset.svgAct;
+            if (act === 'in') cam.zoom *= 1.28;
+            else if (act === 'out') cam.zoom /= 1.28;
+            else if (act === 'reset') {
+                cam.zoom = 1;
+                cam.panX = 0;
+                cam.panY = 0;
+            }
+            apply(true);
+        });
+    });
+
+    svg.addEventListener('wheel', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const factor = e.deltaY < 0 ? 1.18 : 1 / 1.18;
+        const oldVb = computeSvgViewBox(baseVb, cam);
+        const rect = svg.getBoundingClientRect();
+        let nextPanX = cam.panX;
+        let nextPanY = cam.panY;
+        if (rect.width > 0 && rect.height > 0) {
+            const nx = (e.clientX - rect.left) / rect.width;
+            const ny = (e.clientY - rect.top) / rect.height;
+            const worldX = oldVb.x + nx * oldVb.w;
+            const worldY = oldVb.y + ny * oldVb.h;
+            const newZoom = clamp(cam.zoom * factor, 0.35, 8);
+            const newW = baseVb.w / newZoom;
+            const newH = baseVb.h / newZoom;
+            const newX = worldX - nx * newW;
+            const newY = worldY - ny * newH;
+            nextPanX = (newX + newW / 2) - (baseVb.x + baseVb.w / 2);
+            nextPanY = (newY + newH / 2) - (baseVb.y + baseVb.h / 2);
+            cam.zoom = newZoom;
+            cam.panX = nextPanX;
+            cam.panY = nextPanY;
+        } else {
+            cam.zoom *= factor;
+        }
+        apply(true);
+    }, { passive: false });
+
+    let dragging = false;
+    let didPan = false;
+    let startX = 0;
+    let startY = 0;
+    let startPanX = 0;
+    let startPanY = 0;
+    let startVb = null;
+
+    const endDrag = () => {
+        if (!dragging) return;
+        dragging = false;
+        window.removeEventListener('pointerup', endDrag);
+        window.removeEventListener('pointercancel', endDrag);
+        stage.classList.remove('is-panning');
+        if (didPan) {
+            suppressClickUntil = Date.now() + 180;
+            apply(true);
+        }
+        didPan = false;
+    };
+
+    svg.addEventListener('pointerdown', (e) => {
+        if (e.button !== 0 && e.button !== 1 && e.button !== 2) return;
+        dragging = true;
+        didPan = false;
+        startX = e.clientX;
+        startY = e.clientY;
+        startPanX = cam.panX;
+        startPanY = cam.panY;
+        startVb = computeSvgViewBox(baseVb, cam);
+        window.addEventListener('pointerup', endDrag);
+        window.addEventListener('pointercancel', endDrag);
+    });
+
+    svg.addEventListener('pointermove', (e) => {
+        if (!dragging) return;
+        const dxPx = e.clientX - startX;
+        const dyPx = e.clientY - startY;
+        if (!didPan && Math.hypot(dxPx, dyPx) < 5) return;
+        didPan = true;
+        stage.classList.add('is-panning');
+        const rect = svg.getBoundingClientRect();
+        if (rect.width > 0 && rect.height > 0) {
+            // preserveAspectRatio="xMidYMid meet" uniform scale
+            const pxPerUnit = Math.min(rect.width / startVb.w, rect.height / startVb.h) || 1;
+            cam.panX = startPanX - dxPx / pxPerUnit;
+            cam.panY = startPanY - dyPx / pxPerUnit;
+            apply(false);
+        }
+    });
+
+    svg.addEventListener('click', (e) => {
+        if (Date.now() < suppressClickUntil) {
+            e.preventDefault();
+            e.stopPropagation();
+        }
+    }, true);
+
+    svg.addEventListener('dblclick', (e) => {
+        if (e.target.closest?.('.vse-svg-controls')) return;
+        cam.zoom = 1;
+        cam.panX = 0;
+        cam.panY = 0;
+        apply(true);
+    });
+
+    apply(false);
 }

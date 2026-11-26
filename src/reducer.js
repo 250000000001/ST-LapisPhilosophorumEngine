@@ -20,6 +20,9 @@ import {
 } from './schema.js';
 import { applyHealthDelta, normalizeHealthState } from './healthDoll.js';
 import { POLY_PREFABS, PREFAB_DEFAULT_SIZES } from './polyAssets.js';
+import { parseDimMeters, clampObjectToRoom } from './atlasTopology.js';
+
+export { parseDimMeters };
 
 export const MAX_CUSTOM_TRACKERS = 6;
 export const MAX_TRACKER_FIELDS = 8;
@@ -206,12 +209,6 @@ export function formatGridCoords(gridVal) {
     return String(gridVal ?? '').trim();
 }
 
-export function parseDimMeters(dimStr) {
-    const m = String(dimStr || '').match(/(\d+(?:\.\d+)?)\s*[x×]\s*(\d+(?:\.\d+)?)(?:\s*[x×]\s*(\d+(?:\.\d+)?))?/i);
-    if (!m) return null;
-    return { w: Number(m[1]), h: Number(m[2]), zH: m[3] ? Number(m[3]) : 4 };
-}
-
 export function computeBbox(gridStr, dimStr) {
     const g = parseGridCoords(gridStr);
     const d = parseDimMeters(dimStr);
@@ -340,6 +337,14 @@ const SHAPE_SYNONYMS = Object.freeze({
     halo: 'ring',
     'fire-ring': 'ring',
     fire_ring: 'ring',
+    platform: 'platform',
+    mezzanine: 'platform',
+    catwalk: 'platform',
+    balcony: 'platform',
+    dais: 'platform',
+    stage: 'platform',
+    deck: 'platform',
+    loft: 'platform',
 });
 
 const DEFAULT_SHAPE_SIZES = Object.freeze({
@@ -432,10 +437,16 @@ export function normalizeAtlasObject(raw, roomDim = null) {
     const color = String(obj.color || '').trim();
     const label = String(obj.label || obj.name || shape).trim().slice(0, 60) || shape;
 
+    const clamped = clampObjectToRoom(
+        { shape, pos: [px, py, pz], size: [sw, sd, sh], rot, color, label },
+        roomDim,
+        { insetWalls: false },
+    );
+
     return {
         shape,
-        pos: [round2(px), round2(py), round2(pz)],
-        size: [round2(sw), round2(sd), round2(sh)],
+        pos: clamped.pos.map(round2),
+        size: clamped.size.map(round2),
         rot,
         color,
         label,
@@ -917,6 +928,7 @@ export function applyDelta(prevState, delta = {}, ctx = {}) {
                     occupants: '∅',
                     exits: '∅',
                     style: '',
+                    elev: 0,
                     objects: [],
                 };
             for (const k of ['kind', 'map_id', 'name', 'dim', 'bbox', 'anchor', 'features']) {
@@ -930,6 +942,12 @@ export function applyDelta(prevState, delta = {}, ctx = {}) {
                 merged.style = normalizeRoomStyle(r.style);
             } else if (merged.style === undefined) {
                 merged.style = '';
+            }
+            if (r.elev !== undefined) {
+                const ev = Number(r.elev);
+                merged.elev = Number.isFinite(ev) ? round2(Math.max(-20, Math.min(20, ev))) : 0;
+            } else if (merged.elev === undefined) {
+                merged.elev = 0;
             }
             const roomDim = parseDimMeters(merged.dim);
             if (Array.isArray(r.objects)) {

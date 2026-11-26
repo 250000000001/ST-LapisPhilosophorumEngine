@@ -8,16 +8,20 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-const SOURCE_PRESET = '/home/user/Projects/myVexapreset/ST.+.Tavo.Vexa.v1.0 (Dynamic World).json';
-const OUT_ENGINE_PRESET = '/home/user/Projects/ST-VexaStateEngine/Presets/ST.+.Tavo.Vexa.v1.0 (Dynamic World - External State).json';
-const OUT_USER_PRESET = '/home/user/Projects/myVexapreset/ST.+.Tavo.Vexa.v1.0 (Dynamic World - External State).json';
+const WORKSPACE_PRESET_DIR = path.resolve(import.meta.dirname, '../../myVexapreset');
+const SOURCE_PRESET = process.argv[2]
+    ? path.resolve(process.argv[2])
+    : path.join(WORKSPACE_PRESET_DIR, 'ST.+.Tavo.Vexa.v1.0 (Dynamic World).json');
+const OUT_USER_PRESET = process.argv[3]
+    ? path.resolve(process.argv[3])
+    : path.join(WORKSPACE_PRESET_DIR, 'ST.+.Tavo.Vexa.v1.0 (Dynamic World - External State).json');
 
 const INTERNAL_STATES_TEMPLATE_REPLACEMENT = `OOC: World state tracking (<internal_states>) is managed externally by the **Vexa State Engine** extension.
 CRITICAL: DO NOT output the 16-section <internal_states> block! Instead, read the live snapshot below as canonical truth and append ONLY the tiny <vexa_tail> block + <!-- GFX_END --> at the very end of your response.
 
 <external_state_contract>
 RULES:
-1. READ-ONLY SNAPSHOT: <internal_states> below is the current authoritative world state compiled by Vexa State Engine. Respect all character <fontColor> hex locks, Atlas geometry, <knowledge_sanity>, active Chekhov bullets, Tracks, ARC gates, and Notebook [R] rules inside it.
+1. READ-ONLY SNAPSHOT: <internal_states> below is the current authoritative world state compiled by Vexa State Engine. Respect all character <fontColor> hex locks, Atlas spatial geometry (dim WxDxHm, optional elev meters, elevated platform walkways, exits, and [x,y,z] positions), <knowledge_sanity>, active Chekhov bullets, Tracks, ARC gates, and Notebook [R] rules inside it.
 2. NEVER emit <internal_states> or copy forward rooms/matrices/entities in your reply. A fast background clerk updates the store from your prose and receipt after your reply finishes.
 3. MANDATORY TERMINAL BLOCK: At the very end of every assistant response (outside codeblocks), output ONLY <vexa_tail> followed by <!-- GFX_END -->:
 <vexa_tail>
@@ -168,12 +172,11 @@ const externalTailRegexes = [
 preset.extensions = preset.extensions || {};
 preset.extensions.regex_scripts = [...keptRegexes, ...externalTailRegexes];
 
-fs.mkdirSync(path.dirname(OUT_ENGINE_PRESET), { recursive: true });
-fs.writeFileSync(OUT_ENGINE_PRESET, JSON.stringify(preset, null, 4), 'utf8');
+fs.mkdirSync(path.dirname(OUT_USER_PRESET), { recursive: true });
 fs.writeFileSync(OUT_USER_PRESET, JSON.stringify(preset, null, 4), 'utf8');
 
 console.log(`Built External-State preset:
-  - ${OUT_ENGINE_PRESET}
-  - ${OUT_USER_PRESET}
+  - Source: ${SOURCE_PRESET}
+  - Output: ${OUT_USER_PRESET}
   - Prompts: ${preset.prompts.length} (Dynamic World prompts preserved)
   - Regexes: ${preset.extensions.regex_scripts.length} (kept ${keptRegexes.length} prose/voice/tone/prop/lore/deobf + added 2 tail scripts)`);

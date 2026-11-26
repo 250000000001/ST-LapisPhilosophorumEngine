@@ -191,9 +191,10 @@ export function createVexaStateStore({ adapter, journalDepth = 200, rootKey = 'v
         const steps = [];
         const stepByUid = new Map();
         for (const e of activeEntries()) {
-            const res = applyEntry(state, e);
+            const prevState = state;
+            const res = applyEntry(prevState, e);
             state = res.state;
-            const step = { seq: e.seq, entry: e, state, diff: res.diff, warnings: res.warnings };
+            const step = { seq: e.seq, entry: e, prevState, state, diff: res.diff, warnings: res.warnings };
             steps.push(step);
             if (e.uid && e.source !== 'user' && !stepByUid.has(e.uid)) {
                 stepByUid.set(e.uid, step);

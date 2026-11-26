@@ -9,8 +9,10 @@
 
 import { VEXA_THEMES, VEXA_STYLES, PALETTE, isEmptySentinel } from './schema.js';
 import { serializeInternalStates } from './parser.js';
-import { renderAtlasTab } from './atlasSvg.js';
+import { renderAtlasTab, bindAtlasSvgControls } from './atlasSvg.js';
 import { bindPolyOrbitControls, observePolyViewports } from './polyCss3d.js';
+import { renderAetherMatrixList } from './matrixView.js';
+import { computeTurnChangeLog, renderChangeLogStrip } from './changeLog.js';
 import {
     renderHealthTab,
     computeHealthMetrics,
@@ -40,12 +42,17 @@ export const HUD_TABS = [
     { id: 'vent', label: 'Vent', icon: 'fa-fire' },
 ];
 
-// Per-message UI view state (survives re-renders without writing chat metadata)
-const viewState = new Map(); // msgId -> { collapsed, tab, theme, style, mapId, level, roomId }
+// Per-message UI view state (scoped by chatId::uid to isolate across chats)
+const viewState = new Map();
 
-function getView(msgId, defaults) {
-    if (!viewState.has(msgId)) {
-        viewState.set(msgId, {
+function currentChatKey() {
+    const cid = typeof window !== 'undefined' ? window.SillyTavern?.getContext?.()?.chatId : '';
+    return String(cid || '');
+}
+
+function getView(viewKey, defaults) {
+    if (!viewState.has(viewKey)) {
+        viewState.set(viewKey, {
             collapsed: defaults.defaultCollapsed !== false,
             tab: 'world',
             theme: defaults.theme || 'Sola',
@@ -58,11 +65,16 @@ function getView(msgId, defaults) {
             cutaway: true,
             showLabels: true,
             camera: { rotX: 56, rotZ: 32, zoom: 1, panX: 0, panY: 0 },
+            svgCamera: { zoom: 1, panX: 0, panY: 0 },
             healthLayer: 'body',
             healthPart: null,
+            receiptOpen: false,
+            diffOpen: false,
+            diffFilter: 'all',
+            diffShowAll: false,
         });
     }
-    return viewState.get(msgId);
+    return viewState.get(viewKey);
 }
 
 function esc(s) {
@@ -81,7 +93,7 @@ function hexFromFontColor(fc) {
     return p ? p.hex : 'var(--ist-blue)';
 }
 
-function renderTabBody(tabId, state, view, settings) {
+function renderTabBody(tabId, state, view, settings, prevState = null) {
     switch (tabId) {
         case 'world': {
             const w = state.world || {};
@@ -149,6 +161,7 @@ function renderTabBody(tabId, state, view, settings) {
                 cutaway: view.cutaway,
                 showLabels: view.showLabels,
                 camera: view.camera,
+                svgCamera: view.svgCamera,
                 allowWebgl: false,
             });
         case 'entityMem': {
@@ -206,19 +219,7 @@ function renderTabBody(tabId, state, view, settings) {
             `).join('')}</div>`;
         }
         case 'pair': {
-            const list = state.pair || [];
-            if (!list.length) return `<div class="vse-empty">No Aether Pair matrices.</div>`;
-            return `<div class="vse-stack">${list.map((p) => `
-                <div class="vse-subcard">
-                    <div class="vse-subcard-head">
-                        <strong>${esc(p.names)}</strong>
-                        <span class="vse-pill">${esc(p.mode)}</span>
-                        <span class="vse-pill">${esc(p.dam)}</span>
-                        <span class="vse-pill">${esc(p.wall)}</span>
-                    </div>
-                    <div class="vse-matrix">${esc(p.matrix)}</div>
-                </div>
-            `).join('')}</div>`;
+            return renderAetherMatrixList(state.pair || [], prevState?.pair || null, { showGuide: true });
         }
         case 'tracks': {
             const tr = state.tracks || {};
@@ -323,15 +324,59 @@ function renderTabBody(tabId, state, view, settings) {
             }).join('')}</ul>`;
         }
         case 'vent': {
-            const rc = state.lastReceipt;
             return `<div class="vse-stack">
                 <div class="vse-subcard"><div class="vse-subcard-head"><strong>Vexa Vent</strong></div><div class="vse-vent-text">${esc(state.vent || '∅')}</div></div>
-                ${rc?.raw ? `<div class="vse-subcard"><div class="vse-subcard-head"><strong>CoT Receipt</strong></div><pre class="vse-pre">${esc(rc.raw)}</pre></div>` : ''}
             </div>`;
         }
         default:
             return '';
     }
+}
+
+function parseReceiptSummaryPills(rc) {
+    if (!rc) return '';
+    const pills = [];
+    const ws = String(rc.world_sim || '').trim();
+    if (ws && !isEmptySentinel(ws)) {
+        const firstTok = ws.split('|')[0].trim();
+        if (firstTok) pills.push(`<span class="vse-pill">${esc(firstTok.slice(0, 28))}</span>`);
+    }
+    const ch = String(rc.chekhov || '').trim();
+    if (ch && !isEmptySentinel(ch) && ch !== '∅') {
+        pills.push(`<span class="vse-pill">${esc(ch.slice(0, 32))}</span>`);
+    }
+    const propCount = Array.isArray(rc.tracker_proposals) ? rc.tracker_proposals.length : 0;
+    if (propCount) pills.push(`<span class="vse-pill warn">+${propCount} Proposal${propCount > 1 ? 's' : ''}</span>`);
+    return pills.join('');
+}
+
+function renderReceiptDrawer(state, view) {
+    const rc = state?.lastReceipt;
+    if (!rc?.raw) return '';
+    const open = Boolean(view.receiptOpen);
+    const pills = parseReceiptSummaryPills(rc);
+    const structuredRows = [
+        rc.world_sim && !isEmptySentinel(rc.world_sim) ? `<div><span>world_sim</span><b>${esc(rc.world_sim)}</b></div>` : '',
+        rc.chekhov && !isEmptySentinel(rc.chekhov) ? `<div><span>chekhov</span><b>${esc(rc.chekhov)}</b></div>` : '',
+        rc.arc && !isEmptySentinel(rc.arc) ? `<div><span>arc</span><b>${esc(rc.arc)}</b></div>` : '',
+        rc.ooc && !isEmptySentinel(rc.ooc) ? `<div><span>ooc</span><b>${esc(rc.ooc)}</b></div>` : '',
+    ].filter(Boolean).join('');
+
+    return `
+        <div class="vse-receipt-drawer ${open ? 'is-open' : ''}">
+            <button type="button" class="vse-receipt-head-btn" title="Show or hide main-model CoT Receipt (<vexa_receipt>)">
+                <span class="vse-receipt-title"><i class="fa-solid fa-receipt"></i> CoT Receipt</span>
+                <span class="vse-receipt-pills">${pills || '<span class="vse-muted">raw</span>'}</span>
+                <i class="fa-solid fa-chevron-${open ? 'up' : 'down'} vse-receipt-caret"></i>
+            </button>
+            ${open ? `
+                <div class="vse-receipt-body">
+                    ${structuredRows ? `<div class="vse-kv-grid vse-receipt-kv">${structuredRows}</div>` : ''}
+                    <pre class="vse-pre">${esc(rc.raw)}</pre>
+                </div>
+            ` : ''}
+        </div>
+    `;
 }
 
 function applyThemeVars($card, themeName) {
@@ -365,7 +410,19 @@ export function hideVexaTailInMessageEl($mesText) {
  * Refresh HUD cards for all rendered AI messages currently in #chat.
  */
 function refreshSingleHudCard($mes, ctx) {
-    const { store, tl, settings, workerStatus, onOpenEditor, onRetryMsg, onStopWorker, onCopyXml, onApproveProposal, onDismissProposal } = ctx;
+    const {
+        store,
+        tl,
+        settings,
+        workerStatus,
+        onOpenEditor,
+        onRetryMsg,
+        onStopWorker,
+        onCopyXml,
+        onApproveProposal,
+        onDismissProposal,
+        onToggleEntryDisabled,
+    } = ctx;
     const chat = ctx.chat || window.SillyTavern?.getContext?.()?.chat || [];
     const mesId = Number($mes.attr('mesid'));
     if (!Number.isFinite(mesId) || !chat[mesId]) return;
@@ -386,7 +443,8 @@ function refreshSingleHudCard($mes, ctx) {
     // Don't attach HUD to greeting msg 0 unless it actually has state
     if (mesId === 0 && !entry && !store.hasState()) return;
 
-    const view = getView(mesId, {
+    const viewKey = `${currentChatKey()}::${uid || `m_${mesId}`}`;
+    const view = getView(viewKey, {
         defaultCollapsed: settings.hudDefaultCollapsed !== false,
         theme: settings.hudTheme || 'Sola',
         style: settings.hudStyle || 'Afterglow',
@@ -414,6 +472,11 @@ function refreshSingleHudCard($mes, ctx) {
         ? `<button type="button" class="vse-mini-btn vse-health-bar-pill ${hMetrics.bleedingCount > 0 ? 'bleeding' : (hMetrics.overallHp < 80 ? 'warn' : '')}" title="Inspect Body Health Doll"><i class="fa-solid fa-heart-pulse"></i> ${hMetrics.overallHp}%${hMetrics.totalWounds ? ` · ${hMetrics.totalWounds}w` : ''}</button>`
         : '';
 
+    const changeLog = step
+        ? computeTurnChangeLog(step.prevState, step.state, { entry, warnings: step.warnings })
+        : null;
+    const changeLogDigest = changeLog ? JSON.stringify([changeLog.items, changeLog.warnings]) : '';
+    const showInlineChanges = settings.showInlineChanges !== false;
     const diffStr = (step?.diff || []).join(',');
     const activeTabDigest = view.collapsed
         ? ''
@@ -421,43 +484,54 @@ function refreshSingleHudCard($mes, ctx) {
             state?.[view.tab] ?? null,
             view.tab === 'locations' ? (state?.world?.user_pos || '') : null,
             view.tab === 'health' ? (state?.inv?.status || '') : null,
+            view.tab === 'pair' ? (step?.prevState?.pair || null) : null,
         ]);
 
-    const stamp = [
+    const buildStamp = (v) => [
         uid || '',
         seq ?? '',
         swipe,
         state.world?.ct ?? 0,
         state.world?.loc || '',
         state.world?.time || '',
-        view.collapsed ? '1' : '0',
-        view.tab,
-        view.theme,
-        view.style,
-        view.mapId || '',
-        view.level || '',
-        view.roomId || '',
+        v.collapsed ? '1' : '0',
+        v.tab,
+        v.theme,
+        v.style,
+        v.mapId || '',
+        v.level || '',
+        v.roomId || '',
         effectiveAtlasMode,
-        view.allFloors ? '1' : '0',
-        view.cutaway ? '1' : '0',
-        view.showLabels ? '1' : '0',
-        view.healthLayer || 'body',
-        view.healthPart || '',
+        v.allFloors ? '1' : '0',
+        v.cutaway ? '1' : '0',
+        v.showLabels ? '1' : '0',
+        v.receiptOpen ? '1' : '0',
+        v.diffOpen ? '1' : '0',
+        v.diffFilter || 'all',
+        v.diffShowAll ? '1' : '0',
+        v.healthLayer || 'body',
+        v.healthPart || '',
         `${hMetrics.overallHp}:${hMetrics.totalWounds}:${hMetrics.bleedingCount}:${hMetrics.bloodLoss}:${settings.defaultBodyType || 'male'}`,
         entry?.status || '',
         entry?.source || '',
         entry?.error || '',
+        entry?.disabled ? '1' : '0',
+        showInlineChanges ? '1' : '0',
         isBusyForThis ? (workerStatus?.runningLabel || 'busy') : 'idle',
         trackerCount,
         proposalCount,
         proposalDigest,
+        changeLogDigest,
+        state.lastReceipt?.raw || '',
         diffStr,
         activeTabDigest,
     ].join('|');
 
+    const stamp = buildStamp(view);
+
     let $card = $mes.find('.vse-hud-card').first();
     if ($card.length) {
-        $card.data('vseLiveCtx', { ctx, state, view, mesId });
+        $card.data('vseLiveCtx', { ctx, state, view, mesId, buildStamp });
         if ($card.attr('data-vse-stamp') === stamp) return;
     }
 
@@ -465,7 +539,7 @@ function refreshSingleHudCard($mes, ctx) {
         $card = $('<div class="vse-hud-card"></div>');
         if ($mesText.length) $mesText.after($card);
         else $mes.find('.mes_block').append($card);
-        $card.data('vseLiveCtx', { ctx, state, view, mesId });
+        $card.data('vseLiveCtx', { ctx, state, view, mesId, buildStamp });
     }
 
     const diffSet = new Set(step?.diff || []);
@@ -482,11 +556,33 @@ function refreshSingleHudCard($mes, ctx) {
     ).join('');
 
     const tabsHtml = HUD_TABS.map((t) => {
+        const tabCnt = changeLog?.byTab?.[t.id] || 0;
         const hasDiff = diffSet.has(t.id);
+        const badge = tabCnt > 0
+            ? `<span class="vse-tab-diff-cnt" title="${tabCnt} change${tabCnt === 1 ? '' : 's'} this turn">${tabCnt}</span>`
+            : (hasDiff ? '<span class="vse-diff-dot" title="Changed this turn"></span>' : '');
         return `<button type="button" class="vse-tab-btn ${view.tab === t.id ? 'active' : ''}" data-tab="${t.id}">
-            <i class="fa-solid ${t.icon}"></i> ${esc(t.label)}${hasDiff ? '<span class="vse-diff-dot" title="Changed this turn"></span>' : ''}
+            <i class="fa-solid ${t.icon}"></i> ${esc(t.label)}${badge}
         </button>`;
     }).join('');
+
+    const changeHeaderBadge = entry?.disabled
+        ? '<span class="vse-pill warn" title="Changes from this reply are reverted">Reverted</span>'
+        : (changeLog?.total
+            ? `<span class="vse-pill vse-diff-hdr-pill" title="${changeLog.total} changes in this reply">Δ ${changeLog.total}</span>`
+            : '');
+
+    const diffStripHtml = showInlineChanges
+        ? renderChangeLogStrip(changeLog, {
+            entry,
+            isOpen: view.diffOpen,
+            filterMode: view.diffFilter || 'all',
+            showAll: Boolean(view.diffShowAll),
+            activeTab: view.tab,
+            canToggle: Boolean(onToggleEntryDisabled && entry),
+            canRead: Boolean(onRetryMsg),
+        })
+        : '';
 
     $card
         .attr('data-vse-stamp', stamp)
@@ -502,6 +598,7 @@ function refreshSingleHudCard($mes, ctx) {
                 <span class="vse-pill">ct:${esc(state.world?.ct ?? 0)}</span>
                 <span class="vse-hud-loc">${esc(state.world?.loc || 'No location')}</span>
                 <span class="vse-hud-time">${esc(state.world?.time || '')}</span>
+                ${changeHeaderBadge}
                 ${proposalCount ? `<span class="vse-pill warn" title="Pending custom tracker proposal"><i class="fa-solid fa-sparkles"></i> ${proposalCount} Proposal</span>` : ''}
             </button>
             <div class="vse-hud-actions">
@@ -517,9 +614,11 @@ function refreshSingleHudCard($mes, ctx) {
                 <label>Theme: <select class="vse-theme-sel">${themeOpts}</select></label>
                 <label>Style: <select class="vse-style-sel">${VEXA_STYLES.map((st) => `<option value="${esc(st)}" ${st === view.style ? 'selected' : ''}>${esc(st)}</option>`).join('')}</select></label>
             </div>
+            ${diffStripHtml}
             <div class="vse-tabs">${tabsHtml}</div>
-            <div class="vse-tab-panel">${view.collapsed ? '' : renderTabBody(view.tab, state, view, settings)}</div>
+            <div class="vse-tab-panel">${view.collapsed ? '' : renderTabBody(view.tab, state, view, settings, step?.prevState || null)}</div>
         </div>
+        ${renderReceiptDrawer(state, view)}
     `);
 
     const triggerLocalRefresh = () => {
@@ -532,17 +631,22 @@ function refreshSingleHudCard($mes, ctx) {
         observePolyViewports($card[0]);
     };
 
-    if (!view.collapsed && view.tab === 'locations' && effectiveAtlasMode === '3d') {
-        const vpEl = $card.find('.vse-poly-viewport')[0];
-        if (vpEl) {
-            bindPolyOrbitControls(vpEl, view.camera, {
-                onSelectRoom: (roomId) => {
-                    const live = $card.data('vseLiveCtx');
-                    if (live) live.view.roomId = roomId;
-                    triggerLocalRefresh();
-                },
-            });
-            observePolyViewports(vpEl);
+    if (!view.collapsed && view.tab === 'locations') {
+        if (effectiveAtlasMode === '3d') {
+            const vpEl = $card.find('.vse-poly-viewport')[0];
+            if (vpEl) {
+                bindPolyOrbitControls(vpEl, view.camera, {
+                    onSelectRoom: (roomId) => {
+                        const live = $card.data('vseLiveCtx');
+                        if (live) live.view.roomId = roomId;
+                        triggerLocalRefresh();
+                    },
+                });
+                observePolyViewports(vpEl);
+            }
+        } else if (effectiveAtlasMode === '2d') {
+            const svgWrapEl = $card.find('.vse-atlas-svg-wrap')[0];
+            if (svgWrapEl) bindAtlasSvgControls(svgWrapEl, view.svgCamera);
         }
     }
 
@@ -579,6 +683,7 @@ function refreshSingleHudCard($mes, ctx) {
             live.view.mapId = $(this).val();
             live.view.level = null;
             live.view.roomId = null;
+            live.view.svgCamera = { zoom: 1, panX: 0, panY: 0 };
             triggerLocalRefresh();
         });
         $card.on('click', '.vse-atlas-floor-btn', function () {
@@ -587,6 +692,7 @@ function refreshSingleHudCard($mes, ctx) {
             live.view.level = String($(this).data('level'));
             live.view.allFloors = false;
             live.view.roomId = null;
+            live.view.svgCamera = { zoom: 1, panX: 0, panY: 0 };
             triggerLocalRefresh();
         });
         $card.on('click', '.vse-atlas-allfloors-btn', function () {
@@ -694,10 +800,92 @@ function refreshSingleHudCard($mes, ctx) {
             const xml = serializeInternalStates(live.state, { scoped: false, includeVent: true });
             live.ctx?.onCopyXml?.(xml);
         });
+        $card.on('click', '.vse-receipt-head-btn', (e) => {
+            e.stopPropagation();
+            const live = $card.data('vseLiveCtx');
+            if (!live) return;
+            live.view.receiptOpen = !live.view.receiptOpen;
+            triggerLocalRefresh();
+        });
+        $card.on('click', '.vse-diff-head-btn', (e) => {
+            e.stopPropagation();
+            const live = $card.data('vseLiveCtx');
+            if (!live) return;
+            live.view.diffOpen = !live.view.diffOpen;
+            triggerLocalRefresh();
+        });
+        $card.on('click', '.vse-diff-filter-btn', function (e) {
+            e.stopPropagation();
+            const live = $card.data('vseLiveCtx');
+            if (!live) return;
+            live.view.diffFilter = String($(this).data('diff-filter') || 'all');
+            triggerLocalRefresh();
+        });
+        $card.on('click', '.vse-diff-more-btn', function (e) {
+            e.stopPropagation();
+            const live = $card.data('vseLiveCtx');
+            if (!live) return;
+            live.view.diffShowAll = String($(this).data('diff-all')) === '1';
+            triggerLocalRefresh();
+        });
+        $card.on('click', '.vse-diff-jump', function (e) {
+            e.stopPropagation();
+            const live = $card.data('vseLiveCtx');
+            if (!live) return;
+            live.view.collapsed = false;
+            live.view.tab = String($(this).data('diff-jump') || 'world');
+            triggerLocalRefresh();
+        });
+        $card.on('click', '.vse-diff-revert-btn', function (e) {
+            e.stopPropagation();
+            const live = $card.data('vseLiveCtx');
+            live?.ctx?.onToggleEntryDisabled?.(live.mesId, String($(this).data('diff-toggle')) === '1');
+        });
+        $card.on('click', '.vse-diff-read-btn', (e) => {
+            e.stopPropagation();
+            const live = $card.data('vseLiveCtx');
+            live?.ctx?.onRetryMsg?.(live.mesId);
+        });
     }
 }
 
-export function refreshAllHudCards({ store, settings, workerStatus, onOpenEditor, onRetryMsg, onStopWorker, onCopyXml, onApproveProposal, onDismissProposal }) {
+/**
+ * Rapidly align every currently mounted HUD card (and per-message viewState)
+ * to the chosen theme & style in-place without tearing down/rebuilding DOM.
+ */
+export function alignAllHudThemes(theme, style) {
+    const nextTheme = VEXA_THEMES[theme] ? theme : 'Sola';
+    const nextStyle = VEXA_STYLES.includes(style) ? style : 'Afterglow';
+    const activePrefix = `${currentChatKey()}::`;
+    for (const [k, v] of viewState.entries()) {
+        if (String(k).startsWith(activePrefix)) {
+            v.theme = nextTheme;
+            v.style = nextStyle;
+        }
+    }
+    let updated = 0;
+    if (typeof $ === 'function') {
+        $('#chat .vse-hud-card').each(function () {
+            const $card = $(this);
+            const live = $card.data('vseLiveCtx');
+            if (live?.view) {
+                live.view.theme = nextTheme;
+                live.view.style = nextStyle;
+            }
+            applyThemeVars($card, nextTheme);
+            $card.attr('data-vse-style', nextStyle);
+            $card.find('.vse-theme-sel').val(nextTheme);
+            $card.find('.vse-style-sel').val(nextStyle);
+            if (live?.buildStamp && live?.view) {
+                $card.attr('data-vse-stamp', live.buildStamp(live.view));
+            }
+            updated++;
+        });
+    }
+    return updated;
+}
+
+export function refreshAllHudCards({ store, settings, workerStatus, onOpenEditor, onRetryMsg, onStopWorker, onCopyXml, onApproveProposal, onDismissProposal, onToggleEntryDisabled }) {
     if (!store || !settings.enabled) {
         $('#chat .vse-hud-card').remove();
         return;
@@ -718,6 +906,7 @@ export function refreshAllHudCards({ store, settings, workerStatus, onOpenEditor
         onCopyXml,
         onApproveProposal,
         onDismissProposal,
+        onToggleEntryDisabled,
     };
     $('#chat .mes').each(function () {
         refreshSingleHudCard($(this), sharedCtx);

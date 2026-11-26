@@ -1,7 +1,7 @@
 /**
  * Hybrid Three.js WebGL Atlas Renderer + Textured CC BY 4.0 Kit Integration.
  *
- * Code (MIT): procedural geometry, wall/doorway CSG-style splitting, orbit controls, lighting.
+ * Code (CC BY-NC 4.0): procedural geometry, wall/doorway CSG-style splitting, orbit controls, lighting.
  * Bundled 3D assets (CC BY 4.0 — see assets/models/ATTRIBUTION.md):
  *   - assets/models/psx-industrial.glb (Tomitos — PSX Industrial Pack)
  *   - assets/models/scifi-lab-props.glb (Agata Wilczek — Sci-fi lab)
@@ -14,6 +14,12 @@ import { computeBbox, parseDimMeters, parseOccupantsList } from './reducer.js';
 import { inferRoomStyle, inferObjectsFromFeatures } from './atlas3d.js';
 import { resolveMaterialColor, shadeHex } from './polyCss3d.js';
 import { PALETTE, isEmptySentinel } from './schema.js';
+import {
+    parseLocalPoint3D,
+    parseRoomHeight,
+    clampObjectToRoom,
+    buildAtlasTopology,
+} from './atlasTopology.js';
 
 const PSX_GLB_URL = new URL('../assets/models/psx-industrial.glb', import.meta.url).href;
 const SCIFI_GLB_URL = new URL('../assets/models/scifi-lab-props.glb', import.meta.url).href;
@@ -111,6 +117,7 @@ const DEFAULT_OBJ_SIZES = Object.freeze({
     stairs: [1.35, 2.1, 1.6],
     wall: [2.4, 0.3, 2.2],
     plane: [1.8, 1.8, 0.04],
+    platform: [3.2, 2.2, 0.25],
 });
 
 const packCache = new Map();
@@ -153,8 +160,8 @@ function inferWebglTheme(room) {
     if (baseStyle === 'outdoor' || baseStyle === 'water') return baseStyle;
     const objShapes = Array.isArray(room?.objects) ? room.objects.map((o) => o?.shape || '').join(' ') : '';
     const blob = `${room?.style || ''} ${room?.name || ''} ${room?.features || ''} ${objShapes}`.toLowerCase();
-    if (/\b(scifi|sci-fi|cryo|biovat|vat|airlock|viewscreen|console)\b/.test(blob)) return 'scifi';
-    if (/\b(industrial|cargo|warehouse|dumpster|generator|container|foundry|hangar)\b/.test(blob)) return 'industrial';
+    if (/\b(scifi|sci-fi|cryo|biovat|vat|airlock|viewscreen|console|lab|laboratory|corridor|sub-surface|containment|hive|bulkhead|reactor|sector|bunker|facility|terminal|umbrella)\b/.test(blob)) return 'scifi';
+    if (/\b(industrial|cargo|warehouse|dumpster|generator|container|foundry|hangar|stairwell|shaft|freight|grating)\b/.test(blob)) return 'industrial';
     if (/\b(tavern|inn|alehouse|hearthroom)\b/.test(blob)) return 'tavern';
     if (/\b(medieval|library|archive|keep|solar|rookery|lord commander)\b/.test(blob)) return 'medieval';
     return baseStyle || 'stone';
@@ -271,11 +278,12 @@ export function splitWallWithDoorways(wallSpan, wallHeight, doorways = []) {
             prev.right = Math.max(prev.right, op.right);
             prev.width = prev.right - prev.left;
             prev.center = (prev.left + prev.right) / 2;
+            prev.bottomOffset = Math.min(prev.bottomOffset || 0, Number(op.bottomOffset) || 0);
             prev.height = Math.max(prev.height, op.height);
             prev.frameHeight = Math.max(prev.frameHeight || 0, op.frameHeight || 0);
             prev._parts.push(op);
         } else {
-            openings.push({ ...op, _parts: [op] });
+            openings.push({ ...op, bottomOffset: Number(op.bottomOffset) || 0, _parts: [op] });
         }
     }
 
@@ -305,17 +313,31 @@ export function splitWallWithDoorways(wallSpan, wallHeight, doorways = []) {
             const w = b - a;
             if (w <= 0.02) continue;
             const mid = (a + b) / 2;
-            let covH = 0;
+            let covTop = 0;
+            let covBottom = Infinity;
             for (const p of op._parts) {
-                if (mid >= p.left && mid <= p.right) covH = Math.max(covH, p.height);
+                if (mid >= p.left && mid <= p.right) {
+                    const pBot = Math.max(0, Number(p.bottomOffset) || 0);
+                    covBottom = Math.min(covBottom, pBot);
+                    covTop = Math.max(covTop, pBot + p.height);
+                }
             }
-            const subH = covH || op.height;
-            if (fullH - subH > 0.05) {
+            const sillH = Number.isFinite(covBottom) ? Math.min(fullH, covBottom) : 0;
+            const topY = Math.min(fullH, covTop || op.height);
+            if (sillH > 0.05) {
+                wallSegments.push({
+                    center: mid,
+                    width: w,
+                    y0: 0,
+                    height: sillH,
+                });
+            }
+            if (fullH - topY > 0.05) {
                 lintels.push({
                     center: mid,
                     width: w,
-                    y0: subH,
-                    height: fullH - subH,
+                    y0: topY,
+                    height: fullH - topY,
                 });
             }
         }
@@ -411,13 +433,17 @@ export function parseRoomDoorways(room, box, roomW, roomD, wallH) {
     return byWall;
 }
 
-function buildDoorwayAssembly(opening, styleId, palette, wallT) {
+function buildDoorwayAssembly(opening, styleId, palette, wallT, effectiveWallH = 2.4) {
     const g = new THREE.Group();
     const w = opening.width;
-    const h = Math.min(2.2, Math.max(1.85, opening.frameHeight || opening.height));
+    const maxAllowedH = Math.max(0.42, effectiveWallH - 0.05);
+    const isLowPortal = effectiveWallH <= 1.45;
+    const h = isLowPortal
+        ? Math.max(0.4, effectiveWallH - 0.04)
+        : Math.min(2.2, maxAllowedH, Math.max(1.82, opening.frameHeight || opening.height));
     const jambW = 0.11;
-    const depth = Math.max(wallT + 0.08, 0.24);
-    const kind = opening.kind === 'scifi' ? 'scifi' : styleId;
+    const depth = Math.max(opening.depth || (wallT + 0.08), wallT + 0.06);
+    const kind = (opening.kind === 'scifi' || styleId === 'scifi') ? 'scifi' : styleId;
 
     const frameMat = makeMat(
         kind === 'scifi' ? '#475569' : kind === 'industrial' ? '#d97706' : '#5c3c27',
@@ -425,7 +451,7 @@ function buildDoorwayAssembly(opening, styleId, palette, wallT) {
     );
     const trimMat = makeMat(palette.trim, { roughness: 0.45, metalness: 0.45 });
 
-    // Left & right door jambs + overhead header
+    // Left & right door jambs
     const jambGeo = new THREE.BoxGeometry(jambW, h, depth);
     const leftJamb = new THREE.Mesh(jambGeo, frameMat);
     leftJamb.position.set(-w / 2 + jambW / 2, h / 2, 0);
@@ -435,20 +461,24 @@ function buildDoorwayAssembly(opening, styleId, palette, wallT) {
     rightJamb.castShadow = true;
     g.add(leftJamb, rightJamb);
 
-    const headerGeo = new THREE.BoxGeometry(w + 0.12, 0.14, depth + 0.04);
-    const header = new THREE.Mesh(headerGeo, trimMat);
-    header.position.set(0, h + 0.05, 0);
-    header.castShadow = true;
-    g.add(header);
-
-    // Threshold sill plate so doorways are unmistakable even in low-cutaway view
-    const sillGeo = new THREE.BoxGeometry(w + 0.06, 0.045, depth + 0.12);
+    // Threshold sill plate
+    const sillGeo = new THREE.BoxGeometry(w + 0.06, 0.045, depth + 0.1);
     const sill = new THREE.Mesh(sillGeo, trimMat);
     sill.position.set(0, 0.022, 0);
     sill.receiveShadow = true;
     g.add(sill);
 
-    if (kind === 'scifi' || styleId === 'scifi') {
+    if (isLowPortal) {
+        return g;
+    }
+
+    const headerGeo = new THREE.BoxGeometry(w + 0.12, 0.13, depth + 0.04);
+    const header = new THREE.Mesh(headerGeo, trimMat);
+    header.position.set(0, h + 0.04, 0);
+    header.castShadow = true;
+    g.add(header);
+
+    if (kind === 'scifi') {
         // Retracted blast doors (ajar) + cyan beacon strip
         const panelW = (w - jambW * 2) * 0.24;
         const panelGeo = new THREE.BoxGeometry(panelW, h - 0.06, depth * 0.48);
@@ -460,24 +490,27 @@ function buildDoorwayAssembly(opening, styleId, palette, wallT) {
         const stripGeo = new THREE.BoxGeometry(w * 0.65, 0.05, depth + 0.06);
         const stripMat = makeMat('#22d3ee', { emissive: '#06b6d4', emissiveIntensity: 1.5 });
         const strip = new THREE.Mesh(stripGeo, stripMat);
-        strip.position.set(0, h + 0.06, 0);
+        strip.position.set(0, h + 0.05, 0);
         g.add(pL, pR, strip);
     } else {
-        // Hinged timber / iron door swung open 42° into room so passageway remains visibly open
+        // Single hinged timber/iron door centered inside jambs, swung open 42° cleanly
         const leafW = Math.max(0.55, w - jambW * 2 - 0.04);
         const pivot = new THREE.Group();
-        pivot.position.set(-w / 2 + jambW, 0, depth * 0.15);
-        pivot.rotation.y = Math.PI * 0.26;
-        const leafColor = styleId === 'industrial' ? '#334155' : '#7c4a2d';
-        const leafGeo = new THREE.BoxGeometry(leafW, h - 0.04, 0.06);
-        const leaf = new THREE.Mesh(leafGeo, makeMat(leafColor, { roughness: 0.65, metalness: styleId === 'industrial' ? 0.55 : 0.08 }));
+        pivot.position.set(-w / 2 + jambW, 0, 0);
+        pivot.rotation.y = Math.PI * 0.24;
+        const leafColor = kind === 'industrial' ? '#475569' : '#7c4a2d';
+        const leafGeo = new THREE.BoxGeometry(leafW, h - 0.04, 0.07);
+        const leaf = new THREE.Mesh(leafGeo, makeMat(leafColor, { roughness: 0.62, metalness: kind === 'industrial' ? 0.58 : 0.08 }));
         leaf.position.set(leafW / 2, (h - 0.04) / 2, 0);
         leaf.castShadow = true;
 
         const knobGeo = new THREE.SphereGeometry(0.045, 8, 8);
-        const knob = new THREE.Mesh(knobGeo, makeMat('#fbbf24', { roughness: 0.28, metalness: 0.85 }));
-        knob.position.set(leafW - 0.11, h * 0.46, 0.05);
-        pivot.add(leaf, knob);
+        const knobMat = makeMat('#fbbf24', { roughness: 0.28, metalness: 0.85 });
+        const knobF = new THREE.Mesh(knobGeo, knobMat);
+        knobF.position.set(leafW - 0.11, h * 0.46, 0.045);
+        const knobB = new THREE.Mesh(knobGeo, knobMat);
+        knobB.position.set(leafW - 0.11, h * 0.46, -0.045);
+        pivot.add(leaf, knobF, knobB);
         g.add(pivot);
     }
 
@@ -496,6 +529,7 @@ function addWallWithCutouts(parent, {
     wallMat,
     styleId,
     palette,
+    renderDoorMesh = false,
 }) {
     const wallGroup = new THREE.Group();
     wallGroup.position.set(posX, baseY, posZ);
@@ -521,10 +555,12 @@ function addWallWithCutouts(parent, {
         wallGroup.add(mesh);
     }
 
-    for (const op of openings) {
-        const door = buildDoorwayAssembly(op, styleId, palette, wallT);
-        door.position.set(op.center, 0, 0);
-        wallGroup.add(door);
+    if (renderDoorMesh) {
+        for (const op of openings) {
+            const door = buildDoorwayAssembly(op, styleId, palette, wallT, wallH);
+            door.position.set(op.center, 0, 0);
+            wallGroup.add(door);
+        }
     }
 
     parent.add(wallGroup);
@@ -755,6 +791,31 @@ function buildProceduralProp(shape, colorHex, w, d, h, roomLights, worldPos) {
             g.add(m);
             break;
         }
+        case 'platform': {
+            const slabH = Math.max(0.14, Math.min(0.32, h));
+            box(w, slabH, d, 0, slabH / 2, 0, main);
+            const localZ = Number(worldPos?.localZ) || 0;
+            if (localZ > 0.25) {
+                const legT = Math.max(0.1, Math.min(0.22, Math.min(w, d) * 0.08));
+                for (const sx of [-1, 1]) {
+                    for (const sz of [-1, 1]) {
+                        box(legT, localZ, legT, sx * (w / 2 - legT * 0.8), -localZ / 2, sz * (d / 2 - legT * 0.8), steel);
+                    }
+                }
+            }
+            if (localZ > 0.4) {
+                const railH = 0.85;
+                const railT = 0.06;
+                for (const sz of [-1, 1]) {
+                    const rz = sz * (d / 2 - railT);
+                    box(w, railT, railT, 0, slabH + railH - railT / 2, rz, steel);
+                    for (const sx of [-1, 1]) {
+                        box(railT, railH, railT, sx * (w / 2 - railT), slabH + railH / 2, rz, steel);
+                    }
+                }
+            }
+            break;
+        }
         default: {
             box(w, h, d, 0, h / 2, 0, main);
             break;
@@ -910,11 +971,15 @@ export function mountAtlasWebGLViewport(containerEl, state, opts = {}) {
         if (r?.level !== undefined && r?.level !== null) return String(r.level);
         return '0';
     };
+    const floorZs = [...new Set(mapRooms.map(getRoomZ))].sort((a, b) => Number(a) - Number(b));
+    const idxLvl = loc.map_index?.active_level && loc.map_index.active_level !== '∅'
+        ? String(loc.map_index.active_level)
+        : '';
     const activeLvl = selectedLevel !== null && selectedLevel !== undefined
         ? String(selectedLevel)
-        : String(loc.map_index?.active_level && loc.map_index.active_level !== '∅'
-            ? loc.map_index.active_level
-            : getRoomZ(mapRooms[0] || {}));
+        : (idxLvl && (!floorZs.length || floorZs.includes(idxLvl))
+            ? idxLvl
+            : (floorZs[0] ?? getRoomZ(mapRooms[0] || {})));
     const visibleRooms = allFloors ? mapRooms : mapRooms.filter((r) => getRoomZ(r) === activeLvl);
 
     containerEl.querySelector('canvas.vse-webgl-canvas')?.remove();
@@ -1004,34 +1069,72 @@ export function mountAtlasWebGLViewport(containerEl, state, opts = {}) {
         bounds.maxZ = Math.max(bounds.maxZ, z);
     };
 
-    const FLOOR_STEP = 3.85;
+    const wallT = 0.22;
     let glbReplacedCount = 0;
 
-    visibleRooms.forEach((room, roomIdx) => {
+    // 1. Precompute room bounds, intra-level height, and floor elevation
+    const positioned = visibleRooms.map((room, roomIdx) => {
         const box = computeBbox(room.coords || room.grid, room.dim)
             || { x1: (roomIdx % 3) * 8, y1: Math.floor(roomIdx / 3) * 8, x2: (roomIdx % 3) * 8 + 7, y2: Math.floor(roomIdx / 3) * 8 + 7, z: Number(room.level || 0) };
-        const rw = Math.max(2.6, box.x2 - box.x1);
-        const rd = Math.max(2.6, box.y2 - box.y1);
-        const cx = (box.x1 + box.x2) / 2;
-        const cz = (box.y1 + box.y2) / 2;
-        const levelNum = Number(getRoomZ(room)) || 0;
-        const baseY = levelNum * FLOOR_STEP;
+        const { h: roomH, elev } = parseRoomHeight(room);
         const styleId = inferWebglTheme(room);
         const palette = STYLE_COLORS[styleId] || STYLE_COLORS.stone;
-        const fullWallH = palette.curbOnly ? 0.42 : 2.75;
-        const backWallH = palette.curbOnly ? 0.42 : (cutaway ? 2.45 : fullWallH);
-        const frontWallH = palette.curbOnly ? 0.42 : (cutaway ? 1.05 : fullWallH);
-        const wallT = 0.22;
+        const backWallH = palette.curbOnly
+            ? 0.42
+            : (cutaway ? Math.min(6.4, Math.max(2.35, roomH * 0.68)) : roomH);
+        const frontWallH = palette.curbOnly ? 0.42 : (cutaway ? 1.05 : roomH);
+        return {
+            room,
+            box,
+            rw: Math.max(2.6, box.x2 - box.x1),
+            rd: Math.max(2.6, box.y2 - box.y1),
+            roomH,
+            elev,
+            styleId,
+            palette,
+            backWallH,
+            frontWallH,
+            floorBaseY: 0,
+            baseY: elev,
+        };
+    });
 
-        touchBound(box.x1, baseY, box.y1);
-        touchBound(box.x2, baseY + Math.max(fullWallH, 2.2) + 0.6, box.y2);
+    // Dynamic vertical stacking across floors based on actual room height + intra-level elev (safe for negative elev)
+    const floorBaseMap = new Map();
+    if (allFloors && positioned.length > 0) {
+        const sortedZs = [...new Set(positioned.map((p) => p.box.z))].sort((a, b) => a - b);
+        let accY = 0;
+        for (const z of sortedZs) {
+            const onZ = positioned.filter((p) => p.box.z === z);
+            const minElev = Math.min(0, ...onZ.map((p) => p.elev));
+            const floorOffset = accY - minElev;
+            floorBaseMap.set(z, floorOffset);
+            const maxTop = Math.max(3.6, ...onZ.map((p) => (p.elev - minElev) + (cutaway ? p.backWallH : p.roomH)));
+            accY += maxTop + 1.4;
+        }
+    }
+    for (const p of positioned) {
+        p.floorBaseY = floorBaseMap.get(p.box.z) ?? 0;
+        p.baseY = p.floorBaseY + p.elev;
+    }
+
+    const topology = buildAtlasTopology(positioned, { getTheme: inferWebglTheme, wallT });
+    const roomById = new Map(positioned.map((p) => [p.room.id, p]));
+
+    for (const p of positioned) {
+        const { room, box, rw, rd, roomH, elev, styleId, palette, floorBaseY, baseY } = p;
+        const cx = (box.x1 + box.x2) / 2;
+        const cz = (box.y1 + box.y2) / 2;
+        const levelNum = box.z;
+
+        touchBound(box.x1, Math.min(floorBaseY, baseY), box.y1);
+        touchBound(box.x2, baseY + Math.max(p.backWallH, 2.2) + 0.6, box.y2);
 
         const isCurrent = Boolean(room.isCurrent || room.id === selectedRoomId);
-
         const roomGroup = new THREE.Group();
         worldRoot.add(roomGroup);
 
-        // Floor slab
+        // Floor slab (exact [x1..x2, y1..y2] footprint so neighboring rooms never overlap)
         const floorTex = makeFloorCheckerTexture(palette.floor, styleId);
         if (floorTex) {
             floorTex.repeat.set(Math.max(1, rw / 2.2), Math.max(1, rd / 2.2));
@@ -1045,12 +1148,22 @@ export function mountAtlasWebGLViewport(containerEl, state, opts = {}) {
             transparent: allFloors && levelNum > 0,
             opacity: allFloors && levelNum > 0 ? 0.78 : 1,
         });
-        const floorMesh = new THREE.Mesh(new THREE.BoxGeometry(rw + wallT, 0.16, rd + wallT), floorMat);
+        const floorMesh = new THREE.Mesh(new THREE.BoxGeometry(rw, 0.16, rd), floorMat);
         floorMesh.position.set(cx, baseY - 0.08, cz);
         floorMesh.receiveShadow = true;
         floorMesh.userData.roomId = room.id;
         roomFloorMeshes.push(floorMesh);
         roomGroup.add(floorMesh);
+
+        // Foundation plinth when intra-level elevation > 0
+        if (elev > 0.05) {
+            const plinthMat = makeMat(shadeHex(palette.floor, 0.72), { roughness: 0.88, metalness: 0.1 });
+            const plinthMesh = new THREE.Mesh(new THREE.BoxGeometry(rw - 0.04, elev, rd - 0.04), plinthMat);
+            plinthMesh.position.set(cx, floorBaseY + elev / 2 - 0.16, cz);
+            plinthMesh.castShadow = true;
+            plinthMesh.receiveShadow = true;
+            roomGroup.add(plinthMesh);
+        }
 
         if (isCurrent) {
             const halo = new THREE.LineLoop(
@@ -1066,97 +1179,140 @@ export function mountAtlasWebGLViewport(containerEl, state, opts = {}) {
             roomGroup.add(halo);
         }
 
-        // Walls with true physical doorway cutouts & hinged/sliding doors (slightly inset to avoid Z-fighting)
+        // Flush corner-aligned walls with unified shared-seam height & doorway cutouts (doors mounted separately)
         const wallMat = makeMat(palette.wall, {
             roughness: styleId === 'scifi' ? 0.45 : 0.82,
             metalness: styleId === 'scifi' ? 0.38 : 0.08,
             transparent: allFloors && levelNum > 0,
             opacity: allFloors && levelNum > 0 ? 0.82 : 1,
         });
-        const doorways = parseRoomDoorways(room, box, rw, rd, backWallH);
-        const inset = wallT * 0.54;
+        const shared = topology.sharedWallFlags.get(room.id) || {};
+        const openings = topology.openingsByRoom.get(room.id) || { north: [], south: [], east: [], west: [] };
+        const wallHeightFor = (side, defaultH) => {
+            const nInfo = shared[side];
+            if (!nInfo?.neighbor) return defaultH;
+            if (palette.curbOnly) return defaultH;
+            if (nInfo.neighbor.palette?.curbOnly) return p.backWallH;
+            return cutaway ? Math.min(p.backWallH, nInfo.neighbor.backWallH) : p.roomH;
+        };
+
+        const hN = wallHeightFor('north', p.backWallH);
+        const hS = wallHeightFor('south', p.frontWallH);
+        const hW = wallHeightFor('west', p.backWallH);
+        const hE = wallHeightFor('east', p.frontWallH);
+        p.wallHeights = { north: hN, south: hS, west: hW, east: hE };
+
+        const halfT = wallT * 0.5;
+        const ewSpan = Math.max(0.2, rd - wallT * 2);
 
         addWallWithCutouts(roomGroup, {
-            span: rw, wallH: backWallH, wallT, doorways: doorways.north,
-            posX: cx, posZ: box.y1 + inset, baseY, rotY: 0, wallMat, styleId, palette,
+            span: rw, wallH: hN, wallT, doorways: openings.north,
+            posX: cx, posZ: box.y1 + halfT, baseY, rotY: 0, wallMat, styleId, palette, renderDoorMesh: false,
         });
         addWallWithCutouts(roomGroup, {
-            span: rw, wallH: frontWallH, wallT, doorways: doorways.south,
-            posX: cx, posZ: box.y2 - inset, baseY, rotY: 0, wallMat, styleId, palette,
+            span: rw, wallH: hS, wallT, doorways: openings.south,
+            posX: cx, posZ: box.y2 - halfT, baseY, rotY: 0, wallMat, styleId, palette, renderDoorMesh: false,
         });
         addWallWithCutouts(roomGroup, {
-            span: rd, wallH: backWallH, wallT, doorways: doorways.west,
-            posX: box.x1 + inset, posZ: cz, baseY, rotY: Math.PI / 2, wallMat, styleId, palette,
+            span: ewSpan, wallH: hW, wallT, doorways: openings.west,
+            posX: box.x1 + halfT, posZ: cz, baseY, rotY: Math.PI / 2, wallMat, styleId, palette, renderDoorMesh: false,
         });
         addWallWithCutouts(roomGroup, {
-            span: rd, wallH: frontWallH, wallT, doorways: doorways.east,
-            posX: box.x2 - inset, posZ: cz, baseY, rotY: Math.PI / 2, wallMat, styleId, palette,
+            span: ewSpan, wallH: hE, wallT, doorways: openings.east,
+            posX: box.x2 - halfT, posZ: cz, baseY, rotY: Math.PI / 2, wallMat, styleId, palette, renderDoorMesh: false,
         });
 
-        // Props & furniture (authored objects + inferred feature props)
-        const roomObjs = Array.isArray(room.objects) && room.objects.length
+        // Props & furniture (grounded, clamped inside interior walls, duplicate door-props suppressed)
+        const rawObjs = Array.isArray(room.objects) && room.objects.length
             ? room.objects
             : inferObjectsFromFeatures(room, box);
+        const supSet = topology.suppressedObjectsByRoom.get(room.id) || new Set();
+        const roomDim = { w: rw, h: rd, zH: roomH };
 
-        roomObjs.forEach((obj) => {
-            const dims = resolveObjDims(obj);
-            const lx = Array.isArray(obj.pos)
-                ? Number(obj.pos[0])
-                : (Number.isFinite(Number(obj.x)) ? Number(obj.x) : rw / 2);
-            const ly = Array.isArray(obj.pos)
-                ? Number(obj.pos[1])
-                : (Number.isFinite(Number(obj.y)) ? Number(obj.y) : rd / 2);
-            const lz = Array.isArray(obj.pos)
-                ? Number(obj.pos[2] || 0)
-                : (Number(obj.z) || 0);
-            const gx = box.x1 + (Number.isFinite(lx) ? lx : rw / 2);
-            const gz = box.y1 + (Number.isFinite(ly) ? ly : rd / 2);
-            const objY = baseY + (Number.isFinite(lz) ? lz : 0);
-            const yaw = -((Number(obj.rot) || 0) * Math.PI) / 180;
-            const colHex = resolveMaterialColor(obj.color, palette.accent);
+        rawObjs.forEach((rawObj, objIdx) => {
+            if (supSet.has(objIdx)) return;
+            const dims = resolveObjDims(rawObj);
+            const grounded = clampObjectToRoom(
+                { ...rawObj, size: [dims.w, dims.d, dims.h] },
+                roomDim,
+                { wallT, insetWalls: true },
+            );
+            const [lx, ly, lz] = grounded.pos;
+            const [cw, cd, ch] = grounded.size;
+            const gx = box.x1 + lx;
+            const gz = box.y1 + ly;
+            const objY = baseY + lz;
+            const yaw = -((Number(rawObj.rot) || 0) * Math.PI) / 180;
+            const colHex = resolveMaterialColor(rawObj.color, palette.accent);
 
             const slot = new THREE.Group();
-            slot.position.set(
-                Math.max(box.x1 + 0.45, Math.min(box.x2 - 0.45, gx)),
-                objY,
-                Math.max(box.y1 + 0.45, Math.min(box.y2 - 0.45, gz)),
-            );
+            slot.position.set(gx, objY, gz);
             slot.rotation.y = yaw;
             roomGroup.add(slot);
 
-            const proc = buildProceduralProp(obj.shape || 'box', colHex, dims.w, dims.d, dims.h, roomLights, { x: gx, y: objY, z: gz });
+            const proc = buildProceduralProp(
+                rawObj.shape || 'box',
+                colHex,
+                cw,
+                cd,
+                ch,
+                roomLights,
+                { x: gx, y: objY, z: gz, localZ: lz },
+            );
             slot.add(proc);
 
-            const kit = WEBGL_KIT_CATALOG[obj.shape];
+            const kit = WEBGL_KIT_CATALOG[rawObj.shape];
             if (kit) {
                 const nodeName = kit.styleNodes?.[styleId] || kit.node;
-                pendingGlbSlots.push({ slot, kit, nodeName, dims, proc });
+                pendingGlbSlots.push({ slot, kit, nodeName, dims: { w: cw, d: cd, h: ch }, proc });
             }
         });
 
-        // Occupants + Player Pawn
+        // Occupants + Player Pawn (supports 3D [x,y,z] elevation above floor)
         const occs = parseOccupantsList(room.occupants);
         let renderedUserPawn = false;
+        const placedPawns = [];
+        const spreadPos = (lx, ly, lz) => {
+            let x = Math.max(wallT + 0.45, Math.min(rw - wallT - 0.45, lx));
+            let y = Math.max(wallT + 0.45, Math.min(rd - wallT - 0.45, ly));
+            const conflicts = placedPawns.filter((o) => Math.hypot(o.x - x, o.y - y) < 0.72 && Math.abs(o.z - lz) < 0.8);
+            if (conflicts.length > 0) {
+                const ang = conflicts.length * 2.39996;
+                const rad = 0.48 + conflicts.length * 0.12;
+                x = Math.max(wallT + 0.45, Math.min(rw - wallT - 0.45, x + Math.cos(ang) * rad));
+                y = Math.max(wallT + 0.45, Math.min(rd - wallT - 0.45, y + Math.sin(ang) * rad));
+            }
+            placedPawns.push({ x, y, z: lz });
+            return { x: box.x1 + x, z: box.y1 + y };
+        };
+
         occs.forEach((occ, idx) => {
             const isPlayer = /^(you|player|pc)$/i.test(occ.name);
             if (isPlayer) renderedUserPawn = true;
-            const pt = parseLocalPoint(occ.pos);
+            const pt = parseLocalPoint3D(occ.pos);
             const angle = idx * 2.1;
-            const px = pt
-                ? Math.max(box.x1 + 0.65, Math.min(box.x2 - 0.65, box.x1 + pt.x))
-                : (cx + Math.cos(angle) * Math.min(rw * 0.28, 1.3));
-            const pz = pt
-                ? Math.max(box.y1 + 0.65, Math.min(box.y2 - 0.65, box.y1 + pt.y))
-                : (cz + Math.sin(angle) * Math.min(rd * 0.28, 1.3));
+            const localX = pt ? pt.x : (rw / 2 + Math.cos(angle) * Math.min(rw * 0.28, 1.3));
+            const localY = pt ? pt.y : (rd / 2 + Math.sin(angle) * Math.min(rd * 0.28, 1.3));
+            const localZ = pt ? Math.max(0, Math.min(roomH - 0.6, pt.z)) : 0;
+            const worldPt = spreadPos(localX, localY, localZ);
             const col = isPlayer ? '#f59e0b' : colorForEntity(occ.name, entities);
             const pawn = buildPawnGroup(col, isPlayer, isPlayer ? 1.72 : 1.62);
-            pawn.position.set(px, baseY, pz);
+            pawn.position.set(worldPt.x, baseY + localZ, worldPt.z);
             roomGroup.add(pawn);
 
+            if (localZ > 0.25) {
+                const pin = new THREE.Mesh(
+                    new THREE.CylinderGeometry(0.05, 0.05, localZ, 6),
+                    makeMat(col, { transparent: true, opacity: 0.42 }),
+                );
+                pin.position.set(worldPt.x, baseY + localZ / 2, worldPt.z);
+                roomGroup.add(pin);
+            }
+
             labelAnchors.push({
-                text: occ.name,
+                text: localZ > 0.2 ? `${occ.name} (+${Number(localZ.toFixed(1))}m)` : occ.name,
                 kind: isPlayer ? 'player' : 'pawn',
-                worldPos: new THREE.Vector3(px, baseY + 1.92, pz),
+                worldPos: new THREE.Vector3(worldPt.x, baseY + localZ + 1.92, worldPt.z),
             });
         });
 
@@ -1164,31 +1320,44 @@ export function mountAtlasWebGLViewport(containerEl, state, opts = {}) {
             room.isCurrent
             || (state?.world?.room && String(room.id || '').toLowerCase() === String(state.world.room).toLowerCase())
             || (state?.world?.room && String(room.name || '').toLowerCase() === String(state.world.room).toLowerCase())
+            || (state?.world?.loc && String(room.name || '') && String(state.world.loc).toLowerCase().includes(String(room.name).toLowerCase()))
         );
         if (isUserRoom) {
-            const upt = parseLocalPoint(state?.world?.user_pos);
-            const px = upt
-                ? Math.max(box.x1 + 0.65, Math.min(box.x2 - 0.65, box.x1 + upt.x))
-                : cx;
-            const pz = upt
-                ? Math.max(box.y1 + 0.65, Math.min(box.y2 - 0.65, box.y1 + upt.y))
-                : cz;
+            const upt = parseLocalPoint3D(state?.world?.user_pos);
+            const localZ = upt ? Math.max(0, Math.min(roomH - 0.6, upt.z)) : 0;
+            const worldPt = spreadPos(upt ? upt.x : rw / 2, upt ? upt.y : rd / 2, localZ);
             const pawn = buildPawnGroup('#f59e0b', true, 1.72);
-            pawn.position.set(px, baseY, pz);
+            pawn.position.set(worldPt.x, baseY + localZ, worldPt.z);
             roomGroup.add(pawn);
             labelAnchors.push({
-                text: 'YOU',
+                text: localZ > 0.2 ? `YOU (+${Number(localZ.toFixed(1))}m)` : 'YOU',
                 kind: 'player',
-                worldPos: new THREE.Vector3(px, baseY + 1.96, pz),
+                worldPos: new THREE.Vector3(worldPt.x, baseY + localZ + 1.96, worldPt.z),
             });
         }
 
+        const heightTag = roomH !== 4 ? ` · ${roomH}m` : '';
+        const elevTag = elev !== 0 ? ` · ${elev > 0 ? '+' : ''}${elev}m` : '';
         labelAnchors.push({
-            text: `${room.name || room.id}${allFloors ? ` (L${levelNum})` : ''}`,
+            text: `${room.name || room.id}${allFloors ? ` (L${levelNum})` : ''}${heightTag}${elevTag}`,
             kind: 'room',
-            worldPos: new THREE.Vector3(cx, baseY + backWallH + 0.45, box.y1 + 0.35),
+            worldPos: new THREE.Vector3(cx, baseY + Math.max(hN, hW) + 0.45, box.y1 + 0.35),
         });
-    });
+    }
+
+    // 2. Render ONE unified doorway assembly per connection (shared inter-room + exterior)
+    for (const door of topology.doors) {
+        const roomA = roomById.get(door.roomA);
+        const roomB = door.roomB ? roomById.get(door.roomB) : null;
+        const doorPalette = STYLE_COLORS[door.doorStyle] || roomA?.palette || STYLE_COLORS.stone;
+        const hSideA = door.sideA && roomA?.wallHeights?.[door.sideA] != null ? roomA.wallHeights[door.sideA] : 2.4;
+        const hSideB = door.sideB && roomB?.wallHeights?.[door.sideB] != null ? roomB.wallHeights[door.sideB] : 9;
+        const wallMinH = roomA ? Math.min(hSideA, hSideB) : 2.4;
+        const doorMesh = buildDoorwayAssembly(door, door.doorStyle, doorPalette, wallT, wallMinH);
+        doorMesh.position.set(door.worldX, door.baseY, door.worldZ);
+        doorMesh.rotation.y = door.rotY;
+        worldRoot.add(doorMesh);
+    }
 
     if (!Number.isFinite(bounds.minX)) {
         bounds.minX = -4; bounds.maxX = 4; bounds.minY = 0; bounds.maxY = 3; bounds.minZ = -4; bounds.maxZ = 4;
@@ -1285,7 +1454,7 @@ export function mountAtlasWebGLViewport(containerEl, state, opts = {}) {
                 el.style.display = 'none';
                 continue;
             }
-            const sx = (proj.x * 0.5 + 0.5) * width;
+            let sx = (proj.x * 0.5 + 0.5) * width;
             let sy = (-proj.y * 0.5 + 0.5) * height;
             if (sx < -60 || sx > width + 60 || sy < -30 || sy > height + 30) {
                 el.style.display = 'none';
@@ -1293,12 +1462,40 @@ export function mountAtlasWebGLViewport(containerEl, state, opts = {}) {
             }
             const approxW = Math.min(148, a.text.length * 6.1 + 14);
             const approxH = 18;
-            for (const box2d of placedBoxes) {
-                if (Math.abs(sx - box2d.x) < (approxW + box2d.w) * 0.48 && Math.abs(sy - box2d.y) < approxH) {
-                    sy = box2d.y - approxH - 2;
+            const overlapsAny = (cx, cy) => placedBoxes.some((b) =>
+                Math.abs(cx - b.x) < (approxW + b.w) * 0.48 && Math.abs(cy - b.y) < approxH,
+            );
+            if (overlapsAny(sx, sy)) {
+                let bestX = sx;
+                let bestY = sy;
+                let placed = false;
+                const seedAng = placedBoxes.length * 0.85;
+                for (const rad of [24, 42, 62, 84, 108]) {
+                    for (let k = 0; k < 12; k++) {
+                        const ang = seedAng + k * 2.399963;
+                        const cx = Math.max(approxW / 2 + 8, Math.min(width - approxW / 2 - 8, sx + Math.cos(ang) * rad * 1.45));
+                        const cy = Math.max(38, Math.min(height - 10, sy + Math.sin(ang) * rad * 0.68));
+                        if (!overlapsAny(cx, cy)) {
+                            bestX = cx;
+                            bestY = cy;
+                            placed = true;
+                            break;
+                        }
+                    }
+                    if (placed) break;
+                }
+                if (placed) {
+                    sx = bestX;
+                    sy = bestY;
+                } else {
+                    for (const box2d of placedBoxes) {
+                        if (Math.abs(sx - box2d.x) < (approxW + box2d.w) * 0.48 && Math.abs(sy - box2d.y) < approxH) {
+                            sy = box2d.y - approxH - 2;
+                        }
+                    }
                 }
             }
-            sy = Math.max(38, Math.min(height - 8, sy));
+            sy = Math.max(38, Math.min(height - 10, sy));
             placedBoxes.push({ x: sx, y: sy, w: approxW });
             el.style.display = '';
             el.style.left = `${sx.toFixed(1)}px`;

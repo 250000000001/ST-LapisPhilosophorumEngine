@@ -125,6 +125,8 @@ function parseLocations(raw) {
                 objects = [];
             }
         }
+        const rawElev = getField(rBlk, 'elev');
+        const elevNum = rawElev !== '' ? Number(rawElev) : 0;
         rooms.push({
             id,
             kind,
@@ -139,6 +141,7 @@ function parseLocations(raw) {
             occupants: getField(rBlk, 'occupants') || '∅',
             exits: getField(rBlk, 'exits') || '∅',
             style: getField(rBlk, 'style') || '',
+            elev: Number.isFinite(elevNum) ? elevNum : 0,
             objects,
         });
     }
@@ -572,6 +575,9 @@ export function serializeInternalStates(state, { scoped = false, recentText = ''
         if (r.style && !isEmptySentinel(r.style)) {
             lines.push(`    <style>${encodeXmlText(r.style)}</style>`);
         }
+        if (Number.isFinite(Number(r.elev)) && Number(r.elev) !== 0) {
+            lines.push(`    <elev>${encodeXmlText(String(Number(r.elev)))}</elev>`);
+        }
         if (Array.isArray(r.objects) && r.objects.length > 0) {
             lines.push(`    <objects>${encodeXmlText(JSON.stringify(r.objects))}</objects>`);
         }
@@ -803,6 +809,7 @@ export function serializeCompactForWorker(state) {
         .map((r) => {
             const copy = { ...r };
             if (!copy.style) delete copy.style;
+            if (!Number(copy.elev)) delete copy.elev;
             if (!Array.isArray(copy.objects) || copy.objects.length === 0) delete copy.objects;
             return copy;
         });

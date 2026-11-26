@@ -22,7 +22,7 @@ import { createVexaStateStore } from './src/store.js';
 import { buildWorkerMessages } from './src/workerPrompt.js';
 import { createWorkerClient, isWorkerRefusal, extractErrorMessage } from './src/workerClient.js';
 import { transformPromptMessages } from './src/promptInjector.js';
-import { refreshAllHudCards } from './src/hud.js';
+import { refreshAllHudCards, alignAllHudThemes } from './src/hud.js';
 import { openStateEditorModal } from './src/editor.js';
 import { injectSettingsUI, syncSettingsUI } from './src/settingsUi.js';
 import { createVexaAppPopup, mapHudTabToAppTab } from './src/appPopup.js';
@@ -72,6 +72,8 @@ const DEFAULT_SETTINGS = Object.freeze({
     defaultBodyType: 'male',
     showLauncherButton: true,
     hudDefaultCollapsed: true,
+    showInlineChanges: true,
+    spatialGrounding: true,
     pinNotebookRules: true,
     enforceMatrixStepCap: true,
     allowTrackerProposals: true,
@@ -229,6 +231,19 @@ jQuery(() => {
                     const nextState = dismissTrackerProposal(store.getState(), propId);
                     store.addUserEdit(nextState, { kind: 'snapshot' });
                     window.toastr?.info?.(`Dismissed tracker proposal "${propId}".`, DISPLAY_TITLE);
+                    scheduleHudRefresh(10);
+                },
+                onToggleEntryDisabled: (mesId, nextDisabled) => {
+                    const msg = (getContextSafe().chat || [])[mesId];
+                    const uid = msg?.extra?.vexa_uid;
+                    const swipe = typeof msg?.swipe_id === 'number' ? msg.swipe_id : 0;
+                    const entry = uid ? store.getEntryFor(uid, swipe) : null;
+                    if (!entry?.id) return;
+                    store.setDisabled(entry.id, nextDisabled);
+                    window.toastr?.info?.(
+                        nextDisabled ? 'Reverted this reply’s state changes.' : 'Restored this reply’s state changes.',
+                        DISPLAY_TITLE,
+                    );
                     scheduleHudRefresh(10);
                 },
             });
@@ -491,6 +506,7 @@ jQuery(() => {
             scoped: settings.scoped !== false,
             recentText: recentStoryText(ctx.chat || []),
             allowTrackerProposals: settings.allowTrackerProposals !== false,
+            spatialGrounding: settings.spatialGrounding !== false,
         });
         if (res.active) {
             console.debug(`[${DISPLAY_TITLE}] Prompt prepared: stripped=${res.strippedCount}, injected=${res.injected}, chars=${res.snapshotChars}`);
@@ -613,6 +629,16 @@ jQuery(() => {
         scheduleHudRefresh(20);
     }
 
+    function handleAlignHudThemes(theme, style) {
+        const s = getSettings();
+        const count = alignAllHudThemes(theme || s.hudTheme || 'Sola', style || s.hudStyle || 'Afterglow');
+        window.toastr?.success?.(
+            `Aligned ${count} HUD card${count === 1 ? '' : 's'} to ${theme || s.hudTheme || 'Sola'} / ${style || s.hudStyle || 'Afterglow'}.`,
+            DISPLAY_TITLE,
+        );
+        return count;
+    }
+
     appPopup = createVexaAppPopup({
         store,
         getSettings,
@@ -626,6 +652,7 @@ jQuery(() => {
         onResetChat: handleResetChat,
         onCleanLastRefusal: () => retryRuntime.cleanLastMessageManually(),
         onRetryToggleChanged: handleRetryToggleChanged,
+        onAlignHudThemes: handleAlignHudThemes,
         onSettingsChanged: handleSettingsChanged,
         onStateSaved: () => scheduleHudRefresh(10),
     });
@@ -695,6 +722,7 @@ jQuery(() => {
             onResetChat: handleResetChat,
             onCleanLastRefusal: () => retryRuntime.cleanLastMessageManually(),
             onRetryToggleChanged: handleRetryToggleChanged,
+            onAlignHudThemes: handleAlignHudThemes,
             onSettingsChanged: handleSettingsChanged,
         });
         syncSettingsUI(getSettings());

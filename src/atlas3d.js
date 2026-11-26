@@ -11,6 +11,12 @@
 import { PALETTE, isEmptySentinel } from './schema.js';
 import { computeBbox, parseDimMeters, parseOccupantsList } from './reducer.js';
 import {
+    parseLocalPoint3D,
+    parseRoomHeight,
+    clampObjectToRoom,
+    buildAtlasTopology,
+} from './atlasTopology.js';
+import {
     planePolygons,
     boxPolygons,
     cylinderPolygons,
@@ -335,12 +341,30 @@ export function buildAtlas3DScene(
     const unpositioned = [];
     for (const r of visibleRooms) {
         const box = computeBbox(r.grid, r.dim);
-        if (box) positioned.push({ room: r, box, dim: parseDimMeters(r.dim) || { w: box.x2 - box.x1, h: box.y2 - box.y1, zH: 4 } });
-        else unpositioned.push(r);
+        if (box) {
+            const { h: roomH, elev } = parseRoomHeight(r);
+            const styleName = inferRoomStyle(r);
+            const pal = ROOM_STYLE_PALETTE[styleName] || ROOM_STYLE_PALETTE.indoor;
+            const backWallH = pal.curbOnly ? 0.35 : clamp(roomH * (cutaway ? 0.68 : 1), 2.2, cutaway ? 6.2 : 10);
+            const frontWallH = pal.curbOnly ? 0.35 : (cutaway ? 0.65 : backWallH);
+            positioned.push({
+                room: r,
+                box,
+                dim: { w: box.x2 - box.x1, h: box.y2 - box.y1, zH: roomH },
+                roomH,
+                elev,
+                styleId: styleName,
+                pal,
+                backWallH,
+                frontWallH,
+            });
+        } else {
+            unpositioned.push(r);
+        }
     }
 
     const userRoom = findUserActiveRoom(state, visibleRooms) || findUserActiveRoom(state, mapRooms);
-    const userLocalPos = parseLocalPoint(state?.world?.user_pos);
+    const userLocalPos = parseLocalPoint3D(state?.world?.user_pos);
     const detailRoom = visibleRooms.find((r) => r.id === selectedRoomId)
         || floorRooms.find((r) => r.id === selectedRoomId)
         || userRoom
@@ -377,12 +401,17 @@ export function buildAtlas3DScene(
         for (const z of sortedZs) {
             zOffsetMap.set(z, accZ);
             const onZ = positioned.filter((p) => p.box.z === z);
-            const maxWall = Math.max(4, Math.min(8, ...onZ.map((p) => p.dim.zH || 4)));
+            const maxWall = Math.max(4, ...onZ.map((p) => Math.max(0, p.elev) + (cutaway ? p.backWallH : p.roomH)));
             accZ += maxWall + 1.4;
         }
     } else {
         for (const p of positioned) zOffsetMap.set(p.box.z, 0);
     }
+    for (const p of positioned) {
+        p.baseY = (zOffsetMap.get(p.box.z) ?? 0) + p.elev;
+    }
+
+    const topology = buildAtlasTopology(positioned, { getTheme: inferRoomStyle, wallT: 0.28 });
 
     // World bounds for centering & auto-scale
     let minX = Infinity;
@@ -394,13 +423,13 @@ export function buildAtlas3DScene(
 
     for (const p of positioned) {
         const zOff = zOffsetMap.get(p.box.z) ?? 0;
-        const wallH = Math.min(p.dim.zH || 4, 4.2);
+        const topZ = zOff + p.elev + p.backWallH;
         minX = Math.min(minX, p.box.x1);
         minY = Math.min(minY, p.box.y1);
-        minZ = Math.min(minZ, zOff);
+        minZ = Math.min(minZ, zOff + Math.min(0, p.elev));
         maxX = Math.max(maxX, p.box.x2);
         maxY = Math.max(maxY, p.box.y2);
-        maxZ = Math.max(maxZ, zOff + wallH);
+        maxZ = Math.max(maxZ, topZ);
     }
 
     const spanX = Math.max(10, maxX - minX);
@@ -451,14 +480,14 @@ export function buildAtlas3DScene(
         }
     }
 
-    for (const { room, box, dim } of positioned) {
+    for (const p of positioned) {
+        const { room, box, roomH, elev, styleId: styleName, pal } = p;
         const w = box.x2 - box.x1;
         const d = box.y2 - box.y1;
         const cx = box.x1 + w / 2;
         const cy = box.y1 + d / 2;
-        const zOff = zOffsetMap.get(box.z) ?? 0;
-        const styleName = inferRoomStyle(room);
-        const pal = ROOM_STYLE_PALETTE[styleName] || ROOM_STYLE_PALETTE.indoor;
+        const zFloor = zOffsetMap.get(box.z) ?? 0;
+        const zOff = zFloor + elev;
 
         const isUserHere = Boolean(userRoom && userRoom.id === room.id);
         const isSelected = Boolean(detailRoom && detailRoom.id === room.id);
@@ -472,12 +501,13 @@ export function buildAtlas3DScene(
             title: `${room.name || room.id} (${room.dim || ''})`,
         };
 
-        // 0. Diorama plinth shadow & solid slab skirt
-        if (zOff === 0) {
+        // 0. Diorama plinth shadow & solid slab skirt (tall enough for intra-level elev)
+        const plinthDepth = Math.max(0.42, 0.42 + Math.max(0, elev));
+        if (zFloor === 0) {
             polygons.push(...decalPolygon({
                 cx: cx + 0.6,
                 cy: cy + 0.6,
-                cz: -0.45,
+                cz: zFloor - 0.45,
                 w: w + 1.8,
                 d: d + 1.8,
                 background: 'radial-gradient(closest-side, rgba(0,0,0,0.58), rgba(0,0,0,0))',
@@ -488,10 +518,10 @@ export function buildAtlas3DScene(
             ...roomMeta,
             cx,
             cy,
-            cz: zOff - 0.42,
+            cz: zOff - plinthDepth,
             w,
             d,
-            h: 0.42,
+            h: plinthDepth,
             color: shadeHex(floorColor, 0.56),
             opacity: roomOpacity,
             skipTop: true,
@@ -513,35 +543,47 @@ export function buildAtlas3DScene(
             className: `vse-poly-floor ${isSelected ? 'is-selected' : ''} ${isUserHere ? 'is-user-room' : ''}`,
         }));
 
-        // 2. Perimeter walls (full N & W back walls, low S & E cutaway walls)
+        // 2. Flush corner-aligned perimeter walls with shared-seam height coordination
         const wallThick = 0.28;
-        const fullWallH = pal.curbOnly ? 0.35 : clamp(dim.zH || 4, 2.2, 3.6);
-        const frontWallH = pal.curbOnly ? 0.35 : (cutaway ? 0.65 : fullWallH);
+        const halfT = wallThick / 2;
+        const shared = topology.sharedWallFlags.get(room.id) || {};
+        const wallHeightFor = (side, defaultH) => {
+            const nInfo = shared[side];
+            if (!nInfo?.neighbor || pal.curbOnly) return defaultH;
+            if (nInfo.neighbor.pal?.curbOnly) return p.backWallH;
+            return cutaway ? Math.min(p.backWallH, nInfo.neighbor.backWallH) : p.roomH;
+        };
+
+        const hN = wallHeightFor('north', p.backWallH);
+        const hS = wallHeightFor('south', p.frontWallH);
+        const hW = wallHeightFor('west', p.backWallH);
+        const hE = wallHeightFor('east', p.frontWallH);
+        const ewLen = Math.max(0.25, d - wallThick * 2);
 
         // North wall (y = box.y1)
         polygons.push(...boxPolygons({
             ...roomMeta,
             cx,
-            cy: box.y1 + wallThick / 2,
+            cy: box.y1 + halfT,
             cz: zOff,
             w,
             d: wallThick,
-            h: fullWallH,
+            h: hN,
             color: wallColor,
             topColor: pal.accent,
             opacity: roomOpacity,
             skipBottom: true,
             className: 'vse-poly-wall',
         }));
-        // West wall (x = box.x1)
+        // West wall (x = box.x1, tucked between N/S corners)
         polygons.push(...boxPolygons({
             ...roomMeta,
-            cx: box.x1 + wallThick / 2,
+            cx: box.x1 + halfT,
             cy,
             cz: zOff,
             w: wallThick,
-            d,
-            h: fullWallH,
+            d: ewLen,
+            h: hW,
             color: wallColor,
             topColor: pal.accent,
             opacity: roomOpacity,
@@ -552,26 +594,26 @@ export function buildAtlas3DScene(
         polygons.push(...boxPolygons({
             ...roomMeta,
             cx,
-            cy: box.y2 - wallThick / 2,
+            cy: box.y2 - halfT,
             cz: zOff,
             w,
             d: wallThick,
-            h: frontWallH,
+            h: hS,
             color: wallColor,
             topColor: pal.accent,
             opacity: roomOpacity * 0.9,
             skipBottom: true,
             className: 'vse-poly-wall',
         }));
-        // East wall (x = box.x2)
+        // East wall (x = box.x2, tucked between N/S corners)
         polygons.push(...boxPolygons({
             ...roomMeta,
-            cx: box.x2 - wallThick / 2,
+            cx: box.x2 - halfT,
             cy,
             cz: zOff,
             w: wallThick,
-            d,
-            h: frontWallH,
+            d: ewLen,
+            h: hE,
             color: wallColor,
             topColor: pal.accent,
             opacity: roomOpacity * 0.9,
@@ -579,45 +621,27 @@ export function buildAtlas3DScene(
             className: 'vse-poly-wall',
         }));
 
-        // 3. Doorways / Exits along edges
-        for (const ex of parseExitsCoords(room.exits)) {
-            if (polygons.length > MAX_SCENE_FACES - 80) break;
-            const dxEdge = Math.min(Math.abs(ex.x - box.x1), Math.abs(ex.x - box.x2));
-            const dyEdge = Math.min(Math.abs(ex.y - box.y1), Math.abs(ex.y - box.y2));
-            const onEastWest = dxEdge < dyEdge;
-            const doorX = clamp(ex.x, box.x1 + 0.4, box.x2 - 0.4);
-            const doorY = clamp(ex.y, box.y1 + 0.4, box.y2 - 0.4);
-            polygons.push(...archPolygons({
-                cx: doorX,
-                cy: doorY,
-                cz: zOff,
-                w: 1.8,
-                d: 0.45,
-                h: 2.1,
-                rotZ: onEastWest ? 90 : 0,
-                color: ex.isMain ? '#a6e3a1' : '#f9e2af',
-                title: `${ex.dir}: ${ex.target} [${ex.x},${ex.y}]`,
-                className: 'vse-poly-door',
-            }));
-        }
-
-        // 4. Room 3D objects (explicit room.objects or auto-inferred from features)
-        const roomObjects = Array.isArray(room.objects) && room.objects.length > 0
+        // 3. Room 3D objects (grounded, clamped inside interior walls, duplicate door-props suppressed)
+        const rawObjects = Array.isArray(room.objects) && room.objects.length > 0
             ? room.objects
             : inferObjectsFromFeatures(room, box);
+        const supSet = topology.suppressedObjectsByRoom.get(room.id) || new Set();
+        const roomDim = { w, h: d, zH: roomH };
 
-        for (const obj of roomObjects) {
-            if (polygons.length > MAX_SCENE_FACES - 100) break;
+        rawObjects.forEach((rawObj, objIdx) => {
+            if (supSet.has(objIdx)) return;
+            if (polygons.length > MAX_SCENE_FACES - 100) return;
+            const safeObj = clampObjectToRoom(rawObj, roomDim, { wallT: wallThick, insetWalls: true });
             objectCount++;
             polygons.push(...shapeToPolygons(
-                obj,
+                safeObj,
                 { x: box.x1, y: box.y1, z: zOff },
                 { dataAttrs: { 'room-id': room.id }, className: 'vse-poly-prop' },
             ));
-        }
+        });
 
         // Auto stairs indicator if Up/Down adj exists without a stairs object
-        const hasStairs = roomObjects.some((o) => o.shape === 'stairs');
+        const hasStairs = rawObjects.some((o) => o.shape === 'stairs');
         if (!hasStairs && /\b(?:Up|Down)\s*:\s*[^∅,\s|]+/i.test(room.adj || '') && polygons.length < MAX_SCENE_FACES - 80) {
             polygons.push(...stairsPolygons({
                 cx: box.x2 - 1.6,
@@ -634,45 +658,63 @@ export function buildAtlas3DScene(
             }));
         }
 
-        // 5. Occupants as colored 3D pawns + billboard initials
+        // 4. Occupants as colored 3D pawns + billboard initials (with anti-pileup spread & z elevation)
         const occs = parseOccupantsList(room.occupants);
+        const placedPawns = [];
+        const spreadLocal = (lx, ly, lz) => {
+            let x = clamp(lx, wallThick + 0.45, w - wallThick - 0.45);
+            let y = clamp(ly, wallThick + 0.45, d - wallThick - 0.45);
+            const hits = placedPawns.filter((o) => Math.hypot(o.x - x, o.y - y) < 0.72 && Math.abs(o.z - lz) < 0.8);
+            if (hits.length > 0) {
+                const ang = hits.length * 2.39996;
+                const rad = 0.52 + hits.length * 0.14;
+                x = clamp(x + Math.cos(ang) * rad, wallThick + 0.45, w - wallThick - 0.45);
+                y = clamp(y + Math.sin(ang) * rad, wallThick + 0.45, d - wallThick - 0.45);
+            }
+            placedPawns.push({ x, y, z: lz });
+            return { wx: box.x1 + x, wy: box.y1 + y };
+        };
+
         for (let idx = 0; idx < occs.length; idx++) {
             if (polygons.length > MAX_SCENE_FACES - 40) break;
             const occ = occs[idx];
-            const pt = parseLocalPoint(occ.pos);
-            const ox = pt ? clamp(box.x1 + pt.x, box.x1 + 0.7, box.x2 - 0.7) : (box.x1 + 1.6 + (idx % 3) * 2.2);
-            const oy = pt ? clamp(box.y1 + pt.y, box.y1 + 0.7, box.y2 - 0.7) : (box.y2 - 1.8 - Math.floor(idx / 3) * 1.6);
+            const pt = parseLocalPoint3D(occ.pos);
+            const lx = pt ? pt.x : (1.6 + (idx % 3) * 2.2);
+            const ly = pt ? pt.y : (d - 1.8 - Math.floor(idx / 3) * 1.6);
+            const lz = pt ? clamp(pt.z, 0, Math.max(0, roomH - 0.6)) : 0;
+            const { wx: ox, wy: oy } = spreadLocal(lx, ly, lz);
             const col = entityColorMap.get(String(occ.name || '').trim().toLowerCase()) || '#89b4fa';
             const initials = occ.name.split(/\s+/).map((w2) => w2[0]).join('').slice(0, 2).toUpperCase();
 
             polygons.push(...buildPawnPolygons({
                 x: ox,
                 y: oy,
-                z: zOff,
+                z: zOff + lz,
                 color: col,
                 isUser: false,
                 title: `${occ.name} ${occ.pos || ''} in ${room.name}`,
             }));
             if (showLabels) {
+                const elevTxt = lz > 0.2 ? ` +${Number(lz.toFixed(1))}m` : '';
                 labels.push({
                     x: ox,
                     y: oy,
-                    z: zOff + 2.15,
+                    z: zOff + lz + 2.15,
                     className: 'vse-poly-lbl-npc',
-                    title: `${occ.name} in ${room.name}`,
-                    html: `<span class="vse-poly-chip" style="--chip-col:${escHtml(col)}">${escHtml(initials)}</span>`,
+                    title: `${occ.name}${elevTxt} in ${room.name}`,
+                    html: `<span class="vse-poly-chip" style="--chip-col:${escHtml(col)}">${escHtml(initials)}${elevTxt ? `<small>${escHtml(elevTxt)}</small>` : ''}</span>`,
                 });
             }
         }
 
-        // 6. User pawn + diamond marker
+        // 5. User pawn + diamond marker
         if (isUserHere && polygons.length < MAX_SCENE_FACES - 30) {
-            const ux = userLocalPos ? clamp(box.x1 + userLocalPos.x, box.x1 + 0.8, box.x2 - 0.8) : cx;
-            const uy = userLocalPos ? clamp(box.y1 + userLocalPos.y, box.y1 + 0.8, box.y2 - 0.8) : cy;
+            const uz = userLocalPos ? clamp(userLocalPos.z, 0, Math.max(0, roomH - 0.6)) : 0;
+            const { wx: ux, wy: uy } = spreadLocal(userLocalPos ? userLocalPos.x : w / 2, userLocalPos ? userLocalPos.y : d / 2, uz);
             polygons.push(...buildPawnPolygons({
                 x: ux,
                 y: uy,
-                z: zOff,
+                z: zOff + uz,
                 color: '#89dceb',
                 isUser: true,
                 title: `YOU (${state?.world?.user_pos || 'center'})`,
@@ -681,27 +723,53 @@ export function buildAtlas3DScene(
                 labels.push({
                     x: ux,
                     y: uy,
-                    z: zOff + 3.2,
+                    z: zOff + uz + 3.2,
                     className: 'vse-poly-lbl-you',
                     title: `YOU (${state?.world?.user_pos || 'center'})`,
-                    html: '<span class="vse-poly-chip you">YOU</span>',
+                    html: uz > 0.2 ? `<span class="vse-poly-chip you">YOU +${Number(uz.toFixed(1))}m</span>` : '<span class="vse-poly-chip you">YOU</span>',
                 });
             }
         }
 
-        // 7. Room billboard name tag
+        // 6. Room billboard name tag
         if (showLabels) {
             const floorTag = allFloors ? ` · Z=${box.z}` : '';
+            const heightTag = roomH !== 4 ? ` · ${roomH}m` : '';
+            const elevTag = elev !== 0 ? ` · ${elev > 0 ? '+' : ''}${elev}m` : '';
             labels.push({
                 x: cx,
                 y: box.y1 + 0.8,
-                z: zOff + fullWallH + 0.85,
+                z: zOff + Math.max(hN, hW) + 0.85,
                 roomId: room.id,
                 className: `vse-poly-lbl-room ${isSelected ? 'active' : ''}`,
                 title: `${room.name || room.id} (${room.dim || ''})`,
-                html: `<span class="vse-poly-room-tag">${escHtml(room.name || room.id)}${escHtml(floorTag)}</span>`,
+                html: `<span class="vse-poly-room-tag">${escHtml(room.name || room.id)}${escHtml(floorTag)}${escHtml(heightTag)}${escHtml(elevTag)}</span>`,
             });
         }
+    }
+
+    // 7. Single unified doorway archways (1 per inter-room connection + exterior doors)
+    for (const door of topology.doors) {
+        if (polygons.length > MAX_SCENE_FACES - 60) break;
+        const doorColor = door.doorStyle === 'scifi'
+            ? '#38bdf8'
+            : door.isMain
+                ? '#a6e3a1'
+                : door.doorStyle === 'industrial'
+                    ? '#f59e0b'
+                    : '#f9e2af';
+        polygons.push(...archPolygons({
+            cx: door.worldX,
+            cy: door.worldZ,
+            cz: door.baseY,
+            w: Math.max(1.5, door.width + 0.35),
+            d: door.depth + 0.14,
+            h: 2.1,
+            rotZ: door.axis === 'ew' ? 90 : 0,
+            color: doorColor,
+            title: door.label,
+            className: 'vse-poly-door',
+        }));
     }
 
     return {

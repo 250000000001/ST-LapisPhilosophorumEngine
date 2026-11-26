@@ -904,14 +904,17 @@ export function compilePolySceneHtml({
         const cls = lb.className ? `vse-poly-label ${escAttr(lb.className)}` : 'vse-poly-label';
         const roomAttr = lb.roomId ? ` data-room-id="${escAttr(lb.roomId)}"` : '';
         const titleAttr = lb.title ? ` title="${escAttr(lb.title)}"` : '';
-        const transform = `translate3d(${lx}px,${ly}px,${lz}px) rotateZ(calc(var(--vse-rz) * -1)) rotateX(calc(var(--vse-rx) * -1)) translate(-50%,-50%)`;
-        labelHtmlParts.push(`<div class="${cls}" style="transform:${transform}"${roomAttr}${titleAttr}>${lb.html}</div>`);
+        const coordAttrs = ` data-lx="${lx}" data-ly="${ly}" data-lz="${lz}"`;
+        const transform = `translate3d(${lx}px,${ly}px,${lz}px) rotateZ(calc(var(--vse-rz) * -1)) rotateX(calc(var(--vse-rx) * -1)) scale(var(--vse-label-scale, 1)) translate(-50%,-50%)`;
+        labelHtmlParts.push(`<div class="${cls}" style="transform:${transform}"${coordAttrs}${roomAttr}${titleAttr}>${lb.html}</div>`);
     }
 
+    const labelScale = round4(clamp(1 / Math.max(0.35, cam.zoom), 0.36, 2.2));
     const varStyle = [
         `--vse-rx:${round4(cam.rotX)}deg`,
         `--vse-rz:${round4(cam.rotZ)}deg`,
         `--vse-zoom:${round4(cam.zoom)}`,
+        `--vse-label-scale:${labelScale}`,
         `--vse-pan-x:${round4(cam.panX)}px`,
         `--vse-pan-y:${round4(cam.panY)}px`,
     ].join(';');
@@ -927,6 +930,7 @@ export function compilePolySceneHtml({
                     </div>
                 </div>
             </div>
+            <div class="vse-poly-label-layer"></div>
             ${overlayHtml}
         </div>
     `;
@@ -936,26 +940,145 @@ export function compilePolySceneHtml({
 
 /**
  * Attach smooth pointer orbit/pan + wheel zoom + camera preset buttons onto a mounted `.vse-poly-viewport`.
- * Mutates CSS custom properties via `requestAnimationFrame` without re-rendering DOM nodes.
+ * Projects billboard labels into a flat 2D overlay layer so text stays razor-sharp and properly scaled at all zoom levels.
  */
 export function bindPolyOrbitControls(viewportEl, cameraState, { onCameraChange, onSelectRoom } = {}) {
     if (!viewportEl || typeof viewportEl.addEventListener !== 'function') return;
 
     const cam = cameraState || { rotX: 56, rotZ: 32, zoom: 1, panX: 0, panY: 0 };
+    const labelLayer = viewportEl.querySelector?.('.vse-poly-label-layer') || null;
+    const labelNodes = [];
+    if (labelLayer) {
+        viewportEl.querySelectorAll('.vse-poly-label').forEach((el) => {
+            const lx = Number(el.getAttribute('data-lx'));
+            const ly = Number(el.getAttribute('data-ly'));
+            const lz = Number(el.getAttribute('data-lz'));
+            if (Number.isFinite(lx) && Number.isFinite(ly) && Number.isFinite(lz)) {
+                el.classList.add('is-projected');
+                labelLayer.appendChild(el);
+                labelNodes.push({
+                    el,
+                    lx,
+                    ly,
+                    lz,
+                    isRoom: el.classList.contains('vse-poly-lbl-room'),
+                });
+            }
+        });
+    }
+
+    function updateProjectedLabels() {
+        if (!labelLayer || !labelNodes.length) return;
+        const vpW = viewportEl.clientWidth || 640;
+        const vpH = viewportEl.clientHeight || 320;
+        const perspDist = 1500;
+        const rz = (cam.rotZ * Math.PI) / 180;
+        const rx = (cam.rotX * Math.PI) / 180;
+        const cosZ = Math.cos(rz);
+        const sinZ = Math.sin(rz);
+        const cosX = Math.cos(rx);
+        const sinX = Math.sin(rx);
+        const lblScale = round4(clamp(0.72 + 0.28 * cam.zoom, 0.72, 1.25));
+        const placedChips = [];
+
+        for (const item of labelNodes) {
+            const x1 = item.lx * cosZ - item.ly * sinZ;
+            const y1 = item.lx * sinZ + item.ly * cosZ;
+            const z1 = item.lz;
+            const x2 = x1;
+            const y2 = y1 * cosX - z1 * sinX;
+            const z2 = y1 * sinX + z1 * cosX;
+
+            const xCam = x2 * cam.zoom + cam.panX;
+            const yCam = y2 * cam.zoom + cam.panY;
+            const zCam = z2 * cam.zoom;
+            if (zCam >= perspDist - 120) {
+                item.el.style.display = 'none';
+                continue;
+            }
+            const persp = perspDist / (perspDist - zCam);
+            let sx = vpW / 2 + xCam * persp;
+            let sy = vpH / 2 + yCam * persp;
+
+            if (sx < -80 || sx > vpW + 80 || sy < -40 || sy > vpH + 40) {
+                item.el.style.display = 'none';
+                continue;
+            }
+            if (!item.isRoom) {
+                let bestX = sx;
+                let bestY = sy;
+                const clearDist = (cx, cy) => {
+                    let minD = Infinity;
+                    for (const box of placedChips) {
+                        const d = Math.hypot((cx - box.x) * 0.72, cy - box.y);
+                        if (d < minD) minD = d;
+                    }
+                    return minD;
+                };
+                if (clearDist(bestX, bestY) < 18) {
+                    let bestClear = clearDist(bestX, bestY);
+                    let solved = false;
+                    const idxBase = placedChips.length * 0.9;
+                    for (const rad of [20, 32, 44, 56]) {
+                        for (let k = 0; k < 12; k++) {
+                            const ang = idxBase + k * 2.399963;
+                            const cx = clamp(sx + Math.cos(ang) * rad * 1.25, 22, vpW - 22);
+                            const cy = clamp(sy + Math.sin(ang) * rad * 0.78, 22, vpH - 14);
+                            const cd = clearDist(cx, cy);
+                            if (cd >= 18) {
+                                bestX = cx;
+                                bestY = cy;
+                                solved = true;
+                                break;
+                            }
+                            if (cd > bestClear) {
+                                bestClear = cd;
+                                bestX = cx;
+                                bestY = cy;
+                            }
+                        }
+                        if (solved) break;
+                    }
+                }
+                sx = bestX;
+                sy = clamp(bestY, 22, vpH - 14);
+                placedChips.push({ x: sx, y: sy });
+            }
+            item.el.style.display = '';
+            item.el.style.left = `${round4(sx)}px`;
+            item.el.style.top = `${round4(sy)}px`;
+            item.el.style.transform = `translate(-50%,-50%) scale(${lblScale})`;
+        }
+    }
+
     let rafId = 0;
+    function applyNow() {
+        viewportEl.style.setProperty('--vse-rx', `${round4(cam.rotX)}deg`);
+        viewportEl.style.setProperty('--vse-rz', `${round4(cam.rotZ)}deg`);
+        viewportEl.style.setProperty('--vse-zoom', `${round4(cam.zoom)}`);
+        viewportEl.style.setProperty('--vse-label-scale', `${round4(clamp(1 / Math.max(0.35, cam.zoom), 0.36, 2.2))}`);
+        viewportEl.style.setProperty('--vse-pan-x', `${round4(cam.panX)}px`);
+        viewportEl.style.setProperty('--vse-pan-y', `${round4(cam.panY)}px`);
+        updateProjectedLabels();
+    }
 
     function scheduleApply() {
         if (rafId) return;
         const schedule = typeof requestAnimationFrame === 'function' ? requestAnimationFrame : (fn) => setTimeout(fn, 0);
         rafId = schedule(() => {
             rafId = 0;
-            viewportEl.style.setProperty('--vse-rx', `${round4(cam.rotX)}deg`);
-            viewportEl.style.setProperty('--vse-rz', `${round4(cam.rotZ)}deg`);
-            viewportEl.style.setProperty('--vse-zoom', `${round4(cam.zoom)}`);
-            viewportEl.style.setProperty('--vse-pan-x', `${round4(cam.panX)}px`);
-            viewportEl.style.setProperty('--vse-pan-y', `${round4(cam.panY)}px`);
+            applyNow();
             onCameraChange?.({ ...cam });
         });
+    }
+
+    applyNow();
+    if (typeof ResizeObserver === 'function' && labelNodes.length > 0) {
+        const ro = new ResizeObserver(() => {
+            if (!viewportEl.isConnected) { ro.disconnect(); return; }
+            updateProjectedLabels();
+        });
+        ro.observe(viewportEl);
     }
 
     let dragging = false;
@@ -1016,7 +1139,8 @@ export function bindPolyOrbitControls(viewportEl, cameraState, { onCameraChange,
             /* ignore */
         }
         if (totalMove < 5) {
-            const roomEl = (e.target || downTarget)?.closest?.('[data-room-id]');
+            const pick = e.target && e.target !== viewportEl ? e.target : downTarget;
+            const roomEl = pick?.closest?.('[data-room-id]') || downTarget?.closest?.('[data-room-id]');
             const roomId = roomEl?.getAttribute?.('data-room-id');
             if (roomId) onSelectRoom?.(roomId);
         }
@@ -1090,8 +1214,17 @@ export function observePolyViewports(root = typeof document !== 'undefined' ? do
             rootMargin: opts.rootMargin || '120px',
             threshold: 0,
         });
-        entry = { io, observed: new WeakSet() };
+        entry = { io, observed: new WeakSet(), targets: new Set() };
         POLY_VIEWPORT_OBSERVERS.set(key, entry);
+    }
+
+    // Prune disconnected DOM viewports replaced by HUD refreshes
+    for (const prevEl of entry.targets) {
+        if (!prevEl || !prevEl.isConnected) {
+            entry.io.unobserve(prevEl);
+            entry.observed.delete(prevEl);
+            entry.targets.delete(prevEl);
+        }
     }
 
     const targets = [];
@@ -1106,6 +1239,7 @@ export function observePolyViewports(root = typeof document !== 'undefined' ? do
     for (const el of targets) {
         if (entry.observed.has(el)) continue;
         entry.observed.add(el);
+        entry.targets.add(el);
         entry.io.observe(el);
         added.push(el);
     }
@@ -1114,6 +1248,7 @@ export function observePolyViewports(root = typeof document !== 'undefined' ? do
         for (const el of added) {
             entry.io.unobserve(el);
             entry.observed.delete(el);
+            entry.targets.delete(el);
         }
     };
 }

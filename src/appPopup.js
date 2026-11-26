@@ -24,9 +24,10 @@ import {
     approveTrackerProposal,
     dismissTrackerProposal,
 } from './reducer.js';
-import { renderAtlasTab } from './atlasSvg.js';
+import { renderAtlasTab, bindAtlasSvgControls } from './atlasSvg.js';
 import { bindPolyOrbitControls, POLY_SHAPES, POLY_MATERIALS } from './polyCss3d.js';
 import { POLY_PREFABS } from './polyAssets.js';
+import { renderAetherMatrixList } from './matrixView.js';
 import {
     renderHealthTab,
     BODY_TYPES,
@@ -119,6 +120,7 @@ const HUD_TO_APP_MAP = Object.freeze({
     custom_trackers: { tab: 'trackers', sub: null },
     story_notes: { tab: 'narrative', sub: 'inv' },
     vent: { tab: 'narrative', sub: 'vent' },
+    receipt: { tab: 'narrative', sub: 'receipt' },
 });
 
 /** Map any of the 16 HUD card tab IDs to { tab, sub } inside the Control Center popup. */
@@ -209,6 +211,7 @@ export function createVexaAppPopup({
     onResetChat,
     onCleanLastRefusal,
     onRetryToggleChanged,
+    onAlignHudThemes,
     onSettingsChanged,
     onStateSaved,
 }) {
@@ -227,6 +230,7 @@ export function createVexaAppPopup({
         cutaway: true,
         showLabels: true,
         camera: { rotX: 56, rotZ: 32, zoom: 1, panX: 0, panY: 0 },
+        svgCamera: { zoom: 1, panX: 0, panY: 0 },
         webglCamera: null,
         webglCameraKey: null,
     };
@@ -843,6 +847,7 @@ export function createVexaAppPopup({
                 cutaway: atlasView.cutaway,
                 showLabels: atlasView.showLabels,
                 camera: atlasView.camera,
+                svgCamera: atlasView.svgCamera,
                 allowWebgl: true,
             }));
             if (effectiveMode === 'webgl') {
@@ -885,6 +890,9 @@ export function createVexaAppPopup({
                         },
                     });
                 }
+            } else if (effectiveMode === '2d') {
+                const svgWrapEl = $mount.find('.vse-atlas-svg-wrap')[0];
+                if (svgWrapEl) bindAtlasSvgControls(svgWrapEl, atlasView.svgCamera);
             }
         }
         drawAtlas();
@@ -894,6 +902,7 @@ export function createVexaAppPopup({
             atlasView.mapId = String($(this).val() || '');
             atlasView.level = null;
             atlasView.roomId = null;
+            atlasView.svgCamera = { zoom: 1, panX: 0, panY: 0 };
             atlasView.webglCamera = null;
             atlasView.webglCameraKey = null;
             drawAtlas();
@@ -902,6 +911,7 @@ export function createVexaAppPopup({
             atlasView.level = String($(this).data('level'));
             atlasView.allFloors = false;
             atlasView.roomId = null;
+            atlasView.svgCamera = { zoom: 1, panX: 0, panY: 0 };
             drawAtlas();
         });
         $mount.on('click', '.vse-atlas-allfloors-btn', function () {
@@ -1524,6 +1534,14 @@ export function createVexaAppPopup({
     function renderRelationsTab($stage, state) {
         const meta = tabMeta('relations');
         const sub = subTabs.relations || 'pair';
+        const tl = store?.timeline?.();
+        let prevPairList = null;
+        if (tl?.steps?.length) {
+            const targetStep = typeof inspectSeq === 'number'
+                ? tl.steps.find((st) => st.seq === inspectSeq)
+                : tl.steps[tl.steps.length - 1];
+            prevPairList = targetStep?.prevState?.pair || null;
+        }
         const subBar = `
             <div class="vse-subtabs">
                 <button type="button" class="${sub === 'pair' ? 'on' : ''}" data-sub="pair"><i class="fa-solid fa-heart-pulse"></i> Aether Pairs (${(state.pair || []).length})</button>
@@ -1531,19 +1549,7 @@ export function createVexaAppPopup({
             </div>
         `;
         const cards = sub === 'pair'
-            ? ((state.pair || []).length
-                ? `<div class="vse-stack">${state.pair.map((p) => `
-                    <div class="vse-glass-card vse-compact-card">
-                        <div class="vse-npc-title-row">
-                            <strong>${esc(p.names)}</strong>
-                            <span class="vse-chip">${esc(p.mode)}</span>
-                            <span class="vse-chip">${esc(p.dam)}</span>
-                            <span class="vse-chip">${esc(p.wall)}</span>
-                        </div>
-                        <div class="vse-mono" style="margin-top:6px;">${esc(p.matrix)}</div>
-                    </div>
-                `).join('')}</div>`
-                : '<div class="vse-glass-card vse-muted">No Aether Pair matrices recorded.</div>')
+            ? `<div class="vse-matrix-theme-host">${renderAetherMatrixList(state.pair || [], prevPairList, { showGuide: true })}</div>`
             : ((state.dam || []).length
                 ? `<div class="vse-cards-grid">${state.dam.map((d) => `
                     <div class="vse-glass-card vse-compact-card">
@@ -1572,6 +1578,9 @@ export function createVexaAppPopup({
                 </div>
             </details>
         `);
+        if (sub === 'pair') {
+            applyThemeVarsToEl($stage.find('.vse-matrix-theme-host'), getSettings().hudTheme || 'Sola');
+        }
 
         $stage.find('.vse-subtabs').on('click', 'button', function () {
             subTabs.relations = String($(this).data('sub') || 'pair');
@@ -1598,7 +1607,8 @@ export function createVexaAppPopup({
             { id: 'notebook', label: 'Notebook', icon: 'fa-book' },
             { id: 'tracks', label: 'Tracks & ARC', icon: 'fa-route' },
             { id: 'inv', label: 'Inv & Notes', icon: 'fa-suitcase' },
-            { id: 'vent', label: 'Vent & Receipt', icon: 'fa-fire' },
+            { id: 'vent', label: 'Vent', icon: 'fa-fire' },
+            { id: 'receipt', label: 'CoT Receipt', icon: 'fa-receipt' },
         ];
         const subBar = `
             <div class="vse-subtabs">
@@ -1701,15 +1711,25 @@ export function createVexaAppPopup({
                     </div>
                 </div>
             `;
-        } else {
-            const rc = state.lastReceipt;
+        } else if (sub === 'vent') {
             bodyHtml = `
                 <div class="vse-glass-card">
-                    <div class="vse-card-title">Main Model Vent</div>
+                    <div class="vse-card-title">Main Model Vent (&lt;state:vent&gt;)</div>
                     <div class="vse-vent-text">${esc(state.vent || '∅')}</div>
                 </div>
+            `;
+        } else {
+            const rc = state.lastReceipt;
+            const kvRows = rc ? [
+                rc.world_sim && !isEmptySentinel(rc.world_sim) ? `<div><span>world_sim</span><b>${esc(rc.world_sim)}</b></div>` : '',
+                rc.chekhov && !isEmptySentinel(rc.chekhov) ? `<div><span>chekhov</span><b>${esc(rc.chekhov)}</b></div>` : '',
+                rc.arc && !isEmptySentinel(rc.arc) ? `<div><span>arc</span><b>${esc(rc.arc)}</b></div>` : '',
+                rc.ooc && !isEmptySentinel(rc.ooc) ? `<div><span>ooc</span><b>${esc(rc.ooc)}</b></div>` : '',
+            ].filter(Boolean).join('') : '';
+            bodyHtml = `
                 <div class="vse-glass-card">
                     <div class="vse-card-title">Last CoT Receipt (&lt;vexa_receipt&gt;)</div>
+                    ${kvRows ? `<div class="vse-kv-grid vse-receipt-kv" style="margin-bottom:8px;">${kvRows}</div>` : ''}
                     ${rc?.raw ? `<pre class="vse-pre">${esc(rc.raw)}</pre>` : '<div class="vse-muted">No receipt recorded for this turn.</div>'}
                 </div>
             `;
@@ -2283,7 +2303,12 @@ export function createVexaAppPopup({
         $stage.html(`
             ${renderPageHeader(meta)}
             <div class="vse-glass-card">
-                <div class="vse-card-title">HUD Color Theme (${esc(activeTheme)})</div>
+                <div class="vse-inline-actions" style="justify-content:space-between;margin-bottom:10px;">
+                    <div class="vse-card-title" style="margin-bottom:0;">HUD Color Theme (${esc(activeTheme)})</div>
+                    <button type="button" class="vse-app-btn gold vse-btn-sm" id="vse_pop_align_hud_themes" title="Apply active theme and style to every rendered HUD card in this chat without rebuilding">
+                        <i class="fa-solid fa-wand-magic-sparkles"></i> Align All Chat HUDs to Current Theme
+                    </button>
+                </div>
                 <div class="vse-theme-grid" id="vse_pop_theme_grid">${themeCards}</div>
             </div>
 
@@ -2296,7 +2321,7 @@ export function createVexaAppPopup({
                 <div class="vse-card-title">Default Atlas Renderer (Control Center)</div>
                 ${renderTiles('atlasmode', [
                     { id: 'webgl', label: '3D WebGL (Hybrid + Textured Kits)', desc: 'Hardware Three.js rooms with doorway cutouts + CC BY 4.0 GLB kits' },
-                    { id: '3d', label: '3D CSS (PolyCSS)', desc: 'Software CSS matrix3d diorama rooms &amp; 28 prefabs' },
+                    { id: '3d', label: '3D CSS (PolyCSS)', desc: `Software CSS matrix3d diorama rooms & ${POLY_PREFABS.length} prefabs` },
                     { id: '2d', label: '2D SVG Floorplan', desc: 'Lightweight schematic blueprint (always used inline in chat)' },
                 ], settings.atlasViewMode || 'webgl')}
             </div>
@@ -2328,6 +2353,22 @@ export function createVexaAppPopup({
                     label: 'Collapse Per-Message HUD Cards by Default',
                     desc: 'Keeps chat clean with a compact bar under each AI message until clicked.',
                     on: settings.hudDefaultCollapsed !== false,
+                })}
+                ${renderSwitchRow({
+                    id: 'vse_pop_show_inline_changes',
+                    icon: 'fa-code-compare',
+                    color: '#fbbf24',
+                    label: 'Show Inline “Changed in this reply” Diff Strip',
+                    desc: 'Shows compact per-turn diff breakdown with Revert/Restore and clickable section jumps inside each HUD card.',
+                    on: settings.showInlineChanges !== false,
+                })}
+                ${renderSwitchRow({
+                    id: 'vse_pop_spatial_grounding',
+                    icon: 'fa-cubes',
+                    color: '#38bdf8',
+                    label: 'Inject &lt;spatial_grounding&gt; Guidance for Main Model',
+                    desc: 'Teaches the story model how to read Atlas room dimensions, ceiling heights, floor elevation, elevated platforms, and line-of-sight.',
+                    on: settings.spatialGrounding !== false,
                 })}
                 ${renderSwitchRow({
                     id: 'vse_pop_scoped',
@@ -2386,6 +2427,10 @@ export function createVexaAppPopup({
             notifySettingsChanged();
             renderAppearanceTab($stage, getSettings());
         });
+        $stage.find('#vse_pop_align_hud_themes').on('click', () => {
+            const s = getSettings();
+            onAlignHudThemes?.(s.hudTheme || 'Sola', s.hudStyle || 'Afterglow');
+        });
         $stage.find('[data-tile-group="hudstyle"]').on('click', '.vse-tile', function () {
             getSettings().hudStyle = String($(this).data('tile-val') || 'Afterglow');
             $(this).siblings().removeClass('on');
@@ -2418,6 +2463,8 @@ export function createVexaAppPopup({
         };
         wireBool('#vse_pop_show_launcher', 'showLauncherButton', true);
         wireBool('#vse_pop_hud_collapsed', 'hudDefaultCollapsed', true);
+        wireBool('#vse_pop_show_inline_changes', 'showInlineChanges', true);
+        wireBool('#vse_pop_spatial_grounding', 'spatialGrounding', true);
         wireBool('#vse_pop_scoped', 'scoped', true);
         wireBool('#vse_pop_force_active', 'forceActive', false);
         wireBool('#vse_pop_pin_rules', 'pinNotebookRules', true);

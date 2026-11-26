@@ -1,21 +1,21 @@
-MIT License
+Creative Commons Attribution-NonCommercial 4.0 International (CC BY-NC 4.0)
 
 Copyright (c) 2026 ST-VexaEngine Contributors
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+All original extension source files (JavaScript, CSS, HTML, procedural Three.js and PolyCSS geometry builders, documentation, and tooling scripts) in this repository are licensed under the Creative Commons Attribution-NonCommercial 4.0 International Public License ("CC BY-NC 4.0").
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+Under CC BY-NC 4.0, you are free to:
+- Share: copy and redistribute the material in any medium or format.
+- Adapt: remix, transform, and build upon the material.
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+Under the following terms:
+- Attribution: You must give appropriate credit, provide a link to the license, and indicate if changes were made.
+- NonCommercial: You may not use the material for commercial purposes.
+- No additional restrictions: You may not apply legal terms or technological measures that legally restrict others from doing anything the license permits.
+
+Full legal code:
+https://creativecommons.org/licenses/by-nc/4.0/legalcode
+
+Third-Party & Boundary Exceptions:
+- Vendored Three.js modules under `lib/three/` remain Copyright (c) 2010-2026 Three.js Authors under the MIT License (see `lib/three/LICENSE`).
+- Bundled 3D model packs under `assets/models/*.glb` remain licensed under Creative Commons Attribution 4.0 International (CC BY 4.0) by their respective creators (see `assets/models/ATTRIBUTION.md`).

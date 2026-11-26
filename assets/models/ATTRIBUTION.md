@@ -3,7 +3,7 @@
 The bundled `.glb` 3D prop packs inside this directory (`assets/models/`) are licensed under **Creative Commons Attribution 4.0 International (CC BY 4.0)**.
 
 Note the **license boundary** in this repository:
-- All JavaScript, HTML, CSS, and procedural geometry code in `ST-VexaStateEngine` (including `src/atlasWebgl.js`, `src/polyCss3d.js`, and `src/polyAssets.js`) is licensed under the **[MIT License](../../LICENSE)** (with `lib/three/` separately Copyright 2010–2026 Three.js Authors, MIT License).
+- All original JavaScript, HTML, CSS, and procedural geometry code in `ST-VexaStateEngine` (including `src/atlasWebgl.js`, `src/atlasTopology.js`, `src/polyCss3d.js`, and `src/polyAssets.js`) is licensed under **[Creative Commons Attribution-NonCommercial 4.0 International (CC BY-NC 4.0)](../../LICENSE)** (with `lib/three/` separately Copyright 2010–2026 Three.js Authors under the **MIT License**).
 - Only the binary 3D model packs below are licensed under **CC BY 4.0**.
 
 ---

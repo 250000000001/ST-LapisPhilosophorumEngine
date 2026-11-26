@@ -52,6 +52,7 @@ export const POLY_PREFABS = Object.freeze([
     'cabinet',
     'airlock',
     'screen',
+    'platform',
 ]);
 
 export const PREFAB_DEFAULT_SIZES = Object.freeze({
@@ -83,6 +84,7 @@ export const PREFAB_DEFAULT_SIZES = Object.freeze({
     cabinet: [1.1, 0.6, 2.1],
     airlock: [2.4, 0.65, 2.7],
     screen: [2.0, 0.22, 1.4],
+    platform: [3.2, 2.2, 0.25],
 });
 
 function contactShadow(cx, cy, cz, w, d, rotZ, meta) {
@@ -704,6 +706,54 @@ function buildScreen({ cx, cy, cz, w, d, h, rotZ, color, meta }) {
     ];
 }
 
+function buildPlatform({ cx, cy, cz, localZ = 0, w, d, h, rotZ, color, meta }) {
+    const deck = resolveMaterialColor(color || 'iron', '#64748b');
+    const slabH = Math.max(0.16, Math.min(0.35, h));
+    const railH = 0.85;
+    const faces = [];
+
+    if (localZ > 0.25) {
+        const legT = Math.max(0.1, Math.min(0.22, Math.min(w, d) * 0.08));
+        faces.push(...fourLegs(cx, cy, cz - localZ, w * 0.92, d * 0.92, localZ, legT, rotZ, shadeHex(deck, 0.68), meta));
+        faces.push(...contactShadow(cx, cy, cz - localZ, w * 0.95, d * 0.95, rotZ, meta));
+    } else {
+        faces.push(...contactShadow(cx, cy, cz, w, d, rotZ, meta));
+    }
+
+    // Elevated deck slab
+    faces.push(...boxPolygons({
+        ...meta,
+        cx,
+        cy,
+        cz,
+        w,
+        d,
+        h: slabH,
+        rotZ,
+        color: deck,
+        topColor: shadeHex(deck, 1.15),
+        skipBottom: false,
+    }));
+
+    // Subtle guardrails along long side edges when platform is raised
+    if (localZ > 0.4) {
+        const railT = 0.07;
+        for (const sy of [-1, 1]) {
+            const ry = sy * (d / 2 - railT);
+            faces.push(...subBox(cx, cy, cz + slabH, 0, ry, railH - 0.08, w, railT, 0.08, rotZ, {
+                ...meta, color: shadeHex(deck, 1.25), skipBottom: true,
+            }));
+            for (const sx of [-1, 1]) {
+                faces.push(...subBox(cx, cy, cz + slabH, sx * (w / 2 - railT), ry, 0, railT, railT, railH - 0.08, rotZ, {
+                    ...meta, color: shadeHex(deck, 0.85), skipBottom: true,
+                }));
+            }
+        }
+    }
+
+    return faces;
+}
+
 const PREFAB_BUILDERS = Object.freeze({
     table: buildTable,
     chair: buildChair,
@@ -733,6 +783,7 @@ const PREFAB_BUILDERS = Object.freeze({
     cabinet: buildCabinet,
     airlock: buildAirlock,
     screen: buildScreen,
+    platform: buildPlatform,
 });
 
 /**
@@ -749,12 +800,13 @@ export function prefabToPolygons(obj, worldOrigin = { x: 0, y: 0, z: 0 }, extraM
     const pos = Array.isArray(obj.pos) ? obj.pos : [1, 1, 0];
     const size = Array.isArray(obj.size) ? obj.size : defSize;
 
+    const localZ = Number(pos[2]) || 0;
     const cx = (Number(worldOrigin.x) || 0) + (Number(pos[0]) || 0);
     const cy = (Number(worldOrigin.y) || 0) + (Number(pos[1]) || 0);
-    const cz = (Number(worldOrigin.z) || 0) + (Number(pos[2]) || 0);
+    const cz = (Number(worldOrigin.z) || 0) + localZ;
     const w = Math.max(0.35, Number(size[0]) || defSize[0]);
     const d = Math.max(0.35, Number(size[1]) || defSize[1]);
-    const h = Math.max(0.35, Number(size[2]) || defSize[2]);
+    const h = Math.max(0.25, Number(size[2]) || defSize[2]);
     const rotZ = Number(obj.rot) || 0;
     const color = obj.color || '';
     const meta = {
@@ -762,5 +814,5 @@ export function prefabToPolygons(obj, worldOrigin = { x: 0, y: 0, z: 0 }, extraM
         title: extraMeta.title || obj.label || shape,
     };
 
-    return builder({ cx, cy, cz, w, d, h, rotZ, color, meta });
+    return builder({ cx, cy, cz, localZ, w, d, h, rotZ, color, meta });
 }

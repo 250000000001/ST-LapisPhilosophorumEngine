@@ -16,6 +16,14 @@ export const SNAPSHOT_PLACEHOLDER = '{{vexa_state_snapshot}}';
 export const TRACKER_PROPOSE_PLACEHOLDER = '{{vexa_tracker_propose_rule}}';
 export const TRACKER_PROPOSE_LINE = 'tracker_propose: [OPTIONAL — omit this line completely unless user permanently acquires/founds a recurring multi-stat asset or system (business, estate/fief, ship, guild, army, debt ledger) whose metrics evolve across turns and cannot fit in <state:inv> or <state:tracks>. Format: Title | key1=val1, key2=val2, key3=val3 | short reason]';
 
+export const SPATIAL_GROUNDING_BLOCK = `<spatial_grounding>
+READ THE ATLAS MAP (<state:locations>) AS PHYSICAL 3D SPACE:
+- grid "[X,Y,Z]": X = East meters, Y = South meters, Z = floor level integer (0=ground, 1=upper, -1=sub-level).
+- dim "WxDxHm": width (X), depth (Y), ceiling height (H meters). Optional elev: floor vertical offset in meters within the same level (e.g. +1.5m raised dais, -1.2m sunken pit).
+- coordinates [x,y] or [x,y,z]: room-local meters from each room's NW floor corner [0,0,0] (x=0..W east, y=0..D south, z=height above room floor). Elevated platforms, catwalks, stairs, and characters on them include a 3rd z meter coordinate.
+- exits & adj: treat physical doors/bulkheads, wall seams, ceiling heights, glass containment, and elevated walkways as real line-of-sight and acoustic boundaries when narrating movement, cover, combat range, and who can see/hear what.
+</spatial_grounding>`;
+
 /** Remove historical <internal_states> and <vexa_tail> blocks from assistant chat messages. */
 export function stripStateAndTailFromMessage(content) {
     if (typeof content !== 'string' || !content) return content;
@@ -83,6 +91,7 @@ export function transformPromptMessages(messages, {
     recentText = '',
     injectDepth = 2,
     allowTrackerProposals = true,
+    spatialGrounding = true,
 } = {}) {
     if (!enabled || !Array.isArray(messages)) {
         return { active: false, strippedCount: 0, injected: false, snapshotChars: 0 };
@@ -97,6 +106,9 @@ export function transformPromptMessages(messages, {
     const snapshotXml = hasState
         ? serializeInternalStates(state, { scoped, recentText, includeVent: false })
         : '<!-- Turn 1: No prior state yet. Initial state will be captured after your reply. -->';
+    const injectedPayload = (hasState && spatialGrounding)
+        ? `${SPATIAL_GROUNDING_BLOCK}\n\n${snapshotXml}`
+        : snapshotXml;
 
     // First pass: strip historical states/tails ONLY from messages that are not system template messages
     // containing SNAPSHOT_PLACEHOLDER or <internal_states_spec>.
@@ -124,7 +136,7 @@ export function transformPromptMessages(messages, {
         for (const msg of messages) {
             if (!msg || typeof msg.content !== 'string') continue;
             if (msg.content.includes(SNAPSHOT_PLACEHOLDER)) {
-                msg.content = msg.content.replaceAll(SNAPSHOT_PLACEHOLDER, snapshotXml);
+                msg.content = msg.content.replaceAll(SNAPSHOT_PLACEHOLDER, injectedPayload);
                 injected = true;
             }
         }
@@ -135,7 +147,7 @@ export function transformPromptMessages(messages, {
             if (msg && typeof msg.content === 'string' && msg.content.includes('<internal_states_spec>')) {
                 msg.content = msg.content.replace(
                     /<internal_states>[\s\S]*?<\/internal_states>/i,
-                    snapshotXml,
+                    injectedPayload,
                 );
                 injected = true;
             }
@@ -144,7 +156,7 @@ export function transformPromptMessages(messages, {
             const insertAt = Math.max(0, messages.length - Math.max(0, injectDepth));
             messages.splice(insertAt, 0, {
                 role: 'user',
-                content: `[LIVE EXTERNAL WORLD STATE SNAPSHOT — READ-ONLY REFERENCE FOR THIS TURN; DO NOT COPY FORWARD FULL XML]\n${snapshotXml}`,
+                content: `[LIVE EXTERNAL WORLD STATE SNAPSHOT — READ-ONLY REFERENCE FOR THIS TURN; DO NOT COPY FORWARD FULL XML]\n${injectedPayload}`,
             });
             injected = true;
         }

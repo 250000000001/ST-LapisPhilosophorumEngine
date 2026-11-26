@@ -37,6 +37,8 @@ export function syncSettingsUI(s) {
     $('#vse_body_type').val(s.defaultBodyType || 'male');
     $('#vse_show_launcher').prop('checked', s.showLauncherButton !== false);
     $('#vse_hud_collapsed').prop('checked', s.hudDefaultCollapsed !== false);
+    $('#vse_show_inline_changes').prop('checked', s.showInlineChanges !== false);
+    $('#vse_spatial_grounding').prop('checked', s.spatialGrounding !== false);
     $('#vse_pin_rules').prop('checked', s.pinNotebookRules !== false);
     $('#vse_matrix_cap').prop('checked', s.enforceMatrixStepCap !== false);
     $('#vse_allow_tracker_proposals').prop('checked', s.allowTrackerProposals !== false);
@@ -71,6 +73,7 @@ export function injectSettingsUI({
     onResetChat,
     onCleanLastRefusal,
     onRetryToggleChanged,
+    onAlignHudThemes,
     onSettingsChanged,
 }) {
     if ($('#vse_settings_container').length) return;
@@ -217,6 +220,19 @@ export function injectSettingsUI({
                         <input id="vse_hud_collapsed" type="checkbox" />
                         <span>Collapse HUD cards by default</span>
                     </label>
+                    <label class="checkbox_label" for="vse_show_inline_changes">
+                        <input id="vse_show_inline_changes" type="checkbox" />
+                        <span>Show inline &ldquo;Changed in this reply&rdquo; diff strip</span>
+                    </label>
+                    <label class="checkbox_label" for="vse_spatial_grounding">
+                        <input id="vse_spatial_grounding" type="checkbox" />
+                        <span>Inject <code>&lt;spatial_grounding&gt;</code> room &amp; elevation guide for main model</span>
+                    </label>
+                    <div class="vse-btn-row" style="margin:6px 0;">
+                        <button type="button" id="vse_align_hud_themes_btn" class="menu_button" title="Apply active HUD theme and style across all rendered chat HUD cards in-place">
+                            <i class="fa-solid fa-wand-magic-sparkles"></i> Align All Chat HUDs to Current Theme
+                        </button>
+                    </div>
                     <label class="checkbox_label" for="vse_pin_rules">
                         <input id="vse_pin_rules" type="checkbox" />
                         <span>Pin <code>[R]</code> OOC rules in Notebook (never evicted at 20-entry cap)</span>
@@ -332,6 +348,8 @@ export function injectSettingsUI({
     $('#vse_body_type').val(s.defaultBodyType || 'male');
     $('#vse_show_launcher').prop('checked', s.showLauncherButton !== false);
     $('#vse_hud_collapsed').prop('checked', s.hudDefaultCollapsed !== false);
+    $('#vse_show_inline_changes').prop('checked', s.showInlineChanges !== false);
+    $('#vse_spatial_grounding').prop('checked', s.spatialGrounding !== false);
     $('#vse_pin_rules').prop('checked', s.pinNotebookRules !== false);
     $('#vse_matrix_cap').prop('checked', s.enforceMatrixStepCap !== false);
     $('#vse_allow_tracker_proposals').prop('checked', s.allowTrackerProposals !== false);
@@ -373,6 +391,12 @@ export function injectSettingsUI({
     $('#vse_body_type').on('change', function () { getSettings().defaultBodyType = $(this).val(); saveSettings(); onSettingsChanged?.(); });
     $('#vse_show_launcher').on('change', function () { getSettings().showLauncherButton = $(this).prop('checked'); saveSettings(); onSettingsChanged?.(); });
     $('#vse_hud_collapsed').on('change', function () { getSettings().hudDefaultCollapsed = $(this).prop('checked'); saveSettings(); onSettingsChanged?.(); });
+    $('#vse_show_inline_changes').on('change', function () { getSettings().showInlineChanges = $(this).prop('checked'); saveSettings(); onSettingsChanged?.(); });
+    $('#vse_spatial_grounding').on('change', function () { getSettings().spatialGrounding = $(this).prop('checked'); saveSettings(); onSettingsChanged?.(); });
+    $('#vse_align_hud_themes_btn').on('click', () => {
+        const cur = getSettings();
+        onAlignHudThemes?.(cur.hudTheme || 'Sola', cur.hudStyle || 'Afterglow');
+    });
     $('#vse_open_popup_btn').on('click', () => onOpenPopup?.());
     $('#vse_pin_rules').on('change', function () { getSettings().pinNotebookRules = $(this).prop('checked'); saveSettings(); onSettingsChanged?.(); });
     $('#vse_matrix_cap').on('change', function () { getSettings().enforceMatrixStepCap = $(this).prop('checked'); saveSettings(); onSettingsChanged?.(); });
