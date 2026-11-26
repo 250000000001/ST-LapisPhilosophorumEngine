@@ -6,7 +6,7 @@
 
 ## 1. `[InitVar]` Seeding & `card_vars` Storage
 
-- **World Info Seed Entry:** Name the entry comment `[InitVar]` or `[VexaInitVar]` (exact comment match or inside `key`/`keys`). Its content may be raw JSON or a fenced ` ```json ... ``` ` block.
+- **World Info Seed Entry:** Name the entry comment `[InitVar]`, `[LPEInitVar]`, or legacy `[VexaInitVar]` (exact comment match or inside `key`/`keys`). Its content may be raw JSON or a fenced ` ```json ... ``` ` block.
 - **Normalization (`tryParseInitVarsFromEntries`):**
   - Recursively strips `$meta` schema markers and forbidden prototype keys (`__proto__`, `constructor`, `prototype`).
   - Wraps flat objects under `{ stat_data: ... }` automatically if `stat_data` is absent.
@@ -29,22 +29,22 @@
 |---|---|
 | `getvar(path, fallbackOrOpts)` | Looks up `path` in `card_vars` (falls back between `stat_data.<path>` and root, then `custom_trackers.*`). Supports `{ defaults: x }` or `{ default: x }` or direct fallback scalar. |
 | `setvar(path, value)` | Prompt-stage only when `allowVarWrites: true`; writes are staged and committed **only** if template evaluation succeeds. Disabled (`false`) during read-only World Info evaluation. |
-| `getvexa(path, fallback)` | Reads frozen Vexa state snapshot, e.g. `getvexa('world.loc')`, `getvexa('health.bloodLoss', 0)`, `getvexa('health.pain', 0)`, `getvexa('custom_trackers.<id>.fields.<key>')`. |
+| `getlpe(path, fallback)` | Reads frozen LPE state snapshot (legacy alias `getvexa()` also supported), e.g. `getlpe('world.loc')`, `getlpe('health.bloodLoss', 0)`, `getlpe('health.pain', 0)`, `getlpe('custom_trackers.<id>.fields.<key>')`. |
 | `roll(expr)` | Safe RPG dice roller: `NdS`, `NdS+K`, `NdS-K`, `NdSkhM`, `NdSklM` (`N <= 100`, `S <= 10000`). Returns `{ total, rolls, kept, modifier, expr }` with `valueOf()` / `toString()` returning `total`. |
 | `chance(pct)` | Returns boolean with `pct%` probability (`<=0` false, `>=100` true). |
 | `pick(arr)` | Uniformly picks a random element from `arr`. |
 | `clamp(val, min, max)` | Numeric clamp helper. |
 | `getwi(commentOrKey)` | Case-insensitive lookup returning another loaded World Info entry's raw content. |
-| `vexa` / `state` / `vars` | Deep-frozen read-only snapshots of Vexa state and `card_vars`. Note: `health` in `vexa` includes computed `overallHp`, `pain`, `painLabel`, `bloodLoss`, `bleedingLevel`, `bleedingCount`, `totalWounds`, `untreatedCount`, `capacities`. |
-| `char`, `user`, `turn` | Active character name, user persona name, and `Number(vexa.world?.ct || 0)`. |
+| `lpe` / `state` / `vars` | Deep-frozen read-only snapshots of LPE state and `card_vars` (legacy alias `vexa` also exposed). Note: `health` in `lpe` includes computed `overallHp`, `pain`, `painLabel`, `bloodLoss`, `bleedingLevel`, `bleedingCount`, `totalWounds`, `untreatedCount`, `capacities`. |
+| `char`, `user`, `turn` | Active character name, user persona name, and `Number(lpe.world?.ct || 0)`. |
 
 ---
 
-## 3. Non-EJS Macro Substitution (`substituteVexaMacros`)
+## 3. Non-EJS Macro Substitution (`substituteLpeMacros`)
 
 Evaluated after EJS in both World Info entries and outgoing non-user prompt messages:
 - `{{get_card_var::path}}` — replaced with resolved `card_vars` value (`''` if missing).
-- `{{vexa::path}}` — replaced with Vexa state value (`''` if missing).
+- `{{lpe::path}}` — replaced with LPE state value (`''` if missing; legacy `{{vexa::path}}` alias also supported).
 - `{{get_message_variable::path}}` — replaced **only when resolved** in `card_vars` / `custom_trackers` (left untouched if owned elsewhere).
 - `{{format_message_variable::path}}` — pretty-printed JSON if object/array when resolved.
 - `{{roll:NdS}}` — rolled scalar replacement.
@@ -54,7 +54,7 @@ Evaluated after EJS in both World Info entries and outgoing non-user prompt mess
 ## 4. Hard Sandbox & Budget Limits
 
 Templates fail closed and return raw fallback text + console warning if they violate any rule:
-- **Loop & Time Budget:** `DEFAULT_MAX_LOOP_STEPS = 5000` (all `for`, `while`, `do..while`, `for..of`, `for..in` loops inject `__vseStep()`), `maxEvalMs = 200`, `DEFAULT_MAX_TEMPLATE_CHARS = 262144`, `DEFAULT_MAX_OUTPUT_CHARS = 262144`.
+- **Loop & Time Budget:** `DEFAULT_MAX_LOOP_STEPS = 5000` (all `for`, `while`, `do..while`, `for..of`, `for..in` loops inject `__lpeStep()`; both `__lpe*` and `__vse*` internal symbols are blocked from template code), `maxEvalMs = 200`, `DEFAULT_MAX_TEMPLATE_CHARS = 262144`, `DEFAULT_MAX_OUTPUT_CHARS = 262144`.
 - **Syntax Constraints:** Braceless loops (`for (...) doSomething();`) are rejected — always wrap loop bodies in `{ ... }`. Class declarations and unicode identifier escapes (`\u0064`) are blocked.
 - **Forbidden Globals:** `window`, `document`, `globalThis`, `self`, `top`, `parent`, `frames`, `SillyTavern`, `jQuery`, `XMLHttpRequest`, `WebSocket`, `EventSource`, `Worker`, `Proxy`, `Reflect`, `eval`, `Function`, `localStorage`, `sessionStorage`, `indexedDB`, `fetch`, `process`, `require`, `module`, `exports`, etc.
 - **Forbidden Prototype Tokens:** `__proto__`, `constructor`, `prototype`, `__defineGetter__`, `__defineSetter__`, `__lookupGetter__`, `__lookupSetter__` (both static identifiers and dynamic bracket lookups).

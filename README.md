@@ -1,16 +1,16 @@
-# ST-VexaStateEngine
+# Lapis Philosophorum Engine (LPE)
 
-External state engine, swipe-safe journaled store, secondary API worker ("Vexa Clerk"), Hybrid Three.js WebGL + PolyCSS 3D Atlas map, anatomical health doll, inline editor, and native themed HUD for SillyTavern Vexa presets.
+External state engine, swipe-safe journaled store, secondary API worker (**LPE Clerk**), Hybrid Three.js WebGL + PolyCSS 3D Atlas map, anatomical health doll, inline editor, and native themed HUD for **Magnum Opus** and Vexa-lineage SillyTavern presets.
 
 ## Screenshots
 
 <p align="center">
-  <img src="Screenshots/control-center-atlas3d.png" alt="Vexa Control Center — Hybrid WebGL Atlas Map (Castle Black Z=0 with Cutout Doorways)" width="49%">
+  <img src="Screenshots/control-center-atlas3d.png" alt="LPE Control Center — Hybrid WebGL Atlas Map (Castle Black Z=0 with Cutout Doorways)" width="49%">
   <img src="Screenshots/webgl-textured-kits.png" alt="Hybrid Three.js WebGL Atlas — Medieval Procedural + CC BY 4.0 PSX Industrial & Sci-Fi Lab Textured Kits" width="49%">
 </p>
 <p align="center">
-  <img src="Screenshots/control-center-health.png" alt="Vexa Control Center — Nice Health Tab Body Doll (X-Ray)" width="49%">
-  <img src="Screenshots/inline-hud.png" alt="Per-Message Inline Vexa HUD Card in SillyTavern" width="49%">
+  <img src="Screenshots/control-center-health.png" alt="LPE Control Center — Nice Health Tab Body Doll (X-Ray)" width="49%">
+  <img src="Screenshots/inline-hud.png" alt="Per-Message Inline LPE HUD Card in SillyTavern" width="49%">
 </p>
 <p align="center">
   <img src="Screenshots/polycss-3d-assets.png" alt="PolyCSS 3D Library — Diorama Prefabs & Geometric Primitives" width="49%">
@@ -19,51 +19,55 @@ External state engine, swipe-safe journaled store, secondary API worker ("Vexa C
 
 ## What It Does
 
-Vanilla Vexa emits all 16 `<internal_states>` XML sections at the end of every reply (~35 KB / ~9k–10k output tokens per turn, ~87% of total output). **Vexa State Engine** splits that workload into three layers:
+Vanilla TeleWire/Vexa presets emit all 16 `<internal_states>` XML sections at the end of every reply (~35 KB / ~9k–10k output tokens per turn, ~87% of total output). **Lapis Philosophorum Engine (LPE)** splits that workload into three layers:
 
-1. **Lean Main Model (`<vexa_tail>` + `<!-- GFX_END -->`)**:
-   - The main model outputs only `[🕰️ ...]` Time Header, story prose, Colored Dialogue, optional GFX/Props, and a compact terminal `<vexa_tail>` containing `<vexa_receipt>` (`world_sim`, `chekhov`, `arc`, `ooc`) and `<state:vent>` followed by `<!-- GFX_END -->`.
+1. **Lean Main Model (`<lpe_tail>` + `<!-- GFX_END -->`)**:
+   - The main model outputs only `[🕰️ ...]` Time Header, story prose, Colored Dialogue, optional GFX/Props, and a compact terminal `<lpe_tail>` containing `<lpe_receipt>` (`world_sim`, `chekhov`, `arc`, `ooc`) and `<state:vent>` followed by `<!-- GFX_END -->`.
 2. **Deterministic JS Engine (`src/reducer.js` + `src/store.js`)**:
-   - Stored per chat & branch inside `chat_metadata.vexa_state` with swipe-safe `(vexa_uid, vexa_seq)` stamps.
+   - Stored per chat & branch inside `chat_metadata.lpe_state` with swipe-safe `(lpe_uid, lpe_seq)` stamps.
    - Deterministically handles `ct++`, `<header>` syncing, prose `<color>` locking, Atlas `bbox` calculation + AABB overlap validation + atomic occupant moves, Chekhov `fired` clearing & `age+1` aging, Notebook `[R]` rule pinning & `[R]/[T]/[D]` 20-cap, and Aether Matrix `[3..20]` / `±2` clamping.
-   - Includes `importFromChat()` (auto-imports on chat open or one-click button) to migrate existing vanilla Vexa chats cleanly.
-3. **Post-Reply Worker API ("Vexa Clerk")**:
+   - Includes `importFromChat()` (auto-imports on chat open or one-click button) to migrate existing vanilla `<internal_states>` chats cleanly.
+3. **Post-Reply Worker API ("LPE Clerk")**:
    - Runs automatically after the integrated Refusal Auto-Retry guard (or standalone `ST-VexaRefusalAutoRetry`) accepts the reply.
    - Supports **Direct OpenAI-Compatible Endpoints** (via SillyTavern's `ChatCompletionService.processRequest` reverse-proxy path so zero CORS issues) and **SillyTavern Connection Profiles** (`ConnectionManagerRequestService.sendRequest`, zero profile switching).
    - Emits compact JSON deltas (omitting unchanged rooms, dormant NPCs, and unchanged pairs).
 4. **Integrated Refusal Auto-Retry & Non-Stream Continue (Toggleable)**:
-   - Built directly into **Extensions → Vexa State Engine** (`Enable built-in Refusal Auto-Retry & End-Marker Guard`), with **Continue (No Stream)** send-bar/options controls, surgical safety-refusal cleanup, end-marker validation (`auto` / `external` / `classic` / `marker`), and custom refusal regex patterns. Standalone `ST-VexaRefusalAutoRetry` is no longer required when this toggle is enabled.
+   - Built directly into **Extensions → Lapis Philosophorum Engine (LPE)** (`Enable built-in Refusal Auto-Retry & End-Marker Guard`), with **Continue (No Stream)** send-bar/options controls, surgical safety-refusal cleanup, end-marker validation (`auto` / `external` / `classic` / `marker`), and custom refusal regex patterns. Standalone `ST-VexaRefusalAutoRetry` is no longer required when this toggle is enabled.
 5. **Native JS Tabbed HUD, Unified 3D/2D Atlas & Control Center**:
-   - Never mutates `msg.mes`; renders a collapsible themed card under each AI message with a Megumin-inspired inline **"Changed in this reply"** diff strip (`All` / `This tab` filters, clickable section jump badges, per-turn **Revert / Restore**, **Read again**, and reducer notes), a separate collapsible **CoT Receipt** drawer (`world_sim`, `chekhov`, `arc`, `ooc`) positioned cleanly outside/behind `Vexa State`, and a one-click **Align All Chat HUDs to Current Theme** action that updates existing chat HUD cards in place.
+   - Never mutates `msg.mes`; renders a collapsible themed card under each AI message with a Megumin-inspired inline **"Changed in this reply"** diff strip (`All` / `This tab` filters, clickable section jump badges, per-turn **Revert / Restore**, **Read again**, and reducer notes), a separate collapsible **CoT Receipt** drawer (`world_sim`, `chekhov`, `arc`, `ooc`) positioned cleanly outside/behind `LPE State`, and a one-click **Align All Chat HUDs to Current Theme** action that updates existing chat HUD cards in place.
    - **Shared Atlas Topology & Intra-Level Height (`src/atlasTopology.js`)**: Unifies adjacent touching rooms with flush wall corners, coordinated cutaway heights, **1 unified doorway** (shared texture/style across connected rooms without duplicate outer wall boxes or exit airlocks), vertical ceiling heights (`dim` `WxDxHm`), per-room floor elevation offsets (`elev`), elevated `platform` walkways/mezzanines, and `[x,y,z]` 3D occupant/user positioning, plus an optional toggleable `<spatial_grounding>` prompt guide for the story model.
    - **Hybrid Three.js WebGL Atlas** (`src/atlasWebgl.js` + vendored `lib/three/`) pairs render-on-demand Three.js rooms and **physical doorway wall cutouts** (`splitWallWithDoorways`, hinged/sliding doors, archways, elevated plinths, and low-curb outdoor courtyards) with normalized **CC BY 4.0** textured `.glb` packs (`assets/models/psx-industrial.glb` & `assets/models/scifi-lab-props.glb`) and original procedural furniture — plus optional gitignored `assets/models/custom/` local prop overrides.
    - **PolyCSS 3D CSS & Zoomable 2D SVG Atlas** (`src/polyCss3d.js`, `src/polyAssets.js`, `src/atlas3d.js`, `src/atlasSvg.js`) render **10 geometric primitives** and **29 diorama/kit prefabs** (`table`, `chair`, `couch`, `bed`, `bookshelf`, `desk`, `hearth`, `brazier`, `lamp`, `chest`, `tree`, `crystal`, `ladder`, `hourglass`, `container`, `barrel`, `crate`, `dumpster`, `generator`, `pallet`, `propane`, `pipes`, `locker`, `vat`, `console`, `cabinet`, `airlock`, `screen`, `platform`), zoom-invariant projected 3D overlay labels, clipped non-overlapping 2D room titles with pan/zoom `+`/`−`/`Reset` controls and golden-angle crowd decluttering, and **divergent 6-pair Aether Matrix bars** (`src/matrixView.js`) with plain-English `acc`/`E`/`L`/`Gate`/`Wall` explanations.
    - Scaled for long multi-hundred-turn chats via indexed `store.js` timeline/swipe lookups (`O(1)`/`O(log N)`), local single-card HUD refreshes without global version cache-busting, `content-visibility: auto`, and a single lazily loaded WebGL context torn down cleanly on close/tab switch.
-   - Includes a draggable floating compass launcher (`#vse_fab_btn`) and frosted-glass **Vexa Control Center** popup (`#vse_app_overlay`) featuring character banner artwork, left glass dock (collapsible floating pill bar on mobile), live token readout, interactive WebGL/3D/2D Atlas & object builder, state inspection/editing across all tabs, worker & refusal-retry configuration, visual theme swatches, and raw snapshot/JSON tools.
+   - Includes a draggable floating compass launcher (`#lpe_fab_btn`) and frosted-glass **LPE Control Center** popup (`#lpe_app_overlay`, `.lpe-*`) featuring character banner artwork, left glass dock (collapsible floating pill bar on mobile), live token readout, interactive WebGL/3D/2D Atlas & object builder, state inspection/editing across all tabs, worker & refusal-retry configuration, visual theme swatches, and raw snapshot/JSON tools.
 6. **Main-Model-Proposed Custom Trackers (Toggleable)**:
-   - When enabled, the main story model can optionally propose recurring multi-field trackers (e.g. a business, estate, ship, or debt ledger) via `tracker_propose:` inside `<vexa_receipt>`.
+   - When enabled, the main story model can optionally propose recurring multi-field trackers (e.g. a business, estate, ship, or debt ledger) via `tracker_propose:` inside `<lpe_receipt>`.
    - Proposals can be approved/edited/dismissed in 1 click from the HUD or Control Center (or auto-accepted via toggle). Once active, the background worker can only update values of those locked field keys — zero key drift and 0 prompt tokens when no custom trackers exist.
 7. **Anatomical Body-Part Health System (Nice Health Tab–Inspired)**:
    - Replaces plain status text with an interactive 27-part anatomical SVG paper doll (`src/healthDoll.js`) supporting 4 silhouettes (`Male`, `Female`, `Athletic`, `Heavy`), 4 inspection layers (`Body`, `Organs`, `Bones`, `X-Ray`), and visual injury indicators (bleeding droplets, bandaged wraps, scars, sharp slashes, burns, frostbite, fractures, toxins/infections, missing parts, and prosthetics).
    - Computes vital gauges (`Overall HP`, `Pain`, `Blood Loss`) and 7 RimWorld-style physiological capacities (`Consciousness`, `Moving`, `Manipulation`, `Breathing`, `Blood Pumping`, `Sight`, `Metabolism`), updated via delta-only `health_delta` worker patches or directly edited in the **Health & Body** Control Center tab (with automatic non-destructive fallback preview from legacy `<state:inv><status>` text).
 8. **Clean-Room Scoped EJS Templating & Guarded Blob-URL Card Renderer (Optional / Auto-Yielding)**:
-   - **Scoped EJS Engine (`src/ejsEngine.js`)**: Evaluates `<% ... %>` dynamic logic, RPG dice pools (`roll('1d100')`, `chance()`, `pick()`), `getvar`/`setvar` on scoped `card_vars`, `[InitVar]` seeding, and read-only Vexa state bindings (`getvexa('health.bloodLoss')`, `vexa.world.loc`, etc.) inside World Info and prompts — isolated from `window`/`document`/secrets and protected by a 5,000-step loop budget. Automatically yields when `ST-Prompt-Template` (`window.EjsTemplate`) is installed.
-   - **Guarded Blob-URL Renderer & Sandboxed `postMessage` Bridge (`src/cardRenderer.js` + `src/cardBridge.js`)**: Renders card HTML code blocks in strictly sandboxed (`sandbox="allow-scripts"`, no `allow-same-origin`, `allow-forms`, or `allow-popups`) Blob URL iframes with CSP isolation, per-frame token/source verification, Render Depth throttling, >2 MB size guard, code folding, and `highlight.js` bypass for frontend blocks. Interactive screens use the safe `window.VexaCard` bridge and queue replies through a 1-click confirmation bar instead of accessing `window.parent` or API keys. Automatically yields when `JS-Slash-Runner` (`window.TavernHelper`) is active.
+   - **Scoped EJS Engine (`src/ejsEngine.js`)**: Evaluates `<% ... %>` dynamic logic, RPG dice pools (`roll('1d100')`, `chance()`, `pick()`), `getvar`/`setvar` on scoped `card_vars`, `[InitVar]` / `[LPEInitVar]` seeding, and read-only LPE state bindings (`getlpe('health.bloodLoss')`, `lpe.world.loc`, etc.; `getvexa` / `vexa.*` / `{{vexa::...}}` aliases preserved) inside World Info and prompts — isolated from `window`/`document`/secrets and protected by a 5,000-step loop budget. Automatically yields when `ST-Prompt-Template` (`window.EjsTemplate`) is installed.
+   - **Guarded Blob-URL Renderer & Sandboxed `postMessage` Bridge (`src/cardRenderer.js` + `src/cardBridge.js`)**: Renders card HTML code blocks in strictly sandboxed (`sandbox="allow-scripts"`, no `allow-same-origin`, `allow-forms`, or `allow-popups`) Blob URL iframes with CSP isolation, per-frame token/source verification, Render Depth throttling, >2 MB size guard, code folding, and `highlight.js` bypass for frontend blocks. Interactive screens use the safe `window.LPECard` bridge (`window.VexaCard` alias preserved) and queue replies through a 1-click confirmation bar instead of accessing `window.parent` or API keys. Automatically yields when `JS-Slash-Runner` (`window.TavernHelper`) is active.
+
+> **Legacy Vexa Compatibility:** Existing configs and chats upgrade automatically without manual steps: `extension_settings.vexa_state_engine` → `extension_settings.lapis_philosophorum_engine`, `chat_metadata.vexa_state` → `chat_metadata.lpe_state`, `(vexa_uid, vexa_seq)` stamps work alongside `(lpe_uid, lpe_seq)`, and parsers/bridges continue accepting `<vexa_tail>`, `<vexa_receipt>`, `window.VexaCard`, `vexa-card-bridge`, `getvexa()`, `{{vexa::...}}`, `[VexaInitVar]`, and `--vse-*`.
 
 ## Preset Setup
 
-The modified External-State preset ([`ST.+.Tavo.Vexa.v1.0 (Dynamic World - External State).json`](Presets/ST.+.Tavo.Vexa.v1.0%20(Dynamic%20World%20-%20External%20State).json)) is **included directly in this repository with Ryah's permission**:
+The companion external-state preset (**Magnum Opus**, [`Presets/Magnum Opus.json`](Presets/Magnum%20Opus.json)) is **included directly in this repository with Ryah's permission**:
 
-1. Import [`Presets/ST.+.Tavo.Vexa.v1.0 (Dynamic World - External State).json`](Presets/ST.+.Tavo.Vexa.v1.0%20(Dynamic%20World%20-%20External%20State).json) under SillyTavern's **AI Response Configuration** (or turn on **Force Active on Non-Vexa Presets** to inject external state on other presets).
-2. If you want to convert your own customized Vexa preset from [`https://ryah.github.io/vexa/`](https://ryah.github.io/vexa/), run the local conversion helper:
+1. Import [`Presets/Magnum Opus.json`](Presets/Magnum%20Opus.json) under SillyTavern's **AI Response Configuration** (or turn on **Force Active on Non-LPE / Magnum Opus Presets** to inject external state on other presets).
+2. If you want to build `Presets/Magnum Opus.json` from your own upstream Vexa preset (`https://ryah.github.io/vexa/`), run the local conversion helper:
    ```bash
-   node scripts/build-preset.mjs /path/to/your-vexa-preset.json /path/to/output-external-state-preset.json
+   node scripts/build-preset.mjs /path/to/your-vexa-preset.json Presets/Magnum\ Opus.json
    ```
+
+See [`docs/card-adaptation/`](docs/card-adaptation/01-overview-and-offloading.md) for the full card-conversion & scripting playbook.
 
 ## Credits & Acknowledgements
 
 - **Vexa Preset** by **Ryah** — https://ryah.github.io/vexa
-  - Created the TeleWire TRP-AO world-simulation preset, 16-section `<internal_states>` architecture, Aether Matrix/Dam, Atlas, Chekhov, ARC, and HUD theme palettes that this engine externalizes and builds upon. The modified External-State preset included under [`Presets/`](Presets/) is derived from Ryah's Vexa preset and redistributed with Ryah's explicit permission.
+  - Created the TeleWire TRP-AO world-simulation preset, 16-section `<internal_states>` architecture, Aether Matrix/Dam, Atlas, Chekhov, ARC, and HUD theme palettes that Lapis Philosophorum Engine (LPE) & **Magnum Opus** externalize and build upon. The **Magnum Opus** external-state preset included under [`Presets/`](Presets/) is derived from Ryah's Vexa preset and redistributed with Ryah's explicit permission.
 - **Megumin Suite** by **Arif-salah (`KazumaONIISAN`)** — https://github.com/Arif-salah/Megumin-Suite
   - Inspired the Chomusuke secondary worker API workflow, swipe-safe journaled state store, send-guard flow, and the floating launcher + frosted-glass Control Center UI (`src/appPopup.js` & `style.css`).
 - **PolyCSS** & **css.graphics** by **alowpoly (Agustin Capeletto / LayoutIt)** — https://github.com/layoutit/polycss · https://github.com/layoutit/css.graphics
@@ -86,6 +90,6 @@ The modified External-State preset ([`ST.+.Tavo.Vexa.v1.0 (Dynamic World - Exter
 ## License
 
 - **Extension Code & Procedural 3D Geometry:** All original JavaScript, CSS, HTML, procedural Three.js/PolyCSS builders, and tooling scripts in this repository are licensed under **[Creative Commons Attribution-NonCommercial 4.0 International (CC BY-NC 4.0)](LICENSE)**.
-- **External-State Modified Vexa Preset (`Presets/`):** Derived from Ryah's Vexa preset (`https://ryah.github.io/vexa`) and included with Ryah's permission for SillyTavern Vexa users.
+- **Magnum Opus Preset (`Presets/Magnum Opus.json`):** Derived from Ryah's Vexa preset (`https://ryah.github.io/vexa`) and included with Ryah's permission for SillyTavern LPE users.
 - **Vendored Three.js (`lib/three/`):** Licensed separately under the **[MIT License](lib/three/LICENSE)**.
 - **Bundled 3D Model Assets (`assets/models/*.glb`):** Licensed under **[Creative Commons Attribution 4.0 International (CC BY 4.0)](https://creativecommons.org/licenses/by/4.0/)** as detailed in [`assets/models/ATTRIBUTION.md`](assets/models/ATTRIBUTION.md). No endorsement by original model authors is implied.

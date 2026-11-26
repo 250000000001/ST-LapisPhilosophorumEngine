@@ -8,10 +8,11 @@
  * rate limits + explicit allowlisted RPC methods.
  */
 
-import { VEXA_THEMES } from './schema.js';
+import { LPE_THEMES } from './schema.js';
 import { computeHealthMetrics, hasExplicitHealthData, inferHealthFromStatusText } from './healthDoll.js';
 
-const BRIDGE_CHANNEL = 'vexa-card-bridge';
+const BRIDGE_CHANNEL = 'lpe-card-bridge';
+const LEGACY_BRIDGE_CHANNEL = 'vexa-card-bridge';
 const MAX_PAYLOAD_BYTES = 65536;
 const MAX_PAYLOAD_DEPTH = 14;
 const MAX_PAYLOAD_NODES = 2048;
@@ -113,7 +114,7 @@ export function buildSandboxCsp({ allowExternalResources = false } = {}) {
     return `<meta http-equiv="Content-Security-Policy" content="${policy}">`;
 }
 
-/** Pick safe gameplay fields ONLY from Vexa state (never exposes extensionSettings, keys, or prompts). */
+/** Pick safe gameplay fields ONLY from LPE state (never exposes extensionSettings, keys, or prompts). */
 export function sanitizeStateForCard(state) {
     const src = state && typeof state === 'object' ? state : {};
     const healthRaw = cloneJsonSafe(src.health || {}) || {};
@@ -152,7 +153,7 @@ export function sanitizeStateForCard(state) {
 }
 
 export function resolveThemeVarsForCard(themeName = 'Sola') {
-    const t = VEXA_THEMES[themeName] || VEXA_THEMES.Sola;
+    const t = LPE_THEMES[themeName] || LPE_THEMES.Sola;
     return {
         bg: t.base,
         mantle: t.mantle,
@@ -178,16 +179,17 @@ function safeInlineJson(value) {
         .replace(/\u2029/g, '\\u2029');
 }
 
-/** Generate the bootstrap CSS + locked `window.VexaCard` client script injected inside each card iframe. */
+/** Generate the bootstrap CSS + locked `window.LPECard` (and `window.VexaCard` alias) inside each card iframe. */
 export function buildBridgeBootstrapScript({ token, themeVars, initialState, initialVars, meta, hostOrigin = '' }) {
     const vars = themeVars || resolveThemeVarsForCard('Sola');
-    const cssText = `:root{color-scheme:${vars.scheme};--vse-vh:600px;--vse-bg:${vars.bg};--vse-mantle:${vars.mantle};--vse-surface:${vars.surface};--vse-border:${vars.border};--vse-text:${vars.text};--vse-subtext:${vars.subtext};--vse-muted:${vars.muted};--vse-accent:${vars.accent};--vse-green:${vars.green};--vse-red:${vars.red};--vse-yellow:${vars.yellow};}html,body{margin:0;padding:0;overflow-x:hidden;color:var(--vse-text);font-family:system-ui,-apple-system,Segoe UI,sans-serif;}`;
+    const cssText = `:root{color-scheme:${vars.scheme};--lpe-vh:600px;--lpe-bg:${vars.bg};--lpe-mantle:${vars.mantle};--lpe-surface:${vars.surface};--lpe-border:${vars.border};--lpe-text:${vars.text};--lpe-subtext:${vars.subtext};--lpe-muted:${vars.muted};--lpe-accent:${vars.accent};--lpe-green:${vars.green};--lpe-red:${vars.red};--lpe-yellow:${vars.yellow};--vse-vh:var(--lpe-vh);--vse-bg:var(--lpe-bg);--vse-mantle:var(--lpe-mantle);--vse-surface:var(--lpe-surface);--vse-border:var(--lpe-border);--vse-text:var(--lpe-text);--vse-subtext:var(--lpe-subtext);--vse-muted:var(--lpe-muted);--vse-accent:var(--lpe-accent);--vse-green:var(--lpe-green);--vse-red:var(--lpe-red);--vse-yellow:var(--lpe-yellow);}html,body{margin:0;padding:0;overflow-x:hidden;color:var(--lpe-text);font-family:system-ui,-apple-system,Segoe UI,sans-serif;}`;
     const targetOrigin = hostOrigin && hostOrigin !== 'null' ? hostOrigin : '*';
 
-    return `<style data-vse-bridge-css="1">${cssText}</style><script data-vse-bridge-js="1">(function(){
+    return `<style data-lpe-bridge-css="1">${cssText}</style><script data-lpe-bridge-js="1">(function(){
 "use strict";
 var TOKEN=${safeInlineJson(token)};
 var CHANNEL=${safeInlineJson(BRIDGE_CHANNEL)};
+var LEGACY_CHANNEL=${safeInlineJson(LEGACY_BRIDGE_CHANNEL)};
 var TARGET_ORIGIN=${safeInlineJson(targetOrigin)};
 var cachedState=${safeInlineJson(initialState || {})};
 var cachedVars=${safeInlineJson(initialVars || {})};
@@ -205,7 +207,7 @@ function post(method,payload){
     var timer=setTimeout(function(){pending.delete(id);reject(new Error("Bridge timeout: "+method));},5000);
     pending.set(id,{resolve:resolve,reject:reject,timer:timer});
     try{
-      window.parent.postMessage({channel:CHANNEL,token:TOKEN,id:id,method:method,payload:payload===undefined?null:payload},TARGET_ORIGIN);
+      window.parent.postMessage({type:"LPE_CARD_RPC",channel:CHANNEL,token:TOKEN,id:id,method:method,payload:payload===undefined?null:payload},TARGET_ORIGIN);
     }catch(err){clearTimeout(timer);pending.delete(id);reject(err);}
   });
 }
@@ -215,7 +217,7 @@ function postResize(h){
   if(Math.abs(num-lastHeight)<2)return;
   lastHeight=num;
   try{
-    window.parent.postMessage({channel:CHANNEL,token:TOKEN,id:"resize",method:"resize",payload:{height:num}},TARGET_ORIGIN);
+    window.parent.postMessage({type:"LPE_CARD_RPC",channel:CHANNEL,token:TOKEN,id:"resize",method:"resize",payload:{height:num}},TARGET_ORIGIN);
   }catch(_e){}
 }
 
@@ -233,7 +235,7 @@ window.addEventListener("message",function(ev){
   if(!ev||ev.source!==window.parent)return;
   if(TARGET_ORIGIN!=="*"&&ev.origin!==TARGET_ORIGIN)return;
   var msg=ev.data;
-  if(!msg||msg.channel!==CHANNEL||msg.token!==TOKEN)return;
+  if(!msg||(msg.channel!==CHANNEL&&msg.channel!==LEGACY_CHANNEL)||msg.token!==TOKEN)return;
   if(msg.replyTo&&pending.has(msg.replyTo)){
     var p=pending.get(msg.replyTo);
     pending.delete(msg.replyTo);
@@ -315,7 +317,9 @@ var api={
   onStateChange:function(fn){if(typeof fn==="function")stateListeners.add(fn);return function(){stateListeners.delete(fn);};},
   onVarsChange:function(fn){if(typeof fn==="function")varListeners.add(fn);return function(){varListeners.delete(fn);};}
 };
-Object.defineProperty(window,"VexaCard",{value:Object.freeze(api),writable:false,configurable:false});
+var frozenApi=Object.freeze(api);
+Object.defineProperty(window,"LPECard",{value:frozenApi,writable:false,configurable:false});
+Object.defineProperty(window,"VexaCard",{value:frozenApi,writable:false,configurable:false});
 
 if(typeof ResizeObserver==="function"){
   try{new ResizeObserver(measureAndResize).observe(document.documentElement);}catch(_e){}
@@ -331,14 +335,14 @@ function rewriteViewportHeightCss(html) {
     return String(html || '').replace(/<style\b([^>]*)>([\s\S]*?)<\/style>/gi, (m, attrs, css) => {
         const nextCss = css.replace(/\b(\d+(?:\.\d+)?)vh\b/gi, (vhMatch, n) => {
             const num = Number(n);
-            return Number.isFinite(num) ? `calc(var(--vse-vh, 600px) * ${(num / 100).toFixed(3)})` : vhMatch;
+            return Number.isFinite(num) ? `calc(var(--lpe-vh, 600px) * ${(num / 100).toFixed(3)})` : vhMatch;
         });
         return `<style${attrs}>${nextCss}</style>`;
     });
 }
 
 /**
- * Assemble a complete standalone HTML document wrapped with CSP + `VexaCard` bridge bootstrap.
+ * Assemble a complete standalone HTML document wrapped with CSP + `LPECard` (and `VexaCard` alias) bridge bootstrap.
  * Accepts either a full HTML document (`<!DOCTYPE html>...`) or an HTML fragment (`<div>...`).
  */
 export function assembleSandboxedDocument(rawHtml, {
@@ -392,11 +396,12 @@ export function createCardBridgeHost({
     const frames = new Map(); // token -> { token, iframe, mesId, seq, onResize, rpcTimestamps, lastToastAt, lastSubmitAt }
     const stats = { totalRpcs: 0, blockedRpcs: 0 };
 
-    function replyToFrame(entry, replyTo, ok, result = null, error = null) {
+    function replyToFrame(entry, replyTo, ok, result = null, error = null, channel = BRIDGE_CHANNEL) {
         try {
             if (!entry?.iframe?.contentWindow) return;
             entry.iframe.contentWindow.postMessage({
-                channel: BRIDGE_CHANNEL,
+                type: 'LPE_CARD_REPLY',
+                channel,
                 token: entry.token,
                 replyTo,
                 ok,
@@ -433,7 +438,8 @@ export function createCardBridgeHost({
 
     function onMessage(ev) {
         const msg = ev?.data;
-        if (!msg || typeof msg !== 'object' || msg.channel !== BRIDGE_CHANNEL) return;
+        const msgChannel = msg && typeof msg === 'object' ? msg.channel : '';
+        if (!msg || typeof msg !== 'object' || (msgChannel !== BRIDGE_CHANNEL && msgChannel !== LEGACY_BRIDGE_CHANNEL)) return;
         if (msg.replyTo || msg.event) return;
 
         const token = typeof msg.token === 'string' ? msg.token : '';
@@ -458,12 +464,12 @@ export function createCardBridgeHost({
 
         if (!ALLOWED_METHODS.has(method)) {
             stats.blockedRpcs++;
-            if (replyId) replyToFrame(entry, replyId, false, null, `Disallowed bridge method: ${method}`);
+            if (replyId) replyToFrame(entry, replyId, false, null, `Disallowed bridge method: ${method}`, msgChannel);
             return;
         }
         if (!allowRateLimit(entry, method)) {
             stats.blockedRpcs++;
-            if (replyId && method !== 'resize') replyToFrame(entry, replyId, false, null, 'Rate limit exceeded');
+            if (replyId && method !== 'resize') replyToFrame(entry, replyId, false, null, 'Rate limit exceeded', msgChannel);
             return;
         }
 
@@ -471,7 +477,7 @@ export function createCardBridgeHost({
             const pChk = inspectBridgePayload(msg.payload);
             if (!pChk.ok) {
                 stats.blockedRpcs++;
-                if (replyId) replyToFrame(entry, replyId, false, null, pChk.error || 'Unsafe payload');
+                if (replyId) replyToFrame(entry, replyId, false, null, pChk.error || 'Unsafe payload', msgChannel);
                 return;
             }
             let payloadBytes = 0;
@@ -482,12 +488,12 @@ export function createCardBridgeHost({
                     : json.length * 2;
             } catch {
                 stats.blockedRpcs++;
-                if (replyId) replyToFrame(entry, replyId, false, null, 'Unserializable payload');
+                if (replyId) replyToFrame(entry, replyId, false, null, 'Unserializable payload', msgChannel);
                 return;
             }
             if (payloadBytes > MAX_PAYLOAD_BYTES) {
                 stats.blockedRpcs++;
-                if (replyId) replyToFrame(entry, replyId, false, null, 'Payload exceeds 64 KB cap');
+                if (replyId) replyToFrame(entry, replyId, false, null, 'Payload exceeds 64 KB cap', msgChannel);
                 return;
             }
         }
@@ -508,83 +514,83 @@ export function createCardBridgeHost({
             }
             case 'getState': {
                 const rawState = getStateForMessage?.(entry.mesId) ?? store?.getState?.() ?? {};
-                replyToFrame(entry, replyId, true, sanitizeStateForCard(rawState));
+                replyToFrame(entry, replyId, true, sanitizeStateForCard(rawState), null, msgChannel);
                 return;
             }
             case 'getPath': {
                 const path = String(msg.payload?.path || '');
                 const rawState = getStateForMessage?.(entry.mesId) ?? store?.getState?.() ?? {};
                 const clean = sanitizeStateForCard(rawState);
-                replyToFrame(entry, replyId, true, readDotPathSafe(clean, path) ?? null);
+                replyToFrame(entry, replyId, true, readDotPathSafe(clean, path) ?? null, null, msgChannel);
                 return;
             }
             case 'getVars': {
-                replyToFrame(entry, replyId, true, store?.getCardVars?.() || {});
+                replyToFrame(entry, replyId, true, store?.getCardVars?.() || {}, null, msgChannel);
                 return;
             }
             case 'getVar': {
                 const path = String(msg.payload?.path || '');
-                replyToFrame(entry, replyId, true, store?.getCardVar?.(path, null) ?? null);
+                replyToFrame(entry, replyId, true, store?.getCardVar?.(path, null) ?? null, null, msgChannel);
                 return;
             }
             case 'setVar': {
                 if (!store?.setCardVar) {
-                    replyToFrame(entry, replyId, false, null, 'Card variable store unavailable');
+                    replyToFrame(entry, replyId, false, null, 'Card variable store unavailable', msgChannel);
                     return;
                 }
                 const path = String(msg.payload?.path || '');
                 const res = store.setCardVar(path, msg.payload?.value);
                 if (!res?.ok) {
                     stats.blockedRpcs++;
-                    replyToFrame(entry, replyId, false, null, res?.error || 'Failed to set variable');
+                    replyToFrame(entry, replyId, false, null, res?.error || 'Failed to set variable', msgChannel);
                     return;
                 }
                 const latestVars = store.getCardVars();
                 broadcastVars(latestVars);
                 onVarsUpdated?.(latestVars, entry);
-                replyToFrame(entry, replyId, true, { ok: true, vars: latestVars });
+                replyToFrame(entry, replyId, true, { ok: true, vars: latestVars }, null, msgChannel);
                 return;
             }
             case 'patchVars': {
                 if (!store?.patchCardVars) {
-                    replyToFrame(entry, replyId, false, null, 'Card variable store unavailable');
+                    replyToFrame(entry, replyId, false, null, 'Card variable store unavailable', msgChannel);
                     return;
                 }
                 const res = store.patchCardVars(msg.payload?.patch);
                 if (!res?.ok) {
                     stats.blockedRpcs++;
-                    replyToFrame(entry, replyId, false, null, res?.error || 'Failed to patch variables');
+                    replyToFrame(entry, replyId, false, null, res?.error || 'Failed to patch variables', msgChannel);
                     return;
                 }
                 const latestVars = store.getCardVars();
                 broadcastVars(latestVars);
                 onVarsUpdated?.(latestVars, entry);
-                replyToFrame(entry, replyId, true, { ok: true, vars: latestVars });
+                replyToFrame(entry, replyId, true, { ok: true, vars: latestVars }, null, msgChannel);
                 return;
             }
             case 'toast': {
                 const text = String(msg.payload?.message || '').slice(0, 300);
                 const level = ['info', 'success', 'warning', 'error'].includes(msg.payload?.level) ? msg.payload.level : 'info';
                 onToast?.(text, level, entry);
-                replyToFrame(entry, replyId, true, { ok: true });
+                replyToFrame(entry, replyId, true, { ok: true }, null, msgChannel);
                 return;
             }
             case 'fillInput': {
                 const text = String(msg.payload?.text || '').slice(0, 16000);
                 onFillInput?.(text, entry);
-                replyToFrame(entry, replyId, true, { ok: true });
+                replyToFrame(entry, replyId, true, { ok: true }, null, msgChannel);
                 return;
             }
             case 'submitInput': {
                 const text = String(msg.payload?.text || '').slice(0, 16000);
                 const allowAuto = Boolean(getSettings?.()?.rendererAllowAutoSend);
                 onSubmitInput?.(text, entry, { autoSend: allowAuto });
-                replyToFrame(entry, replyId, true, { ok: true, autoSend: allowAuto });
+                replyToFrame(entry, replyId, true, { ok: true, autoSend: allowAuto }, null, msgChannel);
                 return;
             }
             default: {
                 stats.blockedRpcs++;
-                if (replyId) replyToFrame(entry, replyId, false, null, `Disallowed bridge method: ${method}`);
+                if (replyId) replyToFrame(entry, replyId, false, null, `Disallowed bridge method: ${method}`, msgChannel);
             }
         }
     }
@@ -621,6 +627,7 @@ export function createCardBridgeHost({
             }
             try {
                 entry.iframe.contentWindow?.postMessage({
+                    type: 'LPE_CARD_EVENT',
                     channel: BRIDGE_CHANNEL,
                     token,
                     event: 'state',
@@ -641,6 +648,7 @@ export function createCardBridgeHost({
             }
             try {
                 entry.iframe.contentWindow?.postMessage({
+                    type: 'LPE_CARD_EVENT',
                     channel: BRIDGE_CHANNEL,
                     token,
                     event: 'vars',

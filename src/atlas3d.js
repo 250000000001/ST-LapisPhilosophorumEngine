@@ -1,7 +1,7 @@
 /**
- * Vexa Atlas -> PolyCSS 3D Scene Builder.
+ * LPE Atlas -> PolyCSS 3D Scene Builder.
  *
- * Converts Vexa <state:locations> rooms, doorways, features/explicit 3D objects,
+ * Converts LPE <state:locations> rooms, doorways, features/explicit 3D objects,
  * multi-floor levels, NPC pawns, and the user marker into pure CSS 3D polygons
  * and billboard labels via `./polyCss3d.js`.
  *
@@ -257,7 +257,7 @@ export function inferObjectsFromFeatures(room, box = null) {
 function buildPawnPolygons({ x, y, z, color, isUser = false, title = '' }) {
     const faces = [];
     const bodyCol = color || '#89b4fa';
-    const meta = { title, className: isUser ? 'vse-poly-user-pawn' : 'vse-poly-npc-pawn' };
+    const meta = { title, className: isUser ? 'lpe-poly-user-pawn' : 'lpe-poly-npc-pawn' };
 
     faces.push(...decalPolygon({
         cx: x,
@@ -267,7 +267,7 @@ function buildPawnPolygons({ x, y, z, color, isUser = false, title = '' }) {
         d: 1.4,
         borderRadius: '50%',
         background: 'radial-gradient(circle, rgba(0,0,0,0.55) 0%, rgba(0,0,0,0) 75%)',
-        className: 'vse-poly-shadow',
+        className: 'lpe-poly-shadow',
         title,
     }));
 
@@ -456,7 +456,7 @@ export function buildAtlas3DScene(
         color: '#14161f',
         opacity: 0.72,
         unlit: true,
-        className: 'vse-poly-deck',
+        className: 'lpe-poly-deck',
     }));
 
     function floorBackgroundFor(styleName, baseHex) {
@@ -511,7 +511,7 @@ export function buildAtlas3DScene(
                 w: w + 1.8,
                 d: d + 1.8,
                 background: 'radial-gradient(closest-side, rgba(0,0,0,0.58), rgba(0,0,0,0))',
-                className: 'vse-poly-shadow',
+                className: 'lpe-poly-shadow',
             }));
         }
         polygons.push(...boxPolygons({
@@ -526,7 +526,7 @@ export function buildAtlas3DScene(
             opacity: roomOpacity,
             skipTop: true,
             skipBottom: true,
-            className: 'vse-poly-plinth',
+            className: 'lpe-poly-plinth',
         }));
 
         // 1. Room floor slab with CSS style grain
@@ -540,7 +540,7 @@ export function buildAtlas3DScene(
             color: floorColor,
             background: floorBackgroundFor(styleName, floorColor),
             opacity: roomOpacity,
-            className: `vse-poly-floor ${isSelected ? 'is-selected' : ''} ${isUserHere ? 'is-user-room' : ''}`,
+            className: `lpe-poly-floor ${isSelected ? 'is-selected' : ''} ${isUserHere ? 'is-user-room' : ''}`,
         }));
 
         // 2. Flush corner-aligned perimeter walls with shared-seam height coordination
@@ -573,7 +573,7 @@ export function buildAtlas3DScene(
             topColor: pal.accent,
             opacity: roomOpacity,
             skipBottom: true,
-            className: 'vse-poly-wall',
+            className: 'lpe-poly-wall',
         }));
         // West wall (x = box.x1, tucked between N/S corners)
         polygons.push(...boxPolygons({
@@ -588,7 +588,7 @@ export function buildAtlas3DScene(
             topColor: pal.accent,
             opacity: roomOpacity,
             skipBottom: true,
-            className: 'vse-poly-wall',
+            className: 'lpe-poly-wall',
         }));
         // South wall (y = box.y2)
         polygons.push(...boxPolygons({
@@ -603,7 +603,7 @@ export function buildAtlas3DScene(
             topColor: pal.accent,
             opacity: roomOpacity * 0.9,
             skipBottom: true,
-            className: 'vse-poly-wall',
+            className: 'lpe-poly-wall',
         }));
         // East wall (x = box.x2, tucked between N/S corners)
         polygons.push(...boxPolygons({
@@ -618,7 +618,7 @@ export function buildAtlas3DScene(
             topColor: pal.accent,
             opacity: roomOpacity * 0.9,
             skipBottom: true,
-            className: 'vse-poly-wall',
+            className: 'lpe-poly-wall',
         }));
 
         // 3. Room 3D objects (grounded, clamped inside interior walls, duplicate door-props suppressed)
@@ -636,7 +636,7 @@ export function buildAtlas3DScene(
             polygons.push(...shapeToPolygons(
                 safeObj,
                 { x: box.x1, y: box.y1, z: zOff },
-                { dataAttrs: { 'room-id': room.id }, className: 'vse-poly-prop' },
+                { dataAttrs: { 'room-id': room.id }, className: 'lpe-poly-prop' },
             ));
         });
 
@@ -654,7 +654,7 @@ export function buildAtlas3DScene(
                 color: 'stone',
                 title: `Stairs (${room.adj})`,
                 dataAttrs: { 'room-id': room.id },
-                className: 'vse-poly-prop',
+                className: 'lpe-poly-prop',
             }));
         }
 
@@ -700,9 +700,9 @@ export function buildAtlas3DScene(
                     x: ox,
                     y: oy,
                     z: zOff + lz + 2.15,
-                    className: 'vse-poly-lbl-npc',
+                    className: 'lpe-poly-lbl-npc',
                     title: `${occ.name}${elevTxt} in ${room.name}`,
-                    html: `<span class="vse-poly-chip" style="--chip-col:${escHtml(col)}">${escHtml(initials)}${elevTxt ? `<small>${escHtml(elevTxt)}</small>` : ''}</span>`,
+                    html: `<span class="lpe-poly-chip" style="--chip-col:${escHtml(col)}">${escHtml(initials)}${elevTxt ? `<small>${escHtml(elevTxt)}</small>` : ''}</span>`,
                 });
             }
         }
@@ -724,9 +724,9 @@ export function buildAtlas3DScene(
                     x: ux,
                     y: uy,
                     z: zOff + uz + 3.2,
-                    className: 'vse-poly-lbl-you',
+                    className: 'lpe-poly-lbl-you',
                     title: `YOU (${state?.world?.user_pos || 'center'})`,
-                    html: uz > 0.2 ? `<span class="vse-poly-chip you">YOU +${Number(uz.toFixed(1))}m</span>` : '<span class="vse-poly-chip you">YOU</span>',
+                    html: uz > 0.2 ? `<span class="lpe-poly-chip you">YOU +${Number(uz.toFixed(1))}m</span>` : '<span class="lpe-poly-chip you">YOU</span>',
                 });
             }
         }
@@ -741,9 +741,9 @@ export function buildAtlas3DScene(
                 y: box.y1 + 0.8,
                 z: zOff + Math.max(hN, hW) + 0.85,
                 roomId: room.id,
-                className: `vse-poly-lbl-room ${isSelected ? 'active' : ''}`,
+                className: `lpe-poly-lbl-room ${isSelected ? 'active' : ''}`,
                 title: `${room.name || room.id} (${room.dim || ''})`,
-                html: `<span class="vse-poly-room-tag">${escHtml(room.name || room.id)}${escHtml(floorTag)}${escHtml(heightTag)}${escHtml(elevTag)}</span>`,
+                html: `<span class="lpe-poly-room-tag">${escHtml(room.name || room.id)}${escHtml(floorTag)}${escHtml(heightTag)}${escHtml(elevTag)}</span>`,
             });
         }
     }
@@ -768,7 +768,7 @@ export function buildAtlas3DScene(
             rotZ: door.axis === 'ew' ? 90 : 0,
             color: doorColor,
             title: door.label,
-            className: 'vse-poly-door',
+            className: 'lpe-poly-door',
         }));
     }
 
@@ -818,25 +818,25 @@ export function renderAtlas3DViewport(
 
     if (scene.roomCount === 0) {
         return {
-            html: `<div class="vse-empty">No positioned room coordinates on this floor yet.</div>`,
+            html: `<div class="lpe-empty">No positioned room coordinates on this floor yet.</div>`,
             scene,
         };
     }
 
     const overlayHtml = `
-        <div class="vse-poly-controls">
-            <button type="button" class="vse-poly-btn" data-poly-cam="iso" title="Isometric 3/4 view">Iso</button>
-            <button type="button" class="vse-poly-btn" data-poly-cam="top" title="Top-down plan view">Top</button>
-            <button type="button" class="vse-poly-btn" data-poly-cam="low" title="Low dramatic angle">Low</button>
-            <button type="button" class="vse-poly-btn" data-poly-cam="zoom-in" title="Zoom in">+</button>
-            <button type="button" class="vse-poly-btn" data-poly-cam="zoom-out" title="Zoom out">−</button>
-            <button type="button" class="vse-poly-btn" data-poly-cam="reset" title="Reset camera">Reset</button>
-            <button type="button" class="vse-poly-btn vse-poly-cutaway-btn ${cutaway ? 'on' : ''}" title="Toggle front wall cutaway">Cutaway</button>
-            <button type="button" class="vse-poly-btn vse-poly-labels-btn ${showLabels ? 'on' : ''}" title="Toggle floating labels">Labels</button>
+        <div class="lpe-poly-controls">
+            <button type="button" class="lpe-poly-btn" data-poly-cam="iso" title="Isometric 3/4 view">Iso</button>
+            <button type="button" class="lpe-poly-btn" data-poly-cam="top" title="Top-down plan view">Top</button>
+            <button type="button" class="lpe-poly-btn" data-poly-cam="low" title="Low dramatic angle">Low</button>
+            <button type="button" class="lpe-poly-btn" data-poly-cam="zoom-in" title="Zoom in">+</button>
+            <button type="button" class="lpe-poly-btn" data-poly-cam="zoom-out" title="Zoom out">−</button>
+            <button type="button" class="lpe-poly-btn" data-poly-cam="reset" title="Reset camera">Reset</button>
+            <button type="button" class="lpe-poly-btn lpe-poly-cutaway-btn ${cutaway ? 'on' : ''}" title="Toggle front wall cutaway">Cutaway</button>
+            <button type="button" class="lpe-poly-btn lpe-poly-labels-btn ${showLabels ? 'on' : ''}" title="Toggle floating labels">Labels</button>
         </div>
-        <div class="vse-poly-hint">
+        <div class="lpe-poly-hint">
             <span>Drag: Orbit · Shift/Right-drag: Pan · Scroll: Zoom · Click room: Inspect</span>
-            <span class="vse-poly-stats">${scene.roomCount} room${scene.roomCount === 1 ? '' : 's'} · ${scene.objectCount} obj · ${scene.faceCount} CSS faces</span>
+            <span class="lpe-poly-stats">${scene.roomCount} room${scene.roomCount === 1 ? '' : 's'} · ${scene.objectCount} obj · ${scene.faceCount} CSS faces</span>
         </div>
     `;
 

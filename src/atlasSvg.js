@@ -1,5 +1,5 @@
 /**
- * Interactive Atlas renderer for Vexa (<state:locations>).
+ * Interactive Atlas renderer for Lapis Philosophorum Engine (<state:locations>).
  * Supports both PolyCSS 3D CSS scenes (default) and 2D SVG floorplans.
  * Pure HTML/SVG generator (no jQuery required so unit tests can inspect output too).
  */
@@ -257,24 +257,24 @@ export function renderAtlasTab(
     let viewportHtml = '';
     if (mode === 'webgl') {
         viewportHtml = `
-            <div class="vse-webgl-viewport" data-map-id="${escHtml(activeMapId)}" data-level="${escHtml(activeFloor)}">
-                <canvas class="vse-webgl-canvas"></canvas>
-                <div class="vse-webgl-labels"></div>
-                <div class="vse-webgl-hud-overlay">
-                    <span class="vse-webgl-chip">${escHtml(currentMap.name || activeMapId || 'Atlas')} · ${allFloors ? 'All Floors' : `Z=${escHtml(activeFloor)}`} · ${visibleRooms.length} room${visibleRooms.length === 1 ? '' : 's'}</span>
-                    <span class="vse-webgl-chip">Orbit: Drag · Pan: Shift+Drag · Zoom: Wheel</span>
+            <div class="lpe-webgl-viewport" data-map-id="${escHtml(activeMapId)}" data-level="${escHtml(activeFloor)}">
+                <canvas class="lpe-webgl-canvas"></canvas>
+                <div class="lpe-webgl-labels"></div>
+                <div class="lpe-webgl-hud-overlay">
+                    <span class="lpe-webgl-chip">${escHtml(currentMap.name || activeMapId || 'Atlas')} · ${allFloors ? 'All Floors' : `Z=${escHtml(activeFloor)}`} · ${visibleRooms.length} room${visibleRooms.length === 1 ? '' : 's'}</span>
+                    <span class="lpe-webgl-chip">Orbit: Drag · Pan: Shift+Drag · Zoom: Wheel</span>
                 </div>
-                <div class="vse-webgl-controls">
-                    <button type="button" class="vse-webgl-btn active" data-webgl-act="iso" title="Isometric view">Iso</button>
-                    <button type="button" class="vse-webgl-btn" data-webgl-act="top" title="Top-down view">Top</button>
-                    <button type="button" class="vse-webgl-btn" data-webgl-act="in" title="Zoom in">+</button>
-                    <button type="button" class="vse-webgl-btn" data-webgl-act="out" title="Zoom out">−</button>
-                    <button type="button" class="vse-webgl-btn" data-webgl-act="reset" title="Reset camera">Reset</button>
-                    <button type="button" class="vse-webgl-btn vse-poly-cutaway-btn ${cutaway ? 'active' : ''}" title="Toggle cutaway walls">Cut</button>
-                    <button type="button" class="vse-webgl-btn vse-poly-labels-btn ${showLabels ? 'active' : ''}" title="Toggle 3D labels">Labels</button>
+                <div class="lpe-webgl-controls">
+                    <button type="button" class="lpe-webgl-btn active" data-webgl-act="iso" title="Isometric view">Iso</button>
+                    <button type="button" class="lpe-webgl-btn" data-webgl-act="top" title="Top-down view">Top</button>
+                    <button type="button" class="lpe-webgl-btn" data-webgl-act="in" title="Zoom in">+</button>
+                    <button type="button" class="lpe-webgl-btn" data-webgl-act="out" title="Zoom out">−</button>
+                    <button type="button" class="lpe-webgl-btn" data-webgl-act="reset" title="Reset camera">Reset</button>
+                    <button type="button" class="lpe-webgl-btn lpe-poly-cutaway-btn ${cutaway ? 'active' : ''}" title="Toggle cutaway walls">Cut</button>
+                    <button type="button" class="lpe-webgl-btn lpe-poly-labels-btn ${showLabels ? 'active' : ''}" title="Toggle 3D labels">Labels</button>
                 </div>
             </div>
-            <div class="vse-webgl-footer-note">
+            <div class="lpe-webgl-footer-note">
                 <span>Hybrid Three.js WebGL Engine + Doorway Cutouts</span>
                 <span>Textured kits: PSX Industrial Pack (Tomitos) &amp; Sci-fi lab (Agata Wilczek) — CC BY 4.0</span>
             </div>
@@ -353,7 +353,7 @@ export function renderAtlasTab(
             const stroke = isSelected ? 'var(--ist-yellow)' : isUserHere ? 'var(--ist-blue)' : 'var(--ist-border)';
             const fill = isUserHere ? 'var(--ist-surface)' : 'var(--ist-mantle)';
             const dash = isLoaded ? 'stroke-dasharray="0.8 0.5"' : '';
-            const safeClipId = `vse-rc-${++svgClipSeq}-${String(room.id || 'rm').replace(/[^a-zA-Z0-9_-]/g, '_')}`;
+            const safeClipId = `lpe-rc-${++svgClipSeq}-${String(room.id || 'rm').replace(/[^a-zA-Z0-9_-]/g, '_')}`;
             const { h: roomH, elev } = parseRoomHeight(room);
 
             defsHtml.push(
@@ -378,7 +378,7 @@ export function renderAtlasTab(
             roomClearMap.set(room.id, pillTop - box.y1 + pillH + 0.75);
 
             roomRects.push(`
-                <g class="vse-atlas-room-g" data-room-id="${escHtml(room.id)}" style="cursor:pointer;">
+                <g class="lpe-atlas-room-g" data-room-id="${escHtml(room.id)}" style="cursor:pointer;">
                     <title>${escHtml(`${room.name || room.id} (${dimBase}${elevTag})`)}</title>
                     <rect x="${box.x1}" y="${box.y1}" width="${w}" height="${h}" rx="0.6"
                           fill="${fill}" fill-opacity="${isUserHere ? '0.92' : '0.78'}"
@@ -386,7 +386,7 @@ export function renderAtlasTab(
                 </g>
             `);
             roomLabels.push(`
-                <g class="vse-atlas-room-title" clip-path="url(#${safeClipId})" pointer-events="none">
+                <g class="lpe-atlas-room-title" clip-path="url(#${safeClipId})" pointer-events="none">
                     <rect x="${box.x1 + 0.4}" y="${pillTop.toFixed(2)}" width="${pillW.toFixed(2)}" height="${pillH.toFixed(2)}" rx="0.4"
                           fill="var(--ist-crust)" fill-opacity="0.78" />
                     <text x="${box.x1 + w / 2}" y="${titleStartY}"
@@ -503,9 +503,9 @@ export function renderAtlasTab(
         const curVb = computeSvgViewBox(baseVb, svgCamera);
 
         viewportHtml = `
-            <div class="vse-atlas-svg-wrap">
-                <div class="vse-atlas-svg-stage">
-                    <svg class="vse-atlas-svg" data-base-vb="${vx} ${vy} ${vw} ${vh}" viewBox="${curVb.x.toFixed(3)} ${curVb.y.toFixed(3)} ${curVb.w.toFixed(3)} ${curVb.h.toFixed(3)}" preserveAspectRatio="xMidYMid meet">
+            <div class="lpe-atlas-svg-wrap">
+                <div class="lpe-atlas-svg-stage">
+                    <svg class="lpe-atlas-svg" data-base-vb="${vx} ${vy} ${vw} ${vh}" viewBox="${curVb.x.toFixed(3)} ${curVb.y.toFixed(3)} ${curVb.w.toFixed(3)} ${curVb.h.toFixed(3)}" preserveAspectRatio="xMidYMid meet">
                         <defs>${defsHtml.join('')}</defs>
                         ${gridLines.join('')}
                         ${roomRects.join('')}
@@ -514,24 +514,24 @@ export function renderAtlasTab(
                         ${markers.join('')}
                         ${roomLabels.join('')}
                     </svg>
-                    <div class="vse-svg-controls">
-                        <button type="button" class="vse-svg-btn" data-svg-act="in" title="Zoom in">+</button>
-                        <span class="vse-svg-zoom-lbl">${Math.round(curVb.zoom * 100)}%</span>
-                        <button type="button" class="vse-svg-btn" data-svg-act="out" title="Zoom out">−</button>
-                        <button type="button" class="vse-svg-btn" data-svg-act="reset" title="Reset camera">Reset</button>
+                    <div class="lpe-svg-controls">
+                        <button type="button" class="lpe-svg-btn" data-svg-act="in" title="Zoom in">+</button>
+                        <span class="lpe-svg-zoom-lbl">${Math.round(curVb.zoom * 100)}%</span>
+                        <button type="button" class="lpe-svg-btn" data-svg-act="out" title="Zoom out">−</button>
+                        <button type="button" class="lpe-svg-btn" data-svg-act="reset" title="Reset camera">Reset</button>
                     </div>
-                    <div class="vse-svg-hint">Wheel: Zoom · Drag: Pan · Click room: Inspect</div>
+                    <div class="lpe-svg-hint">Wheel: Zoom · Drag: Pan · Click room: Inspect</div>
                 </div>
-                <div class="vse-atlas-legend">
-                    <span><i class="vse-dot" style="background:var(--ist-cyan)"></i> You (${escHtml(state?.world?.user_pos || '?')})</span>
-                    <span><i class="vse-dot" style="background:var(--ist-yellow)"></i> Doorway</span>
-                    <span><i class="vse-dot" style="background:var(--ist-green)"></i> Main Exit</span>
-                    <span><i class="vse-dot" style="border:1px dashed var(--ist-border);background:transparent"></i> Loaded / Unentered</span>
+                <div class="lpe-atlas-legend">
+                    <span><i class="lpe-dot" style="background:var(--ist-cyan)"></i> You (${escHtml(state?.world?.user_pos || '?')})</span>
+                    <span><i class="lpe-dot" style="background:var(--ist-yellow)"></i> Doorway</span>
+                    <span><i class="lpe-dot" style="background:var(--ist-green)"></i> Main Exit</span>
+                    <span><i class="lpe-dot" style="border:1px dashed var(--ist-border);background:transparent"></i> Loaded / Unentered</span>
                 </div>
             </div>
         `;
     } else {
-        viewportHtml = `<div class="vse-empty">No positioned room coordinates on this floor yet.</div>`;
+        viewportHtml = `<div class="lpe-empty">No positioned room coordinates on this floor yet.</div>`;
     }
 
     const detailRoom = visibleRooms.find((r) => r.id === selectedRoomId) || floorRooms.find((r) => r.id === selectedRoomId) || userRoom || floorRooms[0] || visibleRooms[0] || null;
@@ -548,7 +548,7 @@ export function renderAtlasTab(
                 const posStr = Array.isArray(o.pos)
                     ? `[${o.pos[0]},${o.pos[1]}${Number(o.pos[2]) ? `,${o.pos[2]}` : ''}]`
                     : '';
-                return `<span class="vse-pill" style="margin:1px 3px 1px 0;"><i class="vse-dot" style="background:${escHtml(col)}"></i> [${escHtml(o.shape)}] ${escHtml(o.label)} ${escHtml(posStr)}</span>`;
+                return `<span class="lpe-pill" style="margin:1px 3px 1px 0;"><i class="lpe-dot" style="background:${escHtml(col)}"></i> [${escHtml(o.shape)}] ${escHtml(o.label)} ${escHtml(posStr)}</span>`;
             }).join('')
             : '∅';
         objectsRowHtml = `<div class="wide"><span>3D Objects (${objTag})</span><b>${objPills}</b></div>`;
@@ -556,17 +556,17 @@ export function renderAtlasTab(
 
     const detailHeight = detailRoom ? parseRoomHeight(detailRoom) : null;
     const roomDetailHtml = detailRoom ? `
-        <div class="vse-atlas-detail">
-            <div class="vse-atlas-detail-head">
+        <div class="lpe-atlas-detail">
+            <div class="lpe-atlas-detail-head">
                 <strong>${escHtml(detailRoom.name || detailRoom.id)}</strong>
-                <span class="vse-pill">${escHtml(detailRoom.id)}</span>
-                <span class="vse-pill">${escHtml(detailRoom.dim || '?')}</span>
-                <span class="vse-pill">Grid ${escHtml(detailRoom.grid || '?')}</span>
-                ${detailHeight?.elev ? `<span class="vse-pill">Elev ${detailHeight.elev > 0 ? '+' : ''}${detailHeight.elev}m</span>` : ''}
-                ${detailRoom.style ? `<span class="vse-pill">${escHtml(detailRoom.style)}</span>` : ''}
-                ${detailRoom.kind === 'load' ? '<span class="vse-pill warn">Loaded</span>' : '<span class="vse-pill ok">Rendered</span>'}
+                <span class="lpe-pill">${escHtml(detailRoom.id)}</span>
+                <span class="lpe-pill">${escHtml(detailRoom.dim || '?')}</span>
+                <span class="lpe-pill">Grid ${escHtml(detailRoom.grid || '?')}</span>
+                ${detailHeight?.elev ? `<span class="lpe-pill">Elev ${detailHeight.elev > 0 ? '+' : ''}${detailHeight.elev}m</span>` : ''}
+                ${detailRoom.style ? `<span class="lpe-pill">${escHtml(detailRoom.style)}</span>` : ''}
+                ${detailRoom.kind === 'load' ? '<span class="lpe-pill warn">Loaded</span>' : '<span class="lpe-pill ok">Rendered</span>'}
             </div>
-            <div class="vse-kv-grid">
+            <div class="lpe-kv-grid">
                 <div><span>Features</span><b>${escHtml(detailRoom.features || '∅')}</b></div>
                 <div><span>Occupants</span><b>${escHtml(detailRoom.occupants || '∅')}</b></div>
                 <div><span>Exits</span><b>${escHtml(detailRoom.exits || '∅')}</b></div>
@@ -581,42 +581,42 @@ export function renderAtlasTab(
     ).join('');
 
     const floorBtns = floors.map(([z, label]) =>
-        `<button type="button" class="vse-atlas-floor-btn ${z === activeFloor && !(is3dMode && allFloors) ? 'active' : ''}" data-level="${escHtml(z)}">Z=${escHtml(z)} · ${escHtml(label)}</button>`,
+        `<button type="button" class="lpe-atlas-floor-btn ${z === activeFloor && !(is3dMode && allFloors) ? 'active' : ''}" data-level="${escHtml(z)}">Z=${escHtml(z)} · ${escHtml(label)}</button>`,
     ).join('');
 
     const allFloorsBtn = is3dMode && floors.length > 1
-        ? `<button type="button" class="vse-atlas-allfloors-btn ${allFloors ? 'active' : ''}" title="Stack all floors in 3D"><i class="fa-solid fa-layer-group"></i> All Floors</button>`
+        ? `<button type="button" class="lpe-atlas-allfloors-btn ${allFloors ? 'active' : ''}" title="Stack all floors in 3D"><i class="fa-solid fa-layer-group"></i> All Floors</button>`
         : '';
 
     const webglBtn = allowWebgl
-        ? `<button type="button" class="vse-atlas-mode-btn ${mode === 'webgl' ? 'active' : ''}" data-atlas-mode="webgl" title="Hybrid Three.js WebGL view"><i class="fa-solid fa-cube"></i> 3D WebGL</button>`
-        : `<button type="button" class="vse-atlas-mode-btn vse-atlas-open-webgl-btn" data-open-webgl="1" title="Open interactive 3D WebGL Atlas in Control Center"><i class="fa-solid fa-wand-magic-sparkles"></i> Open WebGL</button>`;
+        ? `<button type="button" class="lpe-atlas-mode-btn ${mode === 'webgl' ? 'active' : ''}" data-atlas-mode="webgl" title="Hybrid Three.js WebGL view"><i class="fa-solid fa-cube"></i> 3D WebGL</button>`
+        : `<button type="button" class="lpe-atlas-mode-btn lpe-atlas-open-webgl-btn" data-open-webgl="1" title="Open interactive 3D WebGL Atlas in Control Center"><i class="fa-solid fa-wand-magic-sparkles"></i> Open WebGL</button>`;
 
     const modeSwitcher = `
-        <div class="vse-atlas-mode-seg">
+        <div class="lpe-atlas-mode-seg">
             ${webglBtn}
-            <button type="button" class="vse-atlas-mode-btn ${mode === '3d' ? 'active' : ''}" data-atlas-mode="3d" title="3D CSS (PolyCSS) view"><i class="fa-solid fa-cubes"></i> 3D CSS</button>
-            <button type="button" class="vse-atlas-mode-btn ${mode === '2d' ? 'active' : ''}" data-atlas-mode="2d" title="2D SVG floorplan view"><i class="fa-solid fa-vector-square"></i> 2D SVG</button>
+            <button type="button" class="lpe-atlas-mode-btn ${mode === '3d' ? 'active' : ''}" data-atlas-mode="3d" title="3D CSS (PolyCSS) view"><i class="fa-solid fa-cubes"></i> 3D CSS</button>
+            <button type="button" class="lpe-atlas-mode-btn ${mode === '2d' ? 'active' : ''}" data-atlas-mode="2d" title="2D SVG floorplan view"><i class="fa-solid fa-vector-square"></i> 2D SVG</button>
         </div>
     `;
 
     const roomListHtml = visibleRooms.length ? `
-        <div class="vse-atlas-room-pills">
-            ${visibleRooms.map((r) => `<button type="button" class="vse-atlas-room-pill ${detailRoom?.id === r.id ? 'active' : ''}" data-room-id="${escHtml(r.id)}">${escHtml(r.name || r.id)}</button>`).join('')}
+        <div class="lpe-atlas-room-pills">
+            ${visibleRooms.map((r) => `<button type="button" class="lpe-atlas-room-pill ${detailRoom?.id === r.id ? 'active' : ''}" data-room-id="${escHtml(r.id)}">${escHtml(r.name || r.id)}</button>`).join('')}
         </div>
     ` : '';
 
     return `
-        <div class="vse-atlas-container">
-            <div class="vse-atlas-toolbar">
-                <label>Map: <select class="vse-atlas-map-sel">${mapOptions}</select></label>
-                <div class="vse-atlas-floors">${floorBtns}${allFloorsBtn}</div>
+        <div class="lpe-atlas-container">
+            <div class="lpe-atlas-toolbar">
+                <label>Map: <select class="lpe-atlas-map-sel">${mapOptions}</select></label>
+                <div class="lpe-atlas-floors">${floorBtns}${allFloorsBtn}</div>
                 ${modeSwitcher}
-                <span class="vse-muted" style="margin-left:auto;">Main Exit: ${escHtml(currentMap.main_exit || '∅')}</span>
+                <span class="lpe-muted" style="margin-left:auto;">Main Exit: ${escHtml(currentMap.main_exit || '∅')}</span>
             </div>
             ${roomListHtml}
             ${viewportHtml}
-            ${unpositioned.length ? `<div class="vse-muted" style="margin-top:6px;">Unscaled rooms: ${unpositioned.map((r) => escHtml(r.name || r.id)).join(', ')}</div>` : ''}
+            ${unpositioned.length ? `<div class="lpe-muted" style="margin-top:6px;">Unscaled rooms: ${unpositioned.map((r) => escHtml(r.name || r.id)).join(', ')}</div>` : ''}
             ${roomDetailHtml}
         </div>
     `;
@@ -628,14 +628,14 @@ export function renderAtlasTab(
  */
 export function bindAtlasSvgControls(wrapEl, svgCamState = { zoom: 1, panX: 0, panY: 0 }, { onCameraChange } = {}) {
     if (!wrapEl) return;
-    const stage = wrapEl.classList?.contains('vse-atlas-svg-stage')
+    const stage = wrapEl.classList?.contains('lpe-atlas-svg-stage')
         ? wrapEl
-        : wrapEl.querySelector?.('.vse-atlas-svg-stage');
+        : wrapEl.querySelector?.('.lpe-atlas-svg-stage');
     if (!stage) return;
-    const svg = stage.querySelector('.vse-atlas-svg');
+    const svg = stage.querySelector('.lpe-atlas-svg');
     if (!svg) return;
-    if (stage.dataset.vseSvgBound === '1') return;
-    stage.dataset.vseSvgBound = '1';
+    if (stage.dataset.lpeSvgBound === '1') return;
+    stage.dataset.lpeSvgBound = '1';
 
     const rawVb = String(svg.getAttribute('data-base-vb') || svg.getAttribute('viewBox') || '0 0 20 20')
         .trim()
@@ -652,7 +652,7 @@ export function bindAtlasSvgControls(wrapEl, svgCamState = { zoom: 1, panX: 0, p
     if (!Number.isFinite(cam.panX)) cam.panX = 0;
     if (!Number.isFinite(cam.panY)) cam.panY = 0;
 
-    const zoomLbl = stage.querySelector('.vse-svg-zoom-lbl');
+    const zoomLbl = stage.querySelector('.lpe-svg-zoom-lbl');
     let suppressClickUntil = 0;
 
     const apply = (emit = false) => {
@@ -667,7 +667,7 @@ export function bindAtlasSvgControls(wrapEl, svgCamState = { zoom: 1, panX: 0, p
         }
     };
 
-    stage.querySelectorAll('.vse-svg-btn').forEach((btn) => {
+    stage.querySelectorAll('.lpe-svg-btn').forEach((btn) => {
         btn.addEventListener('click', (e) => {
             e.preventDefault();
             e.stopPropagation();
@@ -771,7 +771,7 @@ export function bindAtlasSvgControls(wrapEl, svgCamState = { zoom: 1, panX: 0, p
     }, true);
 
     svg.addEventListener('dblclick', (e) => {
-        if (e.target.closest?.('.vse-svg-controls')) return;
+        if (e.target.closest?.('.lpe-svg-controls')) return;
         cam.zoom = 1;
         cam.panX = 0;
         cam.panY = 0;

@@ -1,5 +1,5 @@
 /**
- * Per-turn Changelog diff computer & Megumin-style inline diff strip for Vexa HUD.
+ * Per-turn Changelog diff computer & Megumin-style inline diff strip for LPE HUD.
  * Computes structured before/after diffs between consecutive `timeline()` steps
  * across all 18 HUD sections, including Matrix emoji deltas and 3D Atlas updates.
  * Pure ES module (zero DOM dependencies; testable under Node).
@@ -412,7 +412,7 @@ export function computeTurnChangeLog(prevState, nextState, { entry = null, warni
 
     // 18. Vent
     if (normVal(prev.vent) !== normVal(next.vent)) {
-        push('vent', 'Vexa Vent', prev.vent ? 'updated' : 'added', prev.vent, next.vent);
+        push('vent', 'LPE Vent', prev.vent ? 'updated' : 'added', prev.vent, next.vent);
     }
 
     const byTab = {};
@@ -462,27 +462,27 @@ export function renderChangeLogStrip(
     if (pending) {
         titleHtml = `<i class="fa-solid fa-spinner fa-spin"></i> Clerk is reading this reply…`;
     } else if (hasErr) {
-        titleHtml = `<i class="fa-solid fa-triangle-exclamation"></i> Clerk read error <span class="vse-diff-count warn">${esc(trunc(entry?.error || 'Failed', 60))}</span>`;
+        titleHtml = `<i class="fa-solid fa-triangle-exclamation"></i> Clerk read error <span class="lpe-diff-count warn">${esc(trunc(entry?.error || 'Failed', 60))}</span>`;
     } else if (disabled) {
-        titleHtml = `<i class="fa-solid fa-ban"></i> Reverted this reply's changes${total > 0 ? ` <span class="vse-diff-count">${total} hidden</span>` : ''}`;
+        titleHtml = `<i class="fa-solid fa-ban"></i> Reverted this reply's changes${total > 0 ? ` <span class="lpe-diff-count">${total} hidden</span>` : ''}`;
     } else if (missing) {
-        titleHtml = `<i class="fa-regular fa-circle-question"></i> Not read by Vexa Clerk yet`;
+        titleHtml = `<i class="fa-regular fa-circle-question"></i> Not read by LPE Clerk yet`;
     } else if (total === 0 && warnings.length === 0) {
         titleHtml = `<i class="fa-solid fa-code-compare"></i> No state changes recorded in this reply`;
     } else {
-        titleHtml = `<i class="fa-solid fa-code-compare"></i> Changed in this reply <span class="vse-diff-count">${total}</span>`;
+        titleHtml = `<i class="fa-solid fa-code-compare"></i> Changed in this reply <span class="lpe-diff-count">${total}</span>`;
     }
 
     const actionsHtml = `
-        <span class="vse-diff-actions">
+        <span class="lpe-diff-actions">
             ${canToggle && entry && !pending && !missing ? `
-                <button type="button" class="vse-diff-btn vse-diff-revert-btn" data-diff-toggle="${disabled ? '0' : '1'}"
+                <button type="button" class="lpe-diff-btn lpe-diff-revert-btn" data-diff-toggle="${disabled ? '0' : '1'}"
                         title="${disabled ? "Restore this reply's state changes" : "Revert this reply's changes back to the previous turn"}">
                     <i class="fa-solid ${disabled ? 'fa-rotate-left' : 'fa-clock-rotate-left'}"></i> ${disabled ? 'Restore' : 'Revert'}
                 </button>
             ` : ''}
             ${canRead ? `
-                <button type="button" class="vse-diff-btn vse-diff-read-btn" title="${missing ? 'Have Vexa Clerk read this reply now' : 'Have Vexa Clerk re-read this reply'}">
+                <button type="button" class="lpe-diff-btn lpe-diff-read-btn" title="${missing ? 'Have LPE Clerk read this reply now' : 'Have LPE Clerk re-read this reply'}">
                     <i class="fa-solid fa-book-open-reader"></i> ${missing ? 'Read now' : 'Read again'}
                 </button>
             ` : ''}
@@ -502,16 +502,16 @@ export function renderChangeLogStrip(
         const jumpPills = Object.entries(byTab)
             .sort((a, b) => b[1] - a[1])
             .map(([tab, cnt]) => `
-                <button type="button" class="vse-diff-jump ${tab === activeTab ? 'active' : ''}" data-diff-jump="${esc(tab)}" title="Jump to ${esc(TAB_LABELS[tab] || tab)} tab">
+                <button type="button" class="lpe-diff-jump ${tab === activeTab ? 'active' : ''}" data-diff-jump="${esc(tab)}" title="Jump to ${esc(TAB_LABELS[tab] || tab)} tab">
                     ${esc(TAB_LABELS[tab] || tab)} <span>${cnt}</span>
                 </button>
             `).join('');
 
         const filterBar = `
-            <div class="vse-diff-filterbar">
-                <button type="button" class="vse-diff-btn vse-diff-filter-btn ${filterMode !== 'tab' ? 'active' : ''}" data-diff-filter="all">All (${total})</button>
-                <button type="button" class="vse-diff-btn vse-diff-filter-btn ${filterMode === 'tab' ? 'active' : ''}" data-diff-filter="tab">This tab (${byTab[activeTab] || 0})</button>
-                <span class="vse-diff-jumps">${jumpPills}</span>
+            <div class="lpe-diff-filterbar">
+                <button type="button" class="lpe-diff-btn lpe-diff-filter-btn ${filterMode !== 'tab' ? 'active' : ''}" data-diff-filter="all">All (${total})</button>
+                <button type="button" class="lpe-diff-btn lpe-diff-filter-btn ${filterMode === 'tab' ? 'active' : ''}" data-diff-filter="tab">This tab (${byTab[activeTab] || 0})</button>
+                <span class="lpe-diff-jumps">${jumpPills}</span>
             </div>
         `;
 
@@ -519,43 +519,43 @@ export function renderChangeLogStrip(
             ? shown.map((it) => {
                 let valHtml = '';
                 if (it.kind === 'added') {
-                    valHtml = `<span class="vse-diff-tag add">+</span><span class="vse-diff-after">${esc(it.after)}</span>`;
+                    valHtml = `<span class="lpe-diff-tag add">+</span><span class="lpe-diff-after">${esc(it.after)}</span>`;
                 } else if (it.kind === 'removed') {
-                    valHtml = `<span class="vse-diff-tag rem">−</span><span class="vse-diff-before">${esc(it.before)}</span>`;
+                    valHtml = `<span class="lpe-diff-tag rem">−</span><span class="lpe-diff-before">${esc(it.before)}</span>`;
                 } else {
-                    valHtml = `${it.before ? `<span class="vse-diff-before">${esc(it.before)}</span>` : ''}<span class="vse-diff-to">${it.before ? '<i class="fa-solid fa-arrow-right vse-diff-arrow"></i>' : ''}<span class="vse-diff-after">${esc(it.after)}</span></span>`;
+                    valHtml = `${it.before ? `<span class="lpe-diff-before">${esc(it.before)}</span>` : ''}<span class="lpe-diff-to">${it.before ? '<i class="fa-solid fa-arrow-right lpe-diff-arrow"></i>' : ''}<span class="lpe-diff-after">${esc(it.after)}</span></span>`;
                 }
                 return `
-                    <div class="vse-diff-row">
-                        <button type="button" class="vse-diff-field" data-diff-jump="${esc(it.tab)}" title="Open ${esc(TAB_LABELS[it.tab] || it.tab)} tab">${esc(it.label)}</button>
-                        <span class="vse-diff-vals">${valHtml}</span>
+                    <div class="lpe-diff-row">
+                        <button type="button" class="lpe-diff-field" data-diff-jump="${esc(it.tab)}" title="Open ${esc(TAB_LABELS[it.tab] || it.tab)} tab">${esc(it.label)}</button>
+                        <span class="lpe-diff-vals">${valHtml}</span>
                     </div>
                 `;
             }).join('')
-            : `<div class="vse-diff-empty">No changes on the <b>${esc(TAB_LABELS[activeTab] || activeTab)}</b> tab in this reply.</div>`;
+            : `<div class="lpe-diff-empty">No changes on the <b>${esc(TAB_LABELS[activeTab] || activeTab)}</b> tab in this reply.</div>`;
 
         const moreHtml = hiddenCount > 0
-            ? `<button type="button" class="vse-diff-more-btn" data-diff-all="1">+${hiddenCount} more — Show all</button>`
+            ? `<button type="button" class="lpe-diff-more-btn" data-diff-all="1">+${hiddenCount} more — Show all</button>`
             : (showAll && filtered.length > 10
-                ? `<button type="button" class="vse-diff-more-btn" data-diff-all="0">Show fewer</button>`
+                ? `<button type="button" class="lpe-diff-more-btn" data-diff-all="0">Show fewer</button>`
                 : '');
 
         const warnHtml = warnings.length ? `
-            <details class="vse-diff-warn">
+            <details class="lpe-diff-warn">
                 <summary><i class="fa-solid fa-triangle-exclamation"></i> Reducer notes (${warnings.length})</summary>
-                ${warnings.map((w) => `<div class="vse-diff-issue">${esc(w)}</div>`).join('')}
+                ${warnings.map((w) => `<div class="lpe-diff-issue">${esc(w)}</div>`).join('')}
             </details>
         ` : '';
 
-        bodyHtml = `<div class="vse-diff-body">${filterBar}${rowsHtml}${moreHtml}${warnHtml}</div>`;
+        bodyHtml = `<div class="lpe-diff-body">${filterBar}${rowsHtml}${moreHtml}${warnHtml}</div>`;
     }
 
     return `
-        <div class="vse-diff-strip${stateCls}${foldable ? ' is-foldable' : ''}${isOpen && foldable ? ' is-open' : ''}">
-            <div class="vse-diff-head">
-                <button type="button" class="vse-diff-head-btn" ${foldable ? '' : 'disabled'}>
-                    <span class="vse-diff-title">${titleHtml}</span>
-                    ${foldable ? `<i class="fa-solid fa-chevron-${isOpen ? 'up' : 'down'} vse-diff-caret"></i>` : ''}
+        <div class="lpe-diff-strip${stateCls}${foldable ? ' is-foldable' : ''}${isOpen && foldable ? ' is-open' : ''}">
+            <div class="lpe-diff-head">
+                <button type="button" class="lpe-diff-head-btn" ${foldable ? '' : 'disabled'}>
+                    <span class="lpe-diff-title">${titleHtml}</span>
+                    ${foldable ? `<i class="fa-solid fa-chevron-${isOpen ? 'up' : 'down'} lpe-diff-caret"></i>` : ''}
                 </button>
                 ${actionsHtml}
             </div>

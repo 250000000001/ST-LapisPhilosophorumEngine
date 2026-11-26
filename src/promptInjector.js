@@ -1,10 +1,10 @@
 /**
- * Non-destructive outgoing prompt transformer for Vexa State Engine.
+ * Non-destructive outgoing prompt transformer for Lapis Philosophorum Engine (LPE).
  *
- * - Strips historical <internal_states>, <vexa_tail>, and orphaned tail GFX_END markers
- *   from chat history messages (replacing depth-based prompt regex reliance).
- * - Substitutes {{vexa_state_snapshot}} with a single clean compiled <internal_states>
- *   snapshot (optionally Smart-Scoped to active map + active/mentioned entities).
+ * - Strips historical <internal_states>, <lpe_tail> (plus legacy <vexa_tail>), and orphaned tail GFX_END markers
+ *   from assistant chat history messages (replacing depth-based prompt regex reliance).
+ * - Substitutes {{lpe_state_snapshot}} (or legacy {{vexa_state_snapshot}}) with a single clean compiled
+ *   <internal_states> snapshot (optionally Smart-Scoped to active map + active/mentioned entities).
  * - Leaves static top-of-prompt system rules untouched to preserve prompt caching.
  *
  * Pure ES module with zero DOM dependencies.
@@ -14,13 +14,15 @@ import { serializeInternalStates } from './parser.js';
 import {
     hasEjsTags,
     shouldYieldEjs,
-    buildReadOnlyVexaSnapshot,
+    buildReadOnlyLpeSnapshot,
     evaluateEjs,
-    substituteVexaMacros,
+    substituteLpeMacros,
 } from './ejsEngine.js';
 
-export const SNAPSHOT_PLACEHOLDER = '{{vexa_state_snapshot}}';
-export const TRACKER_PROPOSE_PLACEHOLDER = '{{vexa_tracker_propose_rule}}';
+export const SNAPSHOT_PLACEHOLDER = '{{lpe_state_snapshot}}';
+export const LEGACY_SNAPSHOT_PLACEHOLDER = '{{vexa_state_snapshot}}';
+export const TRACKER_PROPOSE_PLACEHOLDER = '{{lpe_tracker_propose_rule}}';
+export const LEGACY_TRACKER_PROPOSE_PLACEHOLDER = '{{vexa_tracker_propose_rule}}';
 export const TRACKER_PROPOSE_LINE = 'tracker_propose: [OPTIONAL — omit this line completely unless user permanently acquires/founds a recurring multi-stat asset or system (business, estate/fief, ship, guild, army, debt ledger) whose metrics evolve across turns and cannot fit in <state:inv> or <state:tracks>. Format: Title | key1=val1, key2=val2, key3=val3 | short reason]';
 
 export const SPATIAL_GROUNDING_BLOCK = `<spatial_grounding>
@@ -31,7 +33,7 @@ READ THE ATLAS MAP (<state:locations>) AS PHYSICAL 3D SPACE:
 - exits & adj: treat physical doors/bulkheads, wall seams, ceiling heights, glass containment, and elevated walkways as real line-of-sight and acoustic boundaries when narrating movement, cover, combat range, and who can see/hear what.
 </spatial_grounding>`;
 
-/** Remove historical <internal_states> and <vexa_tail> blocks from assistant chat messages. */
+/** Remove historical <internal_states>, <lpe_tail>, and legacy <vexa_tail> blocks from assistant chat messages. */
 export function stripStateAndTailFromMessage(content) {
     if (typeof content !== 'string' || !content) return content;
     let out = content;
@@ -40,9 +42,9 @@ export function stripStateAndTailFromMessage(content) {
     out = out.replace(/<internal_states\b[^>]*>[\s\S]*?<\/internal_states\s*>\s*(?:<!--[\s\u2800]*GFX_END[\s\u2800]*-->)?/gi, '');
     out = out.replace(/<internal_states\b[^>]*>[\s\S]*$/i, '');
 
-    // Strip <vexa_tail>...</vexa_tail> (plus attached terminal GFX_END)
-    out = out.replace(/<vexa_tail\b[^>]*>[\s\S]*?<\/vexa_tail\s*>\s*(?:<!--[\s\u2800]*GFX_END[\s\u2800]*-->)?/gi, '');
-    out = out.replace(/<vexa_tail\b[^>]*>[\s\S]*$/i, '');
+    // Strip <lpe_tail> / legacy <vexa_tail> (plus attached terminal GFX_END)
+    out = out.replace(/<(?:lpe|vexa)_tail\b[^>]*>[\s\S]*?<\/(?:lpe|vexa)_tail\s*>\s*(?:<!--[\s\u2800]*GFX_END[\s\u2800]*-->)?/gi, '');
+    out = out.replace(/<(?:lpe|vexa)_tail\b[^>]*>[\s\S]*$/i, '');
 
     // Strip standalone trailing <state:vent>
     out = out.replace(/<state:vent\b[^>]*>[\s\S]*?<\/state:vent\s*>\s*(?:<!--[\s\u2800]*GFX_END[\s\u2800]*-->)?/gi, '');
@@ -59,19 +61,24 @@ function messageTextOf(msg) {
     return '';
 }
 
-/** Detect whether the outgoing prompt belongs to a Vexa preset. */
-export function detectVexaPresetPrompt(messages, presetName = '') {
-    if (/vexa/i.test(String(presetName || ''))) return true;
+function hasSnapshotPlaceholder(text) {
+    return typeof text === 'string' && (text.includes(SNAPSHOT_PLACEHOLDER) || text.includes(LEGACY_SNAPSHOT_PLACEHOLDER));
+}
+
+/** Detect whether the outgoing prompt belongs to a Magnum Opus / LPE (or legacy Vexa) preset. */
+export function detectLpePresetPrompt(messages, presetName = '') {
+    if (/lapis\s+philosophorum|magnum\s+opus|\blpe\b|vexa/i.test(String(presetName || ''))) return true;
     for (const msg of messages || []) {
         const txt = messageTextOf(msg);
         if (!txt) continue;
-        if (txt.includes(SNAPSHOT_PLACEHOLDER)) return true;
+        if (hasSnapshotPlaceholder(txt)) return true;
         if (txt.includes('<internal_states_spec>') || txt.includes('<internal_atlas_spec>') || txt.includes('Antithesis -') || txt.includes('TeleWire TRP-AO')) {
             return true;
         }
     }
     return false;
 }
+export const detectVexaPresetPrompt = detectLpePresetPrompt;
 
 /**
  * Transform outgoing SillyTavern `chat` messages array in place (or cloned for preview).
@@ -103,7 +110,7 @@ export function transformPromptMessages(messages, {
     if (!enabled || !Array.isArray(messages)) {
         return { active: false, strippedCount: 0, injected: false, snapshotChars: 0 };
     }
-    if (!forceActive && !detectVexaPresetPrompt(messages, presetName)) {
+    if (!forceActive && !detectLpePresetPrompt(messages, presetName)) {
         return { active: false, strippedCount: 0, injected: false, snapshotChars: 0 };
     }
 
@@ -118,10 +125,10 @@ export function transformPromptMessages(messages, {
         : snapshotXml;
 
     // First pass: strip historical states/tails strictly from assistant messages so
-    // system/user instructions and World Info referencing <internal_states> or <vexa_tail> are never truncated.
+    // system/user instructions and World Info referencing <internal_states>, <lpe_tail>, or <vexa_tail> are never truncated.
     for (const msg of messages) {
         if (!msg || typeof msg.content !== 'string') continue;
-        if (msg.content.includes(SNAPSHOT_PLACEHOLDER)) {
+        if (hasSnapshotPlaceholder(msg.content)) {
             placeholderFound = true;
             continue;
         }
@@ -142,13 +149,15 @@ export function transformPromptMessages(messages, {
     if (placeholderFound) {
         for (const msg of messages) {
             if (!msg || typeof msg.content !== 'string') continue;
-            if (msg.content.includes(SNAPSHOT_PLACEHOLDER)) {
-                msg.content = msg.content.replaceAll(SNAPSHOT_PLACEHOLDER, injectedPayload);
+            if (hasSnapshotPlaceholder(msg.content)) {
+                msg.content = msg.content
+                    .replaceAll(SNAPSHOT_PLACEHOLDER, injectedPayload)
+                    .replaceAll(LEGACY_SNAPSHOT_PLACEHOLDER, injectedPayload);
                 injected = true;
             }
         }
     } else if (hasState) {
-        // Fallback when user runs an unmodified Vexa preset with the extension enabled:
+        // Fallback when user runs an unmodified Magnum Opus / Vexa preset with the extension enabled:
         // rewrite any embedded <internal_states> mandate in <internal_states_spec> and inject snapshot at depth.
         for (const msg of messages) {
             if (msg && typeof msg.content === 'string' && msg.content.includes('<internal_states_spec>')) {
@@ -171,11 +180,13 @@ export function transformPromptMessages(messages, {
 
     for (const msg of messages) {
         if (!msg || typeof msg.content !== 'string') continue;
-        if (!msg.content.includes(TRACKER_PROPOSE_PLACEHOLDER)) continue;
+        if (!msg.content.includes(TRACKER_PROPOSE_PLACEHOLDER) && !msg.content.includes(LEGACY_TRACKER_PROPOSE_PLACEHOLDER)) continue;
         if (allowTrackerProposals) {
-            msg.content = msg.content.replaceAll(TRACKER_PROPOSE_PLACEHOLDER, TRACKER_PROPOSE_LINE);
+            msg.content = msg.content
+                .replaceAll(TRACKER_PROPOSE_PLACEHOLDER, TRACKER_PROPOSE_LINE)
+                .replaceAll(LEGACY_TRACKER_PROPOSE_PLACEHOLDER, TRACKER_PROPOSE_LINE);
         } else {
-            msg.content = msg.content.replace(/[ \t]*\{\{vexa_tracker_propose_rule\}\}[ \t]*\r?\n?/g, '');
+            msg.content = msg.content.replace(/[ \t]*\{\{(?:lpe|vexa)_tracker_propose_rule\}\}[ \t]*\r?\n?/g, '');
         }
     }
 
@@ -188,8 +199,8 @@ export function transformPromptMessages(messages, {
 }
 
 /**
- * Evaluate EJS (`<% ... %>`) and Vexa/Card macros (`{{get_card_var::...}}`, `{{vexa::...}}`)
- * across outgoing chat messages non-destructively (works even on non-Vexa presets).
+ * Evaluate EJS (`<% ... %>`) and LPE/Card macros (`{{get_card_var::...}}`, `{{lpe::...}}`, legacy `{{vexa::...}}`)
+ * across outgoing chat messages non-destructively (works even on non-LPE presets).
  * Auto-yields cleanly when `ST-Prompt-Template` (`window.EjsTemplate`) is active.
  */
 export function evaluatePromptMessagesEjs(messages, {
@@ -213,7 +224,7 @@ export function evaluatePromptMessagesEjs(messages, {
     const t0 = typeof performance !== 'undefined' && performance.now ? performance.now() : Date.now();
     let frozenState = null;
     const ensureFrozen = () => {
-        if (!frozenState) frozenState = buildReadOnlyVexaSnapshot(state);
+        if (!frozenState) frozenState = buildReadOnlyLpeSnapshot(state);
         return frozenState;
     };
 
@@ -252,7 +263,7 @@ export function evaluatePromptMessagesEjs(messages, {
             }
         }
         if (typeof next === 'string' && next.includes('{{')) {
-            const sub = substituteVexaMacros(next, {
+            const sub = substituteLpeMacros(next, {
                 frozenState: ensureFrozen(),
                 state,
                 cardVars,
@@ -270,7 +281,7 @@ export function evaluatePromptMessagesEjs(messages, {
         if (!msg) continue;
         // Skip user & assistant conversation messages by default so chat history cannot execute as EJS
         const role = String(msg.role || 'system').toLowerCase();
-        if (!allowChatRoles && role !== 'system' && msg.vseAllowEjs !== true) {
+        if (!allowChatRoles && role !== 'system' && msg.lpeAllowEjs !== true && msg.vseAllowEjs !== true) {
             continue;
         }
         if (typeof msg.content === 'string') {

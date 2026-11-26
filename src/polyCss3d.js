@@ -881,7 +881,7 @@ export function compilePolySceneHtml({
             }
         }
         const titleAttr = css.title ? ` title="${escAttr(css.title)}"` : '';
-        const cls = css.className ? `vse-poly-face ${escAttr(css.className)}` : 'vse-poly-face';
+        const cls = css.className ? `lpe-poly-face ${escAttr(css.className)}` : 'lpe-poly-face';
         const faceEl = `<div class="${cls}" style="${styles.join(';')}"${attrStr}${titleAttr}></div>`;
         if (css.animGroup) {
             if (!animGroups.has(css.animGroup)) animGroups.set(css.animGroup, []);
@@ -893,7 +893,7 @@ export function compilePolySceneHtml({
 
     for (const [grp, parts] of animGroups.entries()) {
         const grpCls = grp.replace(/[^a-z0-9_-]/gi, '');
-        faceHtmlParts.push(`<div class="vse-poly-anim vse-anim-${escAttr(grpCls)}">${parts.join('')}</div>`);
+        faceHtmlParts.push(`<div class="lpe-poly-anim lpe-anim-${escAttr(grpCls)}">${parts.join('')}</div>`);
     }
 
     const labelHtmlParts = [];
@@ -901,36 +901,36 @@ export function compilePolySceneHtml({
         const lx = round4(((Number(lb.x) || 0) - ox) * scale);
         const ly = round4(((Number(lb.y) || 0) - oy) * scale);
         const lz = round4(((Number(lb.z) || 0) - oz) * scale);
-        const cls = lb.className ? `vse-poly-label ${escAttr(lb.className)}` : 'vse-poly-label';
+        const cls = lb.className ? `lpe-poly-label ${escAttr(lb.className)}` : 'lpe-poly-label';
         const roomAttr = lb.roomId ? ` data-room-id="${escAttr(lb.roomId)}"` : '';
         const titleAttr = lb.title ? ` title="${escAttr(lb.title)}"` : '';
         const coordAttrs = ` data-lx="${lx}" data-ly="${ly}" data-lz="${lz}"`;
-        const transform = `translate3d(${lx}px,${ly}px,${lz}px) rotateZ(calc(var(--vse-rz) * -1)) rotateX(calc(var(--vse-rx) * -1)) scale(var(--vse-label-scale, 1)) translate(-50%,-50%)`;
+        const transform = `translate3d(${lx}px,${ly}px,${lz}px) rotateZ(calc(var(--lpe-rz) * -1)) rotateX(calc(var(--lpe-rx) * -1)) scale(var(--lpe-label-scale, 1)) translate(-50%,-50%)`;
         labelHtmlParts.push(`<div class="${cls}" style="transform:${transform}"${coordAttrs}${roomAttr}${titleAttr}>${lb.html}</div>`);
     }
 
     const labelScale = round4(clamp(1 / Math.max(0.35, cam.zoom), 0.36, 2.2));
     const varStyle = [
-        `--vse-rx:${round4(cam.rotX)}deg`,
-        `--vse-rz:${round4(cam.rotZ)}deg`,
-        `--vse-zoom:${round4(cam.zoom)}`,
-        `--vse-label-scale:${labelScale}`,
-        `--vse-pan-x:${round4(cam.panX)}px`,
-        `--vse-pan-y:${round4(cam.panY)}px`,
+        `--lpe-rx:${round4(cam.rotX)}deg`,
+        `--lpe-rz:${round4(cam.rotZ)}deg`,
+        `--lpe-zoom:${round4(cam.zoom)}`,
+        `--lpe-label-scale:${labelScale}`,
+        `--lpe-pan-x:${round4(cam.panX)}px`,
+        `--lpe-pan-y:${round4(cam.panY)}px`,
     ].join(';');
 
-    const cls = viewportClass ? `vse-poly-viewport ${escAttr(viewportClass)}` : 'vse-poly-viewport';
+    const cls = viewportClass ? `lpe-poly-viewport ${escAttr(viewportClass)}` : 'lpe-poly-viewport';
     const html = `
         <div class="${cls}" style="${varStyle}" data-face-count="${compiledFaceCount}">
-            <div class="vse-poly-stage">
-                <div class="vse-poly-camera">
-                    <div class="vse-poly-scene">
+            <div class="lpe-poly-stage">
+                <div class="lpe-poly-camera">
+                    <div class="lpe-poly-scene">
                         ${faceHtmlParts.join('')}
                         ${labelHtmlParts.join('')}
                     </div>
                 </div>
             </div>
-            <div class="vse-poly-label-layer"></div>
+            <div class="lpe-poly-label-layer"></div>
             ${overlayHtml}
         </div>
     `;
@@ -939,17 +939,17 @@ export function compilePolySceneHtml({
 }
 
 /**
- * Attach smooth pointer orbit/pan + wheel zoom + camera preset buttons onto a mounted `.vse-poly-viewport`.
+ * Attach smooth pointer orbit/pan + wheel zoom + camera preset buttons onto a mounted `.lpe-poly-viewport`.
  * Projects billboard labels into a flat 2D overlay layer so text stays razor-sharp and properly scaled at all zoom levels.
  */
 export function bindPolyOrbitControls(viewportEl, cameraState, { onCameraChange, onSelectRoom } = {}) {
     if (!viewportEl || typeof viewportEl.addEventListener !== 'function') return;
 
     const cam = cameraState || { rotX: 56, rotZ: 32, zoom: 1, panX: 0, panY: 0 };
-    const labelLayer = viewportEl.querySelector?.('.vse-poly-label-layer') || null;
+    const labelLayer = viewportEl.querySelector?.('.lpe-poly-label-layer') || null;
     const labelNodes = [];
     if (labelLayer) {
-        viewportEl.querySelectorAll('.vse-poly-label').forEach((el) => {
+        viewportEl.querySelectorAll('.lpe-poly-label').forEach((el) => {
             const lx = Number(el.getAttribute('data-lx'));
             const ly = Number(el.getAttribute('data-ly'));
             const lz = Number(el.getAttribute('data-lz'));
@@ -961,7 +961,7 @@ export function bindPolyOrbitControls(viewportEl, cameraState, { onCameraChange,
                     lx,
                     ly,
                     lz,
-                    isRoom: el.classList.contains('vse-poly-lbl-room'),
+                    isRoom: el.classList.contains('lpe-poly-lbl-room'),
                 });
             }
         });
@@ -1053,12 +1053,12 @@ export function bindPolyOrbitControls(viewportEl, cameraState, { onCameraChange,
 
     let rafId = 0;
     function applyNow() {
-        viewportEl.style.setProperty('--vse-rx', `${round4(cam.rotX)}deg`);
-        viewportEl.style.setProperty('--vse-rz', `${round4(cam.rotZ)}deg`);
-        viewportEl.style.setProperty('--vse-zoom', `${round4(cam.zoom)}`);
-        viewportEl.style.setProperty('--vse-label-scale', `${round4(clamp(1 / Math.max(0.35, cam.zoom), 0.36, 2.2))}`);
-        viewportEl.style.setProperty('--vse-pan-x', `${round4(cam.panX)}px`);
-        viewportEl.style.setProperty('--vse-pan-y', `${round4(cam.panY)}px`);
+        viewportEl.style.setProperty('--lpe-rx', `${round4(cam.rotX)}deg`);
+        viewportEl.style.setProperty('--lpe-rz', `${round4(cam.rotZ)}deg`);
+        viewportEl.style.setProperty('--lpe-zoom', `${round4(cam.zoom)}`);
+        viewportEl.style.setProperty('--lpe-label-scale', `${round4(clamp(1 / Math.max(0.35, cam.zoom), 0.36, 2.2))}`);
+        viewportEl.style.setProperty('--lpe-pan-x', `${round4(cam.panX)}px`);
+        viewportEl.style.setProperty('--lpe-pan-y', `${round4(cam.panY)}px`);
         updateProjectedLabels();
     }
 
@@ -1097,7 +1097,7 @@ export function bindPolyOrbitControls(viewportEl, cameraState, { onCameraChange,
     });
 
     viewportEl.addEventListener('pointerdown', (e) => {
-        if (e.target?.closest?.('.vse-poly-controls')) return;
+        if (e.target?.closest?.('.lpe-poly-controls')) return;
         dragging = true;
         panMode = e.button === 2 || e.button === 1 || e.shiftKey;
         startX = e.clientX;
@@ -1193,7 +1193,7 @@ const POLY_VIEWPORT_OBSERVERS = new WeakMap();
 const DEFAULT_SCROLL_ROOT_KEY = Object.freeze({ defaultRoot: true });
 
 /**
- * Pause off-screen `.vse-poly-viewport` CSS animations using IntersectionObserver
+ * Pause off-screen `.lpe-poly-viewport` CSS animations using IntersectionObserver
  * so long chats with multiple inline 3D cards don't burn idle compositor frames.
  */
 export function observePolyViewports(root = typeof document !== 'undefined' ? document : null, opts = {}) {
@@ -1228,10 +1228,10 @@ export function observePolyViewports(root = typeof document !== 'undefined' ? do
     }
 
     const targets = [];
-    if (typeof root.matches === 'function' && root.matches('.vse-poly-viewport')) {
+    if (typeof root.matches === 'function' && root.matches('.lpe-poly-viewport')) {
         targets.push(root);
     }
-    for (const el of root.querySelectorAll('.vse-poly-viewport')) {
+    for (const el of root.querySelectorAll('.lpe-poly-viewport')) {
         targets.push(el);
     }
 

@@ -97,7 +97,7 @@ function contactShadow(cx, cy, cz, w, d, rotZ, meta) {
         rotZ,
         borderRadius: '50%',
         background: 'radial-gradient(circle, rgba(0,0,0,0.52) 0%, rgba(0,0,0,0.22) 55%, rgba(0,0,0,0) 76%)',
-        className: `${meta.className || ''} vse-poly-shadow`.trim(),
+        className: `${meta.className || ''} lpe-poly-shadow`.trim(),
         dataAttrs: meta.dataAttrs,
         title: meta.title,
     });
@@ -112,7 +112,7 @@ function glowPool(cx, cy, cz, radius, rgbaInner, rgbaMid, meta) {
         d: radius * 2,
         borderRadius: '50%',
         background: `radial-gradient(circle, ${rgbaInner} 0%, ${rgbaMid} 48%, rgba(0,0,0,0) 76%)`,
-        className: `${meta.className || ''} vse-poly-glow`.trim(),
+        className: `${meta.className || ''} lpe-poly-glow`.trim(),
         dataAttrs: meta.dataAttrs,
         title: meta.title,
     });
@@ -354,7 +354,7 @@ function buildDesk({ cx, cy, cz, w, d, h, rotZ, color, meta }) {
             ...meta,
             color: (color === 'glass' || color === 'magic') ? '#60a5fa' : '#fef3c7',
             unlit: color === 'glass' || color === 'magic',
-            className: `${meta.className || ''} ${(color === 'glass' || color === 'magic') ? 'vse-poly-emissive' : ''}`.trim(),
+            className: `${meta.className || ''} ${(color === 'glass' || color === 'magic') ? 'lpe-poly-emissive' : ''}`.trim(),
             skipBottom: true,
         }),
     ];
@@ -387,7 +387,7 @@ function buildHearth({ cx, cy, cz, w, d, h, rotZ, color, meta }) {
             rotZ,
             color: 'fire',
             unlit: true,
-            className: `${meta.className || ''} vse-poly-flicker`.trim(),
+            className: `${meta.className || ''} lpe-poly-flicker`.trim(),
         }),
     ];
 }
@@ -417,7 +417,7 @@ function buildBrazier({ cx, cy, cz, w, d, h, rotZ, color, meta }) {
             rotZ,
             color: 'fire',
             unlit: true,
-            className: `${meta.className || ''} vse-poly-flicker`.trim(),
+            className: `${meta.className || ''} lpe-poly-flicker`.trim(),
         }),
     ];
 }
@@ -447,7 +447,7 @@ function buildLamp({ cx, cy, cz, w, d, h, rotZ, color, meta }) {
             lonSegments: 6,
             color: glowHex,
             unlit: true,
-            className: `${meta.className || ''} vse-poly-emissive`.trim(),
+            className: `${meta.className || ''} lpe-poly-emissive`.trim(),
         }),
     ];
 }
@@ -517,7 +517,7 @@ function buildCrystal({ cx, cy, cz, w, d, h, rotZ, color, meta }) {
             color: cHex,
             unlit: true,
             animGroup: 'float',
-            className: `${meta.className || ''} vse-poly-emissive`.trim(),
+            className: `${meta.className || ''} lpe-poly-emissive`.trim(),
         }),
     ];
 }
@@ -656,7 +656,7 @@ function buildVat({ cx, cy, cz, w, d, h, rotZ, color, meta }) {
     return [
         ...glowPool(cx, cy, cz, r * 2.3, 'rgba(34,211,238,0.42)', 'rgba(14,165,233,0.12)', meta),
         ...cylinderPolygons({ ...meta, cx, cy, cz, radius: r, radiusTop: r * 0.96, h: h * 0.16, segments: 8, rotZ, color: 'iron', capped: true }),
-        ...cylinderPolygons({ ...meta, cx, cy, cz: cz + h * 0.16, radius: r * 0.82, radiusTop: r * 0.82, h: h * 0.68, segments: 8, rotZ, color: glow, unlit: true, className: `${meta.className || ''} vse-poly-emissive`.trim(), capped: true }),
+        ...cylinderPolygons({ ...meta, cx, cy, cz: cz + h * 0.16, radius: r * 0.82, radiusTop: r * 0.82, h: h * 0.68, segments: 8, rotZ, color: glow, unlit: true, className: `${meta.className || ''} lpe-poly-emissive`.trim(), capped: true }),
         ...cylinderPolygons({ ...meta, cx, cy, cz: cz + h * 0.84, radius: r * 0.98, radiusTop: r * 0.86, h: h * 0.16, segments: 8, rotZ, color: 'steel', capped: true }),
     ];
 }
@@ -667,7 +667,7 @@ function buildConsole({ cx, cy, cz, w, d, h, rotZ, color, meta }) {
         ...contactShadow(cx, cy, cz, w, d, rotZ, meta),
         ...boxPolygons({ ...meta, cx, cy, cz, w, d, h: h * 0.56, rotZ, color: frame, topColor: shadeHex(frame, 1.12), skipBottom: true }),
         ...subBox(cx, cy, cz, 0, -d * 0.16, h * 0.56, w * 0.86, d * 0.22, h * 0.42, rotZ, {
-            ...meta, color: '#38bdf8', unlit: true, className: `${meta.className || ''} vse-poly-emissive`.trim(), skipBottom: true,
+            ...meta, color: '#38bdf8', unlit: true, className: `${meta.className || ''} lpe-poly-emissive`.trim(), skipBottom: true,
         }),
     ];
 }
@@ -701,7 +701,7 @@ function buildScreen({ cx, cy, cz, w, d, h, rotZ, color, meta }) {
         ...glowPool(cx, cy, cz, Math.max(w, 1.2), 'rgba(56,189,248,0.34)', 'rgba(14,165,233,0.08)', meta),
         ...subBox(cx, cy, cz, 0, 0, 0, w * 0.4, Math.max(0.32, d), h * 0.16, rotZ, { ...meta, color: trim, skipBottom: true }),
         ...subBox(cx, cy, cz, 0, 0, h * 0.16, w, Math.max(0.14, d), h * 0.84, rotZ, {
-            ...meta, color: '#38bdf8', unlit: true, className: `${meta.className || ''} vse-poly-emissive`.trim(), skipBottom: true,
+            ...meta, color: '#38bdf8', unlit: true, className: `${meta.className || ''} lpe-poly-emissive`.trim(), skipBottom: true,
         }),
     ];
 }

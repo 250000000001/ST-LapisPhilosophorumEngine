@@ -152,6 +152,15 @@ export function auditCardFile(inputPath) {
     const add = (severity, code, location, message) => {
         findings.push({ severity, code, location, message });
     };
+    const seenLegacyLocs = new Set();
+    const noteLegacyVexa = (location, text) => {
+        if (!text || seenLegacyLocs.has(location)) return;
+        const hits = String(text).match(/(?:\[(?:VexaInitVars?)\]|\bVexaCard\.|\bgetvexa\s*\(|\{\{vexa::|<\/?vexa_(?:tail|receipt)\b|data-vexa-screen|<!--\s*vexa-(?:screen|widget)\s*-->)/gi);
+        if (!hits?.length) return;
+        seenLegacyLocs.add(location);
+        const uniq = [...new Set(hits.map((h) => h.trim()))];
+        add('INFO', 'LEGACY_VEXA_ALIAS', location, `Legacy Vexa syntax detected (${uniq.slice(0, 5).join(', ')}); supported by LPE compat shims.`);
+    };
 
     let cjkCouplingCount = 0;
     const bumpCjk = (n, code, location, detail) => {
@@ -178,13 +187,14 @@ export function auditCardFile(inputPath) {
         add('WARN', 'DUPLICATE_CCV3_CHUNK', 'png.tEXt', `Both chara and ccv3 chunks exist (${(loaded.ccv3B64Bytes / 1024).toFixed(0)} KB base64 duplicated)`);
     }
 
-    // 2. Validate [InitVar] / [VexaInitVar]
+    // 2. Validate [InitVar] / [LPEInitVar] / [VexaInitVar]
     let parsedInitVars = null;
     for (const e of rawEntries) {
         if (!e || typeof e.content !== 'string') continue;
         const label = String(e.comment || '').trim();
         const keyStr = Array.isArray(e.keys) ? e.keys.join(' ') : String(e.key || '');
-        if (/^\[(?:InitVar|VexaInitVars?)\]$/i.test(label) || /\[(?:InitVar|VexaInitVars?)\]/i.test(keyStr)) {
+        noteLegacyVexa(`wi[${e.id ?? e.uid ?? label}]`, `${label}\n${keyStr}`);
+        if (/^\[(?:InitVar|(?:LPE|Vexa)InitVars?)\]$/i.test(label) || /\[(?:InitVar|(?:LPE|Vexa)InitVars?)\]/i.test(keyStr)) {
             let raw = e.content.trim();
             const fence = raw.match(/```(?:json)?\s*([\s\S]*?)```/i);
             if (fence) raw = fence[1].trim();
@@ -232,7 +242,8 @@ export function auditCardFile(inputPath) {
         }
 
         if (checkCjkVars) {
-            const callRe = /(?:getvar|setvar|VexaCard\.(?:getVar|setVar))\s*\(\s*(['"`])([\s\S]*?)\1/g;
+            noteLegacyVexa(loc, text);
+            const callRe = /(?:getvar|setvar|(?:LPECard|VexaCard)\.(?:getVar|setVar))\s*\(\s*(['"`])([\s\S]*?)\1/g;
             let cm;
             while ((cm = callRe.exec(text)) !== null) {
                 bumpCjk(countCjk(cm[2]), 'CJK_VAR_KEY_ARG', loc, `CJK var argument "${cm[2]}"`);
@@ -272,8 +283,9 @@ export function auditCardFile(inputPath) {
                 const html = htmlBlocks[bi];
                 const bLoc = htmlBlocks.length > 1 ? `${loc}#html${bi}` : loc;
                 const byteLen = Buffer.byteLength(html, 'utf8');
+                noteLegacyVexa(bLoc, html);
                 if (byteLen > 2048 * 1024) {
-                    add('BLOCKER', 'HTML_EXCEEDS_2MB_GUARD', bLoc, `HTML block is ${(byteLen / 1024).toFixed(1)} KB (> 2048 KB Vexa guard)`);
+                    add('BLOCKER', 'HTML_EXCEEDS_2MB_GUARD', bLoc, `HTML block is ${(byteLen / 1024).toFixed(1)} KB (> 2048 KB LPE guard)`);
                 }
                 const forbiddenApiRe = /\b(?:TavernHelper|triggerSlash|localStorage|sessionStorage|indexedDB|Dexie)\b|window\.parent\b|window\.open\s*\(|<form\b/g;
                 const apiHits = [...new Set(html.match(forbiddenApiRe) || [])];
@@ -314,9 +326,10 @@ export function auditCardFile(inputPath) {
         bumpCjk(countCjk(findStr), 'CJK_REGEX_FIND', loc, `CJK characters in findRegex "${findStr}"`);
 
         const rep = String(rx.replaceString || '');
+        noteLegacyVexa(loc, rep);
         const repBytes = Buffer.byteLength(rep, 'utf8');
         if (repBytes > 2048 * 1024) {
-            add('BLOCKER', 'REGEX_HTML_EXCEEDS_2MB', loc, `replaceString is ${(repBytes / 1024).toFixed(1)} KB (> 2048 KB Vexa guard)`);
+            add('BLOCKER', 'REGEX_HTML_EXCEEDS_2MB', loc, `replaceString is ${(repBytes / 1024).toFixed(1)} KB (> 2048 KB LPE guard)`);
         }
 
         const isCleanupRegex = rep === '' && rx.promptOnly === true && rx.markdownOnly === true;

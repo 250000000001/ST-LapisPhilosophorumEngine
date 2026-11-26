@@ -1,17 +1,18 @@
 /**
- * Swipe-safe journaled Vexa state store.
+ * Swipe-safe journaled Lapis Philosophorum Engine (LPE) state store.
  *
  * Adapted from Megumin Suite's store design:
  *   current state = checkpoint + active journal entries, in seq order
  *
- * Every AI message and every swipe slot gets a persistent (vexa_uid, vexa_seq) stamp,
+ * Every AI message and every swipe slot gets a persistent (lpe_uid, lpe_seq) stamp,
  * and every state mutation (full snapshot import, main-model tail capture, post-reply worker delta,
- * or manual UI edit) is stored as a journal entry keyed by (uid, swipe) in chat_metadata.vexa_state.
+ * or manual UI edit) is stored as a journal entry keyed by (uid, swipe) in chat_metadata.lpe_state
+ * (with automatic one-time migration from legacy chat_metadata.vexa_state and vexa_uid/vexa_seq).
  *
  * Pure module over an injected adapter so it runs under Node tests without SillyTavern.
  */
 
-import { emptyState, cloneState, extractStoryProse, parseTimeHeader, extractProseColors, extractVexaTail } from './schema.js';
+import { emptyState, cloneState, extractStoryProse, parseTimeHeader, extractProseColors, extractLpeTail } from './schema.js';
 import { parseInternalStates } from './parser.js';
 import { applyDelta } from './reducer.js';
 
@@ -152,7 +153,55 @@ function mergePlainVarsDeep(target, patch, depth = 0) {
 }
 
 function randomUid() {
-    return 'v_' + Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4);
+    return 'lpe_' + Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4);
+}
+
+/**
+ * One-time non-destructive migration from legacy `extensionSettings.vexa_state_engine`
+ * to canonical `extensionSettings.lapis_philosophorum_engine`.
+ */
+export function migrateLegacyExtensionSettings(
+    extensionSettings,
+    defaultSettings = {},
+    defaultRetrySettings = {},
+    { moduleName = 'lapis_philosophorum_engine', legacyModuleName = 'vexa_state_engine' } = {},
+) {
+    if (!extensionSettings || typeof extensionSettings !== 'object') {
+        return { ...defaultSettings, retry: { ...defaultRetrySettings } };
+    }
+    if (!extensionSettings[moduleName]) {
+        const legacy = extensionSettings[legacyModuleName];
+        if (legacy && typeof legacy === 'object' && !Array.isArray(legacy)) {
+            const migrated = JSON.parse(JSON.stringify(legacy));
+            extensionSettings[moduleName] = migrated;
+        } else {
+            extensionSettings[moduleName] = { ...defaultSettings, retry: { ...defaultRetrySettings } };
+        }
+    }
+    const stored = extensionSettings[moduleName];
+    for (const [k, v] of Object.entries(defaultSettings)) {
+        if (k === 'retry') continue;
+        if (stored[k] === undefined) stored[k] = v;
+    }
+    if (!stored.retry || typeof stored.retry !== 'object') {
+        stored.retry = { ...defaultRetrySettings };
+    } else {
+        for (const [rk, rv] of Object.entries(defaultRetrySettings)) {
+            if (stored.retry[rk] === undefined) stored.retry[rk] = rv;
+        }
+    }
+    return stored;
+}
+
+/** Read canonical `(lpe_uid, lpe_seq)` or legacy `(vexa_uid, vexa_seq)` stamp from a message. */
+export function getMessageStamp(msg) {
+    const extra = msg?.extra;
+    if (!extra || typeof extra !== 'object') return { uid: null, seq: null };
+    const uid = extra.lpe_uid ?? extra.vexa_uid ?? null;
+    const seq = typeof extra.lpe_seq === 'number'
+        ? extra.lpe_seq
+        : (typeof extra.vexa_seq === 'number' ? extra.vexa_seq : null);
+    return { uid: uid || null, seq };
 }
 
 function currentSwipe(msg) {
@@ -182,10 +231,16 @@ function emptyRoot() {
  *     applyContext?: () => object
  *   },
  *   journalDepth?: number | (() => number),
- *   rootKey?: string
+ *   rootKey?: string,
+ *   legacyRootKey?: string
  * }} opts
  */
-export function createVexaStateStore({ adapter, journalDepth = 200, rootKey = 'vexa_state' }) {
+export function createLpeStateStore({
+    adapter,
+    journalDepth = 200,
+    rootKey = 'lpe_state',
+    legacyRootKey = 'vexa_state',
+}) {
     let version = 0;
     let memo = null; // { key, timeline }
     let entryMemo = null; // { journal, version, len, map }
@@ -203,7 +258,14 @@ export function createVexaStateStore({ adapter, journalDepth = 200, rootKey = 'v
     function root() {
         const meta = adapter.getMeta();
         if (!meta) return null;
-        const r = meta[rootKey];
+        let r = meta[rootKey];
+        if ((!r || typeof r !== 'object' || r.v !== ROOT_VERSION) && legacyRootKey && legacyRootKey !== rootKey) {
+            const legacy = meta[legacyRootKey];
+            if (legacy && typeof legacy === 'object' && legacy.v === ROOT_VERSION) {
+                r = JSON.parse(JSON.stringify(legacy));
+                meta[rootKey] = r;
+            }
+        }
         if (!r || typeof r !== 'object' || r.v !== ROOT_VERSION) {
             meta[rootKey] = emptyRoot();
         } else {
@@ -232,24 +294,24 @@ export function createVexaStateStore({ adapter, journalDepth = 200, rootKey = 'v
         if (!msg || !r) return null;
         if (!msg.extra || typeof msg.extra !== 'object') msg.extra = {};
         let dirty = false;
-        let { vexa_uid: uid, vexa_seq: seq } = msg.extra;
+        let { uid, seq } = getMessageStamp(msg);
         if (!uid || typeof seq !== 'number') {
             uid = randomUid();
             seq = r.seqCounter++;
             dirty = true;
         }
-        if (msg.extra.vexa_uid !== uid || msg.extra.vexa_seq !== seq) {
-            msg.extra.vexa_uid = uid;
-            msg.extra.vexa_seq = seq;
+        if (msg.extra.lpe_uid !== uid || msg.extra.lpe_seq !== seq) {
+            msg.extra.lpe_uid = uid;
+            msg.extra.lpe_seq = seq;
             dirty = true;
         }
         if (Array.isArray(msg.swipe_info)) {
             for (const info of msg.swipe_info) {
                 if (!info || typeof info !== 'object') continue;
                 if (!info.extra || typeof info.extra !== 'object') info.extra = {};
-                if (info.extra.vexa_uid !== uid || info.extra.vexa_seq !== seq) {
-                    info.extra.vexa_uid = uid;
-                    info.extra.vexa_seq = seq;
+                if (info.extra.lpe_uid !== uid || info.extra.lpe_seq !== seq) {
+                    info.extra.lpe_uid = uid;
+                    info.extra.lpe_seq = seq;
                     dirty = true;
                 }
             }
@@ -271,8 +333,8 @@ export function createVexaStateStore({ adapter, journalDepth = 200, rootKey = 'v
     function presentMessages() {
         const map = new Map();
         chat().forEach((msg, index) => {
-            const uid = msg?.extra?.vexa_uid;
-            if (uid) map.set(uid, { index, msg, seq: msg.extra.vexa_seq, swipe: currentSwipe(msg) });
+            const { uid, seq } = getMessageStamp(msg);
+            if (uid) map.set(uid, { index, msg, seq, swipe: currentSwipe(msg) });
         });
         return map;
     }
@@ -309,7 +371,7 @@ export function createVexaStateStore({ adapter, journalDepth = 200, rootKey = 'v
     function swipeSignature() {
         let sig = '';
         for (const msg of chat()) {
-            const uid = msg?.extra?.vexa_uid;
+            const { uid } = getMessageStamp(msg);
             if (uid) sig += uid + ':' + currentSwipe(msg) + ',';
         }
         return sig;
@@ -515,7 +577,7 @@ export function createVexaStateStore({ adapter, journalDepth = 200, rootKey = 'v
     function onSwipeDeleted(messageIndex, swipeId) {
         const r = root();
         const msg = chat()[messageIndex];
-        const uid = msg?.extra?.vexa_uid;
+        const { uid } = getMessageStamp(msg);
         if (!r || !uid) return false;
         const before = r.journal.length;
         r.journal = r.journal.filter((e) => !(e.uid === uid && e.swipe === swipeId));
@@ -582,7 +644,7 @@ export function createVexaStateStore({ adapter, journalDepth = 200, rootKey = 'v
     }
 
     /**
-     * One-time import from an existing vanilla Vexa chat containing <internal_states> blocks.
+     * One-time import from an existing vanilla Vexa/LPE chat containing <internal_states> blocks.
      * Imports each AI message with <internal_states> as a swipe-keyed snapshot so swipes and
      * history browsing work immediately at turn N+1!
      */
@@ -610,7 +672,7 @@ export function createVexaStateStore({ adapter, journalDepth = 200, rootKey = 'v
                     recordSnapshot(i, snap, { source: 'import', swipe: sw });
                     importedCount++;
                 } else {
-                    const tail = extractVexaTail(rawText);
+                    const tail = extractLpeTail(rawText);
                     if (tail.hasTail) {
                         const prose = extractStoryProse(rawText);
                         recordDelta(i, {}, {
@@ -761,3 +823,4 @@ export function createVexaStateStore({ adapter, journalDepth = 200, rootKey = 'v
         get version() { return version; },
     };
 }
+export const createVexaStateStore = createLpeStateStore;

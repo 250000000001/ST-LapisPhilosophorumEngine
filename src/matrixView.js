@@ -1,6 +1,6 @@
 /**
- * Aether Matrix divergent bar renderer for Vexa (<state:pair>).
- * Restores Vexa's original 6-pair center-origin divergent bar design
+ * Aether Matrix divergent bar renderer for Lapis Philosophorum Engine (<state:pair>).
+ * Preserves the original Vexa 6-pair center-origin divergent bar design
  * alongside clear plain-English explanations and per-turn delta badges.
  * Pure ES module (zero DOM dependencies; testable under Node).
  */
@@ -22,7 +22,7 @@ function clamp(v, lo, hi) {
 export const AETHER_AXIS_PAIRS = Object.freeze([
     {
         key: 'desire',
-        cls: 'vse-axis-desire',
+        cls: 'lpe-axis-desire',
         negEmoji: '😠',
         negAliases: ['😠', '😡', '🤬', '😤', '👿'],
         negLabel: 'Hate',
@@ -34,7 +34,7 @@ export const AETHER_AXIS_PAIRS = Object.freeze([
     },
     {
         key: 'play',
-        cls: 'vse-axis-play',
+        cls: 'lpe-axis-play',
         negEmoji: '🥊',
         negAliases: ['🥊'],
         negLabel: 'Conflict',
@@ -46,7 +46,7 @@ export const AETHER_AXIS_PAIRS = Object.freeze([
     },
     {
         key: 'bond',
-        cls: 'vse-axis-bond',
+        cls: 'lpe-axis-bond',
         negEmoji: '❄️',
         negAliases: ['❄️', '❄'],
         negLabel: 'Hostility',
@@ -58,7 +58,7 @@ export const AETHER_AXIS_PAIRS = Object.freeze([
     },
     {
         key: 'endure',
-        cls: 'vse-axis-endure',
+        cls: 'lpe-axis-endure',
         negEmoji: '🪨',
         negAliases: ['🪨', '🌪️', '🌪'],
         negLabel: 'Stagnation',
@@ -70,7 +70,7 @@ export const AETHER_AXIS_PAIRS = Object.freeze([
     },
     {
         key: 'belong',
-        cls: 'vse-axis-belong',
+        cls: 'lpe-axis-belong',
         negEmoji: '🌫️',
         negAliases: ['🌫️', '🌫', '⬜', '😶'],
         negLabel: 'Indifference',
@@ -82,7 +82,7 @@ export const AETHER_AXIS_PAIRS = Object.freeze([
     },
     {
         key: 'give',
-        cls: 'vse-axis-give',
+        cls: 'lpe-axis-give',
         negEmoji: '🐍',
         negAliases: ['🐍', '🐉', '🐲', '🐊'],
         negLabel: 'Envy',
@@ -113,7 +113,7 @@ function parseAccValue(raw) {
 }
 
 /**
- * Parse Vexa `<matrix>` string into 6 divergent axis-pair objects.
+ * Parse `<matrix>` string into 6 divergent axis-pair objects.
  * Supports both canonical emoji keys (`🤝`, `😠`, `🌫️`, `🐍`) and visual variants
  * seen in older prompts by falling back to the standard 12-slot order `[pos0..5, neg0..5]`.
  */
@@ -219,7 +219,7 @@ function fmtDeltaBadge(curr, prev) {
     const d = curr - prev;
     if (!d) return '';
     const cls = d > 0 ? 'up' : 'down';
-    return `<span class="vse-axis-delta ${cls}" title="Change since previous reply">${d > 0 ? `+${d}` : d}</span>`;
+    return `<span class="lpe-axis-delta ${cls}" title="Change since previous reply">${d > 0 ? `+${d}` : d}</span>`;
 }
 
 /**
@@ -230,7 +230,7 @@ function fmtDeltaBadge(curr, prev) {
  */
 export function renderAetherMatrixList(pairs = [], prevPairs = null, { showGuide = true } = {}) {
     const list = Array.isArray(pairs) ? pairs : [];
-    if (!list.length) return `<div class="vse-empty">No Aether Pair matrices.</div>`;
+    if (!list.length) return `<div class="lpe-empty">No Aether Pair matrices.</div>`;
 
     const prevByNames = new Map();
     if (Array.isArray(prevPairs)) {
@@ -241,9 +241,9 @@ export function renderAetherMatrixList(pairs = [], prevPairs = null, { showGuide
     }
 
     const guideHtml = showGuide ? `
-        <details class="vse-matrix-guide">
+        <details class="lpe-matrix-guide">
             <summary><i class="fa-solid fa-circle-info"></i> How to read the Aether Matrix &amp; Channels</summary>
-            <div class="vse-matrix-guide-body">
+            <div class="lpe-matrix-guide-body">
                 <div><b>Divergent Bars (0–20):</b> Negative friction pulls <em>left</em> from center; positive pull grows <em>right</em>. Both poles coexist rather than canceling out (±2/turn cap; axes start ≥3).</div>
                 <div><b>acc (Drift):</b> Cumulative push/decay pressure building toward a shift. Positive <code>+</code> builds charge; negative <code>−</code> decays it.</div>
                 <div><b>E / L Channels:</b> <b>E</b> = emotional expression (behavior/tone), <b>L</b> = logical expression (spoken words). Values: <code>open</code> (flows) or <code>sealed</code> (suppressed).</div>
@@ -261,11 +261,11 @@ export function renderAetherMatrixList(pairs = [], prevPairs = null, { showGuide
 
         const damChips = (damFlags.e || damFlags.l || damFlags.gate)
             ? `
-                ${damFlags.e ? `<span class="vse-pill vse-bond-chip" title="Emotional expression channel (behavior/affect): ${esc(damFlags.e)}">E: ${esc(damFlags.e)}</span>` : ''}
-                ${damFlags.l ? `<span class="vse-pill vse-bond-chip" title="Logical expression channel (verbal candor): ${esc(damFlags.l)}">L: ${esc(damFlags.l)}</span>` : ''}
-                ${damFlags.gate ? `<span class="vse-pill vse-bond-chip gate" title="Feeling Gate stage (dormant → attentive → aware → longing → open)">Gate: ${esc(damFlags.gate)}</span>` : ''}
+                ${damFlags.e ? `<span class="lpe-pill lpe-bond-chip" title="Emotional expression channel (behavior/affect): ${esc(damFlags.e)}">E: ${esc(damFlags.e)}</span>` : ''}
+                ${damFlags.l ? `<span class="lpe-pill lpe-bond-chip" title="Logical expression channel (verbal candor): ${esc(damFlags.l)}">L: ${esc(damFlags.l)}</span>` : ''}
+                ${damFlags.gate ? `<span class="lpe-pill lpe-bond-chip gate" title="Feeling Gate stage (dormant → attentive → aware → longing → open)">Gate: ${esc(damFlags.gate)}</span>` : ''}
             `
-            : `<span class="vse-pill vse-bond-chip">${esc(p.dam || '∅')}</span>`;
+            : `<span class="lpe-pill lpe-bond-chip">${esc(p.dam || '∅')}</span>`;
 
         const hasValidAxes = axes.some((a) => a.pos || a.neg);
         let bodyHtml = '';
@@ -286,44 +286,44 @@ export function renderAetherMatrixList(pairs = [], prevPairs = null, { showGuide
                     : '';
                 const isWalled = checkAxisWallConflict(ax, wallVal);
                 return `
-                    <div class="vse-axis-bar ${ax.cls}${isWalled ? ' is-walled' : ''}" data-axis="${esc(ax.posEmoji)}-${esc(ax.negEmoji)}">
-                        <div class="vse-axis-labels">
-                            <span class="vse-axis-side neg" title="${esc(ax.negDesc)}">
-                                <span class="vse-axis-name">${esc(ax.negEmoji)} ${esc(ax.negLabel)}</span>
+                    <div class="lpe-axis-bar ${ax.cls}${isWalled ? ' is-walled' : ''}" data-axis="${esc(ax.posEmoji)}-${esc(ax.negEmoji)}">
+                        <div class="lpe-axis-labels">
+                            <span class="lpe-axis-side neg" title="${esc(ax.negDesc)}">
+                                <span class="lpe-axis-name">${esc(ax.negEmoji)} ${esc(ax.negLabel)}</span>
                                 <b>${negVal}</b>
                                 ${negDelta}
-                                <small class="${negAcc === 0 ? 'vse-acc-zero' : 'vse-acc-live'}">acc ${esc(fmtAcc(negAcc))}</small>
+                                <small class="${negAcc === 0 ? 'lpe-acc-zero' : 'lpe-acc-live'}">acc ${esc(fmtAcc(negAcc))}</small>
                             </span>
-                            <span class="vse-axis-side pos" title="${esc(ax.posDesc)}">
-                                <small class="${posAcc === 0 ? 'vse-acc-zero' : 'vse-acc-live'}">acc ${esc(fmtAcc(posAcc))}</small>
+                            <span class="lpe-axis-side pos" title="${esc(ax.posDesc)}">
+                                <small class="${posAcc === 0 ? 'lpe-acc-zero' : 'lpe-acc-live'}">acc ${esc(fmtAcc(posAcc))}</small>
                                 ${posDelta}
                                 <b>${posVal}</b>
-                                <span class="vse-axis-name">${esc(ax.posLabel)} ${esc(ax.posEmoji)}</span>
+                                <span class="lpe-axis-name">${esc(ax.posLabel)} ${esc(ax.posEmoji)}</span>
                             </span>
                         </div>
-                        <div class="vse-axis-track">
-                            <span class="vse-axis-fill neg" style="width:${negPct.toFixed(1)}%;"></span>
-                            <span class="vse-axis-fill pos" style="width:${posPct.toFixed(1)}%;"></span>
+                        <div class="lpe-axis-track">
+                            <span class="lpe-axis-fill neg" style="width:${negPct.toFixed(1)}%;"></span>
+                            <span class="lpe-axis-fill pos" style="width:${posPct.toFixed(1)}%;"></span>
                         </div>
                     </div>
                 `;
             }).join('');
-            bodyHtml = `<div class="vse-axis-stack">${rows}</div>`;
+            bodyHtml = `<div class="lpe-axis-stack">${rows}</div>`;
         } else {
-            bodyHtml = `<div class="vse-matrix">${esc(p.matrix || '∅')}</div>`;
+            bodyHtml = `<div class="lpe-matrix">${esc(p.matrix || '∅')}</div>`;
         }
 
         const wallFooter = wallVal
-            ? `<div class="vse-bond-wall"><i class="fa-solid fa-triangle-exclamation"></i> Permission conflict wall: <b>${esc(wallVal)}</b></div>`
-            : `<div class="vse-bond-wall is-clear">Wall: clear (no active axis permission conflict)</div>`;
+            ? `<div class="lpe-bond-wall"><i class="fa-solid fa-triangle-exclamation"></i> Permission conflict wall: <b>${esc(wallVal)}</b></div>`
+            : `<div class="lpe-bond-wall is-clear">Wall: clear (no active axis permission conflict)</div>`;
 
         return `
-            <div class="vse-subcard vse-bond-card">
-                <div class="vse-subcard-head vse-bond-head">
+            <div class="lpe-subcard lpe-bond-card">
+                <div class="lpe-subcard-head lpe-bond-head">
                     <strong>${esc(p.names)}</strong>
-                    <span class="vse-pill" title="Current interpersonal scene mode">${esc(modeVal)}</span>
+                    <span class="lpe-pill" title="Current interpersonal scene mode">${esc(modeVal)}</span>
                     ${damChips}
-                    ${wallVal ? `<span class="vse-pill warn" title="Conflicting axes routed through wall">wall: ${esc(wallVal)}</span>` : ''}
+                    ${wallVal ? `<span class="lpe-pill warn" title="Conflicting axes routed through wall">wall: ${esc(wallVal)}</span>` : ''}
                 </div>
                 ${bodyHtml}
                 ${wallFooter}
@@ -331,5 +331,5 @@ export function renderAetherMatrixList(pairs = [], prevPairs = null, { showGuide
         `;
     }).join('');
 
-    return `<div class="vse-stack">${guideHtml}${cards}</div>`;
+    return `<div class="lpe-stack">${guideHtml}${cards}</div>`;
 }

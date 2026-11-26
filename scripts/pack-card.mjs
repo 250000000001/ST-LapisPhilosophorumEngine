@@ -166,7 +166,7 @@ export function packCard({ srcPng, workDir, outPng, bookName = '', allowCjk = fa
         const fencedOpening = '```html\n' + openingHtml + '\n```';
         if (/<opening>[\s\S]*?<\/opening>/i.test(firstMes)) {
             firstMes = firstMes.replace(/<opening>[\s\S]*?<\/opening>/i, fencedOpening);
-        } else if (!firstMes.includes('data-vexa-screen="origin"') && !firstMes.includes('<!DOCTYPE html')) {
+        } else if (!/data-(?:lpe|vexa)-screen="origin"/.test(firstMes) && !firstMes.includes('<!DOCTYPE html')) {
             firstMes = `${firstMes.trim()}\n\n${fencedOpening}`;
         }
     }
@@ -192,7 +192,7 @@ export function packCard({ srcPng, workDir, outPng, bookName = '', allowCjk = fa
             alternate_greetings: Array.isArray(coreData.alternate_greetings) ? coreData.alternate_greetings : [],
             tags: Array.isArray(coreData.tags) ? coreData.tags : [],
             creator: coreData.creator || rawCard.data?.creator || '',
-            character_version: coreData.character_version || '1.0-vexa-en',
+            character_version: coreData.character_version || '1.0-lpe-en',
             extensions: {
                 talkativeness: coreData.extensions_other?.talkativeness ?? rawCard.data?.extensions?.talkativeness ?? '0.5',
                 fav: Boolean(coreData.extensions_other?.fav ?? rawCard.data?.extensions?.fav),
@@ -213,8 +213,8 @@ export function packCard({ srcPng, workDir, outPng, bookName = '', allowCjk = fa
     const allowedEnValues = new Set(Object.values(glossary.atomic_keymap || {}));
 
     const initEntry = translatedEntries.find(
-        (e) => /^\[(?:InitVar|VexaInitVars?)\]$/i.test(String(e.comment || '').trim())
-            || (e.keys || []).some((k) => /\[(?:InitVar|VexaInitVars?)\]/i.test(String(k))),
+        (e) => /^\[(?:InitVar|(?:LPE|Vexa)InitVars?)\]$/i.test(String(e.comment || '').trim())
+            || (e.keys || []).some((k) => /\[(?:InitVar|(?:LPE|Vexa)InitVars?)\]/i.test(String(k))),
     );
     let initObj = null;
     if (initEntry) {
@@ -243,7 +243,7 @@ export function packCard({ srcPng, workDir, outPng, bookName = '', allowCjk = fa
             cjkHits.push({ loc, count: mCjk.length, snippet });
         }
 
-        for (const vm of str.matchAll(/(?:getvar|setvar|VexaCard\.(?:getVar|setVar))\s*\(\s*(['"`])([^'"`]+)\1/g)) {
+        for (const vm of str.matchAll(/(?:getvar|setvar|(?:LPECard|VexaCard)\.(?:getVar|setVar))\s*\(\s*(['"`])([^'"`]+)\1/g)) {
             const varPath = vm[2].trim();
             if (oldCnKeys.some((ck) => varPath.includes(ck))) {
                 errors.push(`Orphaned CN key in var call @ ${loc}: "${varPath}"`);

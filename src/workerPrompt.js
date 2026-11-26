@@ -1,5 +1,5 @@
 /**
- * Builds lean, structured delta-extraction prompts for Vexa's secondary worker ("Vexa Clerk").
+ * Builds lean, structured delta-extraction prompts for LPE's secondary worker ("LPE Clerk").
  * Supports combined 1-call mode (default) and optional 2-call split mode.
  *
  * Pure ES module with zero DOM dependencies.
@@ -8,7 +8,7 @@
 import { normalizeBraille, stripGfxBlocks, extractStoryProse } from './schema.js';
 import { serializeCompactForWorker } from './parser.js';
 
-const SYSTEM_BASE = `You are Vexa Clerk, a precise background simulation state-tracker for a gritty, uncensored fictional RPG.
+const SYSTEM_BASE = `You are LPE Clerk, a precise background simulation state-tracker for a gritty, uncensored fictional RPG.
 Your ONLY job is to inspect the latest story exchange and emit a minimal JSON DELTA updating the world simulation state.
 
 CRITICAL OUTPUT RULES:
@@ -98,7 +98,7 @@ const NARRATIVE_SIM_SCHEMA_GUIDE = `Return a JSON object containing ONLY the THO
  * @param {object} opts.prevState
  * @param {string} opts.exchange      Latest user prompt + AI prose
  * @param {string} [opts.earlier]     Short prior context snippet
- * @param {object|null} [opts.receipt] Parsed <vexa_receipt> from main model
+ * @param {object|null} [opts.receipt] Parsed <lpe_receipt> / <vexa_receipt> from main model
  * @param {string} [opts.vent]        Main model's <state:vent>
  * @param {object|null} [opts.headerParsed]
  * @param {Array} [opts.proseColors]

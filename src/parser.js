@@ -1,5 +1,5 @@
 /**
- * Full lossless parser and serializer for Vexa <internal_states> XML across all 16 sections,
+ * Full lossless parser and serializer for LPE <internal_states> XML across all 16 sections,
  * plus Smart Scoping for main-model prompt injection and compact worker state projection.
  *
  * Pure ES module with zero DOM dependencies.
@@ -491,7 +491,7 @@ function entityMatchesPair(pairStr, activeEntities) {
 }
 
 /**
- * Serialize canonical state back into Vexa's 16-section <internal_states> XML.
+ * Serialize canonical state back into LPE's 16-section <internal_states> XML.
  * When `scoped` is true, inactive maps & dormant off-map NPCs not referenced recently
  * are collapsed to compact summary stubs while preserving full identity/color anchors.
  */

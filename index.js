@@ -1,33 +1,37 @@
 /**
- * Vexa State Engine — Main SillyTavern Extension Entrypoint.
+ * Lapis Philosophorum Engine (LPE) — Main SillyTavern Extension Entrypoint.
  *
  * Coordinates:
- *  - Swipe-safe journaled state store in chat_metadata.vexa_state
+ *  - Swipe-safe journaled state store in chat_metadata.lpe_state (migrating legacy vexa_state)
  *  - Non-destructive prompt injection & history stripping on CHAT_COMPLETION_PROMPT_READY
  *  - Send guard on GENERATION_STARTED (waits up to 30s if worker still processing last turn)
- *  - Post-reply worker execution coordinated with ST-VexaRefusalAutoRetry
- *  - Native themed JS HUD + SVG Atlas map + Inline Editor + Settings UI
+ *  - Post-reply worker execution ("LPE Clerk") coordinated with built-in or standalone Refusal Auto-Retry
+ *  - Native themed JS HUD + WebGL/PolyCSS/SVG Atlas map + Inline Editor + Settings UI
  */
 
 import {
     extractStoryProse,
     parseTimeHeader,
     extractProseColors,
-    extractVexaTail,
+    extractLpeTail,
     stripGfxBlocks,
 } from './src/schema.js';
 import { parseInternalStates, serializeInternalStates } from './src/parser.js';
 import { parseWorkerDelta, approveTrackerProposal, dismissTrackerProposal } from './src/reducer.js';
-import { createVexaStateStore } from './src/store.js';
+import {
+    createLpeStateStore,
+    migrateLegacyExtensionSettings,
+    getMessageStamp,
+} from './src/store.js';
 import { buildWorkerMessages } from './src/workerPrompt.js';
 import { createWorkerClient, isWorkerRefusal, extractErrorMessage } from './src/workerClient.js';
 import { transformPromptMessages, evaluatePromptMessagesEjs } from './src/promptInjector.js';
 import {
     hasEjsTags,
     shouldYieldEjs,
-    buildReadOnlyVexaSnapshot,
+    buildReadOnlyLpeSnapshot,
     evaluateEjs,
-    substituteVexaMacros,
+    substituteLpeMacros,
     tryParseInitVarsFromEntries,
 } from './src/ejsEngine.js';
 import { createCardBridgeHost } from './src/cardBridge.js';
@@ -35,9 +39,9 @@ import { installHljsGuard, uninstallHljsGuard, createCardRenderer, shouldYieldRe
 import { refreshAllHudCards, alignAllHudThemes } from './src/hud.js';
 import { openStateEditorModal } from './src/editor.js';
 import { injectSettingsUI, syncSettingsUI } from './src/settingsUi.js';
-import { createVexaAppPopup, mapHudTabToAppTab } from './src/appPopup.js';
+import { createLpeAppPopup, mapHudTabToAppTab } from './src/appPopup.js';
 import { DEFAULT_END_MARKER } from './src/retryDetector.js';
-import { createVexaRetryRuntime } from './src/retryRuntime.js';
+import { createLpeRetryRuntime } from './src/retryRuntime.js';
 import {
     getContextSafe,
     saveSettingsDebounced,
@@ -47,8 +51,10 @@ import {
     getActiveCharacterCardHint,
 } from './src/st.js';
 
-const MODULE_NAME = 'vexa_state_engine';
-const DISPLAY_TITLE = 'Vexa State Engine';
+const MODULE_NAME = 'lapis_philosophorum_engine';
+const LEGACY_MODULE_NAME = 'vexa_state_engine';
+const DISPLAY_TITLE = 'Lapis Philosophorum Engine (LPE)';
+const LOG_PREFIX = '[LPE]';
 
 const DEFAULT_RETRY_SETTINGS = Object.freeze({
     enabled: true,
@@ -109,22 +115,10 @@ function getSettings() {
     if (!ctx.extensionSettings) {
         return { ...DEFAULT_SETTINGS, retry: { ...DEFAULT_RETRY_SETTINGS } };
     }
-    if (!ctx.extensionSettings[MODULE_NAME]) {
-        ctx.extensionSettings[MODULE_NAME] = { ...DEFAULT_SETTINGS, retry: { ...DEFAULT_RETRY_SETTINGS } };
-    }
-    const stored = ctx.extensionSettings[MODULE_NAME];
-    for (const [k, v] of Object.entries(DEFAULT_SETTINGS)) {
-        if (k === 'retry') continue;
-        if (stored[k] === undefined) stored[k] = v;
-    }
-    if (!stored.retry || typeof stored.retry !== 'object') {
-        stored.retry = { ...DEFAULT_RETRY_SETTINGS };
-    } else {
-        for (const [rk, rv] of Object.entries(DEFAULT_RETRY_SETTINGS)) {
-            if (stored.retry[rk] === undefined) stored.retry[rk] = rv;
-        }
-    }
-    return stored;
+    return migrateLegacyExtensionSettings(ctx.extensionSettings, DEFAULT_SETTINGS, DEFAULT_RETRY_SETTINGS, {
+        moduleName: MODULE_NAME,
+        legacyModuleName: LEGACY_MODULE_NAME,
+    });
 }
 
 function saveSettings() {
@@ -153,7 +147,7 @@ function buildExchangeAndEarlier(chat, index, replyText) {
     while (start - 1 >= 0 && chat[start - 1] && chat[start - 1].is_user) start--;
     const userMsgs = chat.slice(start, index).filter((m) => m && m.is_user)
         .map((m) => `${m.name || 'User'}: ${extractStoryProse(m.mes || '')}`);
-    const aiName = chat[index]?.name || 'Vexa';
+    const aiName = chat[index]?.name || 'Storyteller';
     const exchange = [...userMsgs, `${aiName}: ${extractStoryProse(replyText)}`].join('\n\n');
 
     const earlier = chat.slice(Math.max(0, start - 3), start)
@@ -164,33 +158,33 @@ function buildExchangeAndEarlier(chat, index, replyText) {
 }
 
 function showSendWaitingBanner(onStop) {
-    $('#vse_wait_banner').remove();
+    $('#lpe_wait_banner').remove();
     const $form = $('#send_form');
     if (!$form.length) return false;
     const $banner = $(`
-        <div id="vse_wait_banner">
-            <span><i class="fa-solid fa-spinner fa-spin"></i> Vexa Clerk is finishing last turn's state update...</span>
-            <button type="button" class="menu_button" id="vse_wait_stop_btn">Skip &amp; Send Now</button>
+        <div id="lpe_wait_banner">
+            <span><i class="fa-solid fa-spinner fa-spin"></i> LPE Clerk is finishing last turn's state update...</span>
+            <button type="button" class="menu_button" id="lpe_wait_stop_btn">Skip &amp; Send Now</button>
         </div>
     `);
-    $banner.find('#vse_wait_stop_btn').on('click', () => onStop?.());
+    $banner.find('#lpe_wait_stop_btn').on('click', () => onStop?.());
     $form.prepend($banner);
     return true;
 }
 
 function hideSendWaitingBanner() {
-    $('#vse_wait_banner').remove();
+    $('#lpe_wait_banner').remove();
 }
 
 jQuery(() => {
     const ctx0 = getContextSafe();
     const { eventSource, event_types } = ctx0;
     if (!eventSource || !event_types) {
-        console.error(`[${DISPLAY_TITLE}] SillyTavern eventSource unavailable.`);
+        console.error(`${LOG_PREFIX} SillyTavern eventSource unavailable.`);
         return;
     }
 
-    const store = createVexaStateStore({
+    const store = createLpeStateStore({
         adapter: {
             getChat: () => getContextSafe().chat || [],
             getMeta: () => {
@@ -236,7 +230,7 @@ jQuery(() => {
     const getStateForMesId = (mesId) => {
         const chat = getContextSafe().chat || [];
         const msg = Number.isFinite(mesId) ? chat[mesId] : null;
-        const seq = msg?.extra?.vexa_seq;
+        const { seq } = getMessageStamp(msg);
         return typeof seq === 'number' ? store.getStateAt(seq) : store.getState();
     };
 
@@ -302,7 +296,7 @@ jQuery(() => {
                 workerStatus,
                 onOpenEditor: (mesId, hudTab) => {
                     const msg = (getContextSafe().chat || [])[mesId];
-                    const seq = msg?.extra?.vexa_seq;
+                    const { seq } = getMessageStamp(msg);
                     if (appPopup) {
                         const target = mapHudTabToAppTab(hudTab);
                         appPopup.open({ tab: target.tab, sub: target.sub, seq, mesId });
@@ -336,7 +330,7 @@ jQuery(() => {
                 },
                 onToggleEntryDisabled: (mesId, nextDisabled) => {
                     const msg = (getContextSafe().chat || [])[mesId];
-                    const uid = msg?.extra?.vexa_uid;
+                    const { uid } = getMessageStamp(msg);
                     const swipe = typeof msg?.swipe_id === 'number' ? msg.swipe_id : 0;
                     const entry = uid ? store.getEntryFor(uid, swipe) : null;
                     if (!entry?.id) return;
@@ -404,7 +398,7 @@ jQuery(() => {
         const prose = extractStoryProse(replyText);
         const headerParsed = parseTimeHeader(prose);
         const proseColors = extractProseColors(prose);
-        const tail = extractVexaTail(replyText);
+        const tail = extractLpeTail(replyText);
 
         const trackerCtx = {
             allowTrackerProposals: settings.allowTrackerProposals !== false,
@@ -464,7 +458,7 @@ jQuery(() => {
         // Verify message/swipe/chat wasn't swapped or deleted while worker ran
         const ctxNow = getContextSafe();
         const chatNow = ctxNow.chat || [];
-        const at = chatNow.findIndex((m) => m?.extra?.vexa_uid === st.uid);
+        const at = chatNow.findIndex((m) => getMessageStamp(m).uid === st.uid);
         const msgNow = at >= 0 ? chatNow[at] : null;
         const textNow = msgNow
             ? (Array.isArray(msgNow.swipes) && typeof msgNow.swipes[swipe] === 'string' ? msgNow.swipes[swipe] : String(msgNow.mes || ''))
@@ -557,7 +551,7 @@ jQuery(() => {
     }
 
     // Integrated Refusal Auto-Retry & Non-Stream Continue runtime
-    const retryRuntime = createVexaRetryRuntime({
+    const retryRuntime = createLpeRetryRuntime({
         getEngineSettings: getSettings,
         getContextSafe,
         onReplyAccepted: ({ messageId, type }) => {
@@ -571,21 +565,22 @@ jQuery(() => {
         },
     });
 
-    window.__vexaRetryGuard = {
+    const retryGuard = {
         version: 3,
         source: 'engine',
         isEnabled: () => retryRuntime.isEnabled(),
         isRetryPending: () => retryRuntime.isRetryPending(),
     };
+    window.__lpeRetryGuard = retryGuard;
+    window.__vexaRetryGuard = retryGuard;
 
-    // Coordinate with standalone ST-VexaRefusalAutoRetry events when built-in retry is OFF
-    window.addEventListener('vexa:reply-retrying', () => {
+    // Coordinate with standalone Refusal Auto-Retry events when built-in retry is OFF
+    const onExternalRetrying = () => {
         if (retryRuntime.isEnabled()) return;
         cancelPendingAccept();
         lastReceivedInfo = null;
-    });
-
-    window.addEventListener('vexa:reply-accepted', (ev) => {
+    };
+    const onExternalAccepted = (ev) => {
         if (retryRuntime.isEnabled()) return;
         cancelPendingAccept();
         const detail = ev?.detail || {};
@@ -593,7 +588,11 @@ jQuery(() => {
         const type = detail.type || lastReceivedInfo?.type;
         lastReceivedInfo = null;
         processReply(idx, type);
-    });
+    };
+    window.addEventListener('lpe:reply-retrying', onExternalRetrying);
+    window.addEventListener('vexa:reply-retrying', onExternalRetrying);
+    window.addEventListener('lpe:reply-accepted', onExternalAccepted);
+    window.addEventListener('vexa:reply-accepted', onExternalAccepted);
 
     // Prompt injection + scoped EJS / card macro evaluation on outgoing story request
     eventSource.on(event_types.CHAT_COMPLETION_PROMPT_READY, (data) => {
@@ -612,7 +611,7 @@ jQuery(() => {
             spatialGrounding: settings.spatialGrounding !== false,
         });
         if (res.active) {
-            console.debug(`[${DISPLAY_TITLE}] Prompt prepared: stripped=${res.strippedCount}, injected=${res.injected}, chars=${res.snapshotChars}`);
+            console.debug(`${LOG_PREFIX} Prompt prepared: stripped=${res.strippedCount}, injected=${res.injected}, chars=${res.snapshotChars}`);
         }
         if (settings.ejsEnabled !== false && settings.ejsEvalPrompts !== false) {
             const ejsRes = evaluatePromptMessagesEjs(data.chat, {
@@ -630,7 +629,7 @@ jQuery(() => {
                 userName: ctx.name1 || '',
             });
             if (ejsRes.errors?.length) {
-                console.warn(`[${DISPLAY_TITLE}] Prompt EJS warning:`, ejsRes.errors);
+                console.warn(`${LOG_PREFIX} Prompt EJS warning:`, ejsRes.errors);
             }
         }
     });
@@ -662,7 +661,7 @@ jQuery(() => {
             }
             const ctx = getContextSafe();
             const curState = store.getState();
-            const frozenState = buildReadOnlyVexaSnapshot(curState);
+            const frozenState = buildReadOnlyLpeSnapshot(curState);
             const cardVars = store.getCardVars();
 
             for (const entry of allEntries) {
@@ -678,10 +677,10 @@ jQuery(() => {
                         userName: ctx.name1 || '',
                     });
                     if (res.ok) text = res.text;
-                    else console.warn(`[${DISPLAY_TITLE}] WI EJS error in "${entry.comment || entry.uid}": ${res.error}`);
+                    else console.warn(`${LOG_PREFIX} WI EJS error in "${entry.comment || entry.uid}": ${res.error}`);
                 }
                 if (text.includes('{{')) {
-                    text = substituteVexaMacros(text, { frozenState, state: curState, cardVars });
+                    text = substituteLpeMacros(text, { frozenState, state: curState, cardVars });
                 }
                 entry.content = text;
             }
@@ -720,7 +719,7 @@ jQuery(() => {
         }
         if (!lastReceivedInfo) return;
         const captured = lastReceivedInfo;
-        const guard = window.__vexaRetryGuard;
+        const guard = window.__lpeRetryGuard || window.__vexaRetryGuard;
         if (guard && guard.source !== 'engine' && guard.isEnabled?.()) {
             cancelPendingAccept();
             pendingAcceptTimer = setTimeout(() => {
@@ -785,7 +784,7 @@ jQuery(() => {
 
     function handleResetChat() {
         store.reset();
-        window.toastr?.info?.('Chat external Vexa state reset.', DISPLAY_TITLE);
+        window.toastr?.info?.('Chat external LPE state reset.', DISPLAY_TITLE);
         scheduleHudRefresh(20);
     }
 
@@ -821,7 +820,7 @@ jQuery(() => {
         return count;
     }
 
-    appPopup = createVexaAppPopup({
+    appPopup = createLpeAppPopup({
         store,
         getSettings,
         saveSettings,
@@ -875,11 +874,11 @@ jQuery(() => {
             if (myEpoch !== chatEpoch || getContextSafe().chatId !== chatAtEvent) return;
             store.reconcile();
             seedEmbeddedCharacterInitVars();
-            // Auto-import once when opening an existing vanilla Vexa chat
+            // Auto-import once when opening an existing classic chat containing <internal_states>
             const chat = getContextSafe().chat || [];
             if (!store.hasState() && chat.some((m) => /<internal_states>/i.test(String(m?.mes || '')))) {
                 const n = store.importFromChat();
-                if (n > 0) window.toastr?.info?.(`Imported ${n} existing Vexa state turn(s) into external store.`, DISPLAY_TITLE);
+                if (n > 0) window.toastr?.info?.(`Imported ${n} existing state turn(s) into LPE external store.`, DISPLAY_TITLE);
             }
             appPopup?.refresh?.();
             scheduleHudRefresh(60);
@@ -932,7 +931,7 @@ jQuery(() => {
                 if (typeof ctx.callGenericPopup === 'function') {
                     ctx.callGenericPopup(`<textarea class="text_pole" rows="20" style="width:100%;font-family:monospace;font-size:12px;" readonly>${xml.replace(/</g, '&lt;')}</textarea>`, textType, 'Compiled State Snapshot Preview', { wide: true, large: true });
                 } else {
-                    console.log(`[${DISPLAY_TITLE}] Snapshot Preview (${xml.length} chars):\n`, xml);
+                    console.log(`${LOG_PREFIX} Snapshot Preview (${xml.length} chars):\n`, xml);
                     window.toastr?.info?.(`Snapshot length: ${xml.length} chars (~${Math.round(xml.length / 4)} tokens). See console.`, DISPLAY_TITLE);
                 }
             },
@@ -956,11 +955,13 @@ jQuery(() => {
         });
     }
 
-    window.__vexaStateEngineDispose = () => {
+    const disposeAll = () => {
         cancelPendingAccept();
         cancelScheduledRefreshes();
         cardRenderer.teardownAll();
         cardBridgeHost.destroy();
         uninstallHljsGuard();
     };
+    window.__lpeDispose = disposeAll;
+    window.__vexaStateEngineDispose = disposeAll;
 });

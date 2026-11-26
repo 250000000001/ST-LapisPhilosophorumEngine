@@ -1,13 +1,14 @@
 /**
  * Refusal detection, GFX_END end-marker validation, and surgical
- * safety-declaration removal for Vexa State Engine.
+ * safety-declaration removal for Lapis Philosophorum Engine (LPE).
  *
  * Pure ES module with zero DOM dependencies so it can be unit-tested directly.
  */
 
 export const DEFAULT_END_MARKER = '<!--\u2800GFX_END\u2800-->';
 export const DEFAULT_FAILURE_MESSAGE = 'Too many failures, please check you preset/input';
-export const VEXA_FORMAT_MODES = Object.freeze(['auto', 'external', 'classic', 'marker']);
+export const LPE_FORMAT_MODES = Object.freeze(['auto', 'external', 'classic', 'marker']);
+export const VEXA_FORMAT_MODES = LPE_FORMAT_MODES;
 
 /**
  * Built-in refusal anchor rules.
@@ -36,7 +37,7 @@ export const REFUSAL_RULES = [
     {
         id: 'policy_topic_refusal',
         allowInQuotes: false,
-        regex: /\b(?:(?:I(?:'m|’m|\s+am)\s+sorry|I\s+apologize|Sorry),?\s+(?:but\s+)?)?I\s+(?:cannot|can['’]t|will\s+not|won['’]t|do\s+not|don['’]t|am\s+unable\s+to|['’]m\s+unable\s+to|must\s+decline\s+to|have\s+to\s+decline\s+to)\s+(?:fulfill|complete|comply\s+with|process|assist\s+with|help\s+with|proceed\s+with|engage\s+in|participate\s+in|continue(?:\s+with)?|generate|create|write|produce|provide|depict|describe)[^\n]{0,180}?\b(?:sexually\s+explicit|explicit\s+(?:adult|sexual|romantic|content|material|scenes?|roleplay|scenarios?|details?)|romantic\s+or\s+sexually\s+explicit|adult\s+(?:content|roleplay|scenarios?|themes?)|erotic(?:a|\s+roleplay|\s+content|\s+scenarios?)?|pornograph\w*|nsfw|non-?consensual|sexual\s+content|graphic\s+(?:violence|gore|sexual)|(?:state\s+blocks?|vexa_tail|vexa_receipt|internal_states)\s+containing\s+explicit|even\s+in\s+(?:a\s+)?fictional\s+(?:roleplay|context|setting|scenarios?)|(?:safety|content|usage|ethical|community)\s+(?:guidelines|policies|policy|standards|principles|boundaries|restrictions))\b/gi,
+        regex: /\b(?:(?:I(?:'m|’m|\s+am)\s+sorry|I\s+apologize|Sorry),?\s+(?:but\s+)?)?I\s+(?:cannot|can['’]t|will\s+not|won['’]t|do\s+not|don['’]t|am\s+unable\s+to|['’]m\s+unable\s+to|must\s+decline\s+to|have\s+to\s+decline\s+to)\s+(?:fulfill|complete|comply\s+with|process|assist\s+with|help\s+with|proceed\s+with|engage\s+in|participate\s+in|continue(?:\s+with)?|generate|create|write|produce|provide|depict|describe)[^\n]{0,180}?\b(?:sexually\s+explicit|explicit\s+(?:adult|sexual|romantic|content|material|scenes?|roleplay|scenarios?|details?)|romantic\s+or\s+sexually\s+explicit|adult\s+(?:content|roleplay|scenarios?|themes?)|erotic(?:a|\s+roleplay|\s+content|\s+scenarios?)?|pornograph\w*|nsfw|non-?consensual|sexual\s+content|graphic\s+(?:violence|gore|sexual)|(?:state\s+blocks?|lpe_tail|lpe_receipt|vexa_tail|vexa_receipt|internal_states)\s+containing\s+explicit|even\s+in\s+(?:a\s+)?fictional\s+(?:roleplay|context|setting|scenarios?)|(?:safety|content|usage|ethical|community)\s+(?:guidelines|policies|policy|standards|principles|boundaries|restrictions))\b/gi,
     },
 
     // 3. Direct meta-refusal of response / request / roleplay / state block
@@ -96,7 +97,7 @@ const PREAMBLE_LINE_PATTERNS = [
 
 /**
  * Strip trailing standard whitespace AND Braille Pattern Blank (`U+2800`)
- * which Vexa replies use as non-breaking spacing around markers.
+ * used as non-breaking spacing around markers.
  *
  * @param {string} text
  * @returns {string}
@@ -111,8 +112,8 @@ export function trimEndWithBraille(text) {
  * Accepts either Braille Pattern Blank (`\u2800`) or regular ASCII whitespace
  * around `GFX_END` when using the default marker, or matches a custom literal/regex.
  *
- * Supports both Vexa External State (`<vexa_tail>...</vexa_tail>`) and classic
- * `<internal_states>...</internal_states>`, and guards against replies that stopped
+ * Supports both LPE External State (`<lpe_tail>...</lpe_tail>` and legacy `<vexa_tail>...</vexa_tail>`)
+ * and classic `<internal_states>...</internal_states>`, and guards against replies that stopped
  * immediately after an inline mid-prose GFX card before emitting the terminal tail/state.
  *
  * @param {string} text
@@ -129,7 +130,7 @@ export function endsWithRequiredMarker(text, marker = DEFAULT_END_MARKER, option
     const effective = (typeof marker === 'string' && marker.trim().length > 0)
         ? marker.trim()
         : DEFAULT_END_MARKER;
-    const formatMode = VEXA_FORMAT_MODES.includes(options?.formatMode) ? options.formatMode : 'auto';
+    const formatMode = LPE_FORMAT_MODES.includes(options?.formatMode) ? options.formatMode : 'auto';
 
     // Custom /regex/flags syntax
     const slashMatch = effective.match(/^\/(.+)\/([imsuy]*)$/);
@@ -142,7 +143,7 @@ export function endsWithRequiredMarker(text, marker = DEFAULT_END_MARKER, option
         }
     }
 
-    // Default Vexa GFX_END marker: tolerate both U+2800 and standard spaces inside the comment
+    // Default GFX_END marker: tolerate both U+2800 and standard spaces inside the comment
     const normalizedMarker = effective.replace(/[\s\u2800]+/g, ' ');
     if (normalizedMarker === '<!-- GFX_END -->' || normalizedMarker === '<!--GFX_END-->') {
         const endMatch = trimmed.match(/<!--[\s\u2800]*GFX_END[\s\u2800]*-->$/);
@@ -151,20 +152,20 @@ export function endsWithRequiredMarker(text, marker = DEFAULT_END_MARKER, option
         if (formatMode === 'marker') return true;
 
         const normBeforeEnd = trimmed.slice(0, endMatch.index).replace(/\u2800/g, ' ').trimEnd();
-        const endsWithVexaTail = /<\/vexa_tail\s*>$/i.test(normBeforeEnd);
+        const endsWithExternalTail = /<\/(?:lpe|vexa)_tail\s*>$/i.test(normBeforeEnd);
         const endsWithInternalStates = /<\/internal_states\s*>$/i.test(normBeforeEnd);
 
-        if (formatMode === 'external') return endsWithVexaTail;
+        if (formatMode === 'external') return endsWithExternalTail;
         if (formatMode === 'classic') return endsWithInternalStates;
 
         if (/<internal_states\b/i.test(normBeforeEnd)) return endsWithInternalStates;
-        if (/<vexa_tail\b/i.test(normBeforeEnd)) return endsWithVexaTail;
+        if (/<(?:lpe|vexa)_tail\b/i.test(normBeforeEnd)) return endsWithExternalTail;
 
         // Reject truncation right after an inline mid-prose GFX card (<!-- GFX_START --> ... <!-- GFX_END -->)
         const lastGfxStart = normBeforeEnd.search(/<!--\s*GFX_START\s*-->(?![\s\S]*<!--\s*GFX_START\s*-->)/i);
         if (lastGfxStart >= 0) {
             const cardFragment = normBeforeEnd.slice(lastGfxStart);
-            if (!/<(?:internal_states|vexa_tail)\b/i.test(cardFragment)) return false;
+            if (!/<(?:internal_states|(?:lpe|vexa)_tail)\b/i.test(cardFragment)) return false;
         }
         return true;
     }

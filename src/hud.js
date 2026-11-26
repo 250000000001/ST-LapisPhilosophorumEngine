@@ -1,14 +1,15 @@
 /**
- * Native JS Tabbed Vexa HUD Renderer.
+ * Native JS Tabbed LPE HUD Renderer.
  *
  * - Never mutates msg.mes.
- * - Hides <vexa_tail> residual text inside .mes_text cleanly as fallback to regex.
+ * - Hides <lpe_tail> / <vexa_tail> residual text inside .mes_text cleanly as fallback to regex.
  * - Renders collapsible themed card beneath each AI message from store.getStateAt(seq),
  *   showing diff badges for sections changed that turn and live worker status.
  */
 
-import { VEXA_THEMES, VEXA_STYLES, PALETTE, isEmptySentinel } from './schema.js';
+import { LPE_THEMES, LPE_STYLES, PALETTE, isEmptySentinel } from './schema.js';
 import { serializeInternalStates } from './parser.js';
+import { getMessageStamp } from './store.js';
 import { renderAtlasTab, bindAtlasSvgControls } from './atlasSvg.js';
 import { bindPolyOrbitControls, observePolyViewports } from './polyCss3d.js';
 import { renderAetherMatrixList } from './matrixView.js';
@@ -98,7 +99,7 @@ function renderTabBody(tabId, state, view, settings, prevState = null) {
     switch (tabId) {
         case 'world': {
             const w = state.world || {};
-            return `<div class="vse-kv-grid">
+            return `<div class="lpe-kv-grid">
                 <div><span>Turn (ct)</span><b>${esc(w.ct)}</b></div>
                 <div><span>Time / Date</span><b>${esc(w.time)} · ${esc(w.date)}</b></div>
                 <div><span>Location</span><b>${esc(w.loc)}</b></div>
@@ -113,42 +114,42 @@ function renderTabBody(tabId, state, view, settings, prevState = null) {
         }
         case 'onscreen': {
             const list = state.onscreen || [];
-            if (!list.length) return `<div class="vse-empty">No on-screen NPCs recorded.</div>`;
-            return `<div class="vse-cards-grid">${list.map((e) => {
+            if (!list.length) return `<div class="lpe-empty">No on-screen NPCs recorded.</div>`;
+            return `<div class="lpe-cards-grid">${list.map((e) => {
                 const es = (state.entity_state || []).find((x) => x.name.toLowerCase() === e.name.toLowerCase());
                 const col = hexFromFontColor(es?.fontColor);
-                return `<div class="vse-subcard">
-                    <div class="vse-subcard-head">
-                        <i class="vse-dot" style="background:${col}"></i>
+                return `<div class="lpe-subcard">
+                    <div class="lpe-subcard-head">
+                        <i class="lpe-dot" style="background:${col}"></i>
                         <strong>${esc(e.name)}</strong>
-                        <span class="vse-pill">${esc(e.salience)}</span>
-                        <span class="vse-pill">${esc(e.tfdy)}</span>
+                        <span class="lpe-pill">${esc(e.salience)}</span>
+                        <span class="lpe-pill">${esc(e.tfdy)}</span>
                     </div>
-                    <div class="vse-line"><span>Emotion:</span> ${esc(e.parrott)}</div>
-                    <div class="vse-line"><span>Residual:</span> ${esc(e.residualMood)}</div>
-                    <div class="vse-line"><span>Agenda:</span> ${esc(e.agenda)}</div>
-                    <div class="vse-line"><span>Why:</span> ${esc(e.why)}</div>
-                    <div class="vse-line"><span>End / Move:</span> ${esc(e.end)} · ${esc(e.move)}</div>
+                    <div class="lpe-line"><span>Emotion:</span> ${esc(e.parrott)}</div>
+                    <div class="lpe-line"><span>Residual:</span> ${esc(e.residualMood)}</div>
+                    <div class="lpe-line"><span>Agenda:</span> ${esc(e.agenda)}</div>
+                    <div class="lpe-line"><span>Why:</span> ${esc(e.why)}</div>
+                    <div class="lpe-line"><span>End / Move:</span> ${esc(e.end)} · ${esc(e.move)}</div>
                 </div>`;
             }).join('')}</div>`;
         }
         case 'offscreen_agendas': {
             const list = state.offscreen_agendas || [];
-            if (!list.length) return `<div class="vse-empty">No off-screen NPCs recorded.</div>`;
-            return `<div class="vse-cards-grid">${list.map((e) => {
+            if (!list.length) return `<div class="lpe-empty">No off-screen NPCs recorded.</div>`;
+            return `<div class="lpe-cards-grid">${list.map((e) => {
                 const es = (state.entity_state || []).find((x) => x.name.toLowerCase() === e.name.toLowerCase());
                 const col = hexFromFontColor(es?.fontColor);
-                return `<div class="vse-subcard">
-                    <div class="vse-subcard-head">
-                        <i class="vse-dot" style="background:${col}"></i>
+                return `<div class="lpe-subcard">
+                    <div class="lpe-subcard-head">
+                        <i class="lpe-dot" style="background:${col}"></i>
                         <strong>${esc(e.name)}</strong>
-                        <span class="vse-pill">${esc(e.salience)}</span>
-                        <span class="vse-pill">${esc(e.tfdy)}</span>
+                        <span class="lpe-pill">${esc(e.salience)}</span>
+                        <span class="lpe-pill">${esc(e.tfdy)}</span>
                     </div>
-                    <div class="vse-line"><span>Location:</span> ${esc(e.loc)}</div>
-                    <div class="vse-line"><span>Mood:</span> ${esc(e.mood)}</div>
-                    <div class="vse-line"><span>Agenda:</span> ${esc(e.agenda)}</div>
-                    <div class="vse-line"><span>Goal / End:</span> ${esc(e.goal)} (${esc(e.end)})</div>
+                    <div class="lpe-line"><span>Location:</span> ${esc(e.loc)}</div>
+                    <div class="lpe-line"><span>Mood:</span> ${esc(e.mood)}</div>
+                    <div class="lpe-line"><span>Agenda:</span> ${esc(e.agenda)}</div>
+                    <div class="lpe-line"><span>Goal / End:</span> ${esc(e.goal)} (${esc(e.end)})</div>
                 </div>`;
             }).join('')}</div>`;
         }
@@ -167,55 +168,55 @@ function renderTabBody(tabId, state, view, settings, prevState = null) {
             });
         case 'entityMem': {
             const list = state.entityMem || [];
-            if (!list.length) return `<div class="vse-empty">No entity memories recorded.</div>`;
-            return `<div class="vse-stack">${list.map((em) => `
-                <div class="vse-subcard">
-                    <div class="vse-subcard-head"><strong>${esc(em.name)}</strong><span class="vse-pill">${em.entries.length}/20</span></div>
-                    <ul class="vse-list">${em.entries.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>
+            if (!list.length) return `<div class="lpe-empty">No entity memories recorded.</div>`;
+            return `<div class="lpe-stack">${list.map((em) => `
+                <div class="lpe-subcard">
+                    <div class="lpe-subcard-head"><strong>${esc(em.name)}</strong><span class="lpe-pill">${em.entries.length}/20</span></div>
+                    <ul class="lpe-list">${em.entries.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>
                 </div>
             `).join('')}</div>`;
         }
         case 'entity_state': {
             const list = state.entity_state || [];
-            if (!list.length) return `<div class="vse-empty">No entity profiles recorded.</div>`;
-            return `<div class="vse-cards-grid">${list.map((es) => {
+            if (!list.length) return `<div class="lpe-empty">No entity profiles recorded.</div>`;
+            return `<div class="lpe-cards-grid">${list.map((es) => {
                 const col = hexFromFontColor(es.fontColor);
-                return `<div class="vse-subcard">
-                    <div class="vse-subcard-head">
-                        <i class="vse-dot" style="background:${col}"></i>
+                return `<div class="lpe-subcard">
+                    <div class="lpe-subcard-head">
+                        <i class="lpe-dot" style="background:${col}"></i>
                         <strong>${esc(es.name)}</strong>
-                        <span class="vse-pill" style="border-color:${col};color:${col}">${esc(es.fontColor || 'unassigned')}</span>
+                        <span class="lpe-pill" style="border-color:${col};color:${col}">${esc(es.fontColor || 'unassigned')}</span>
                     </div>
-                    <div class="vse-line"><span>Look:</span> ${esc(es.look)}</div>
-                    <div class="vse-line"><span>Voice:</span> ${esc(es.voice)}</div>
-                    <div class="vse-line"><span>Persona:</span> ${esc(es.persona)}</div>
-                    <div class="vse-line"><span>Private:</span> ${esc(es.private)}</div>
+                    <div class="lpe-line"><span>Look:</span> ${esc(es.look)}</div>
+                    <div class="lpe-line"><span>Voice:</span> ${esc(es.voice)}</div>
+                    <div class="lpe-line"><span>Persona:</span> ${esc(es.persona)}</div>
+                    <div class="lpe-line"><span>Private:</span> ${esc(es.private)}</div>
                 </div>`;
             }).join('')}</div>`;
         }
         case 'thoughts': {
             const list = state.thoughts || [];
-            if (!list.length) return `<div class="vse-empty">No inner thoughts captured this turn.</div>`;
-            return `<div class="vse-cards-grid">${list.map((t) => `
-                <div class="vse-subcard">
-                    <div class="vse-subcard-head"><strong>${esc(t.name)}</strong></div>
-                    <div class="vse-line"><span>Goal:</span> ${esc(t.tQ1)}</div>
-                    <div class="vse-line"><span>Feeling:</span> ${esc(t.tQ2)}</div>
-                    <div class="vse-line"><span>Mind:</span> ${esc(t.tQ3)}</div>
-                    <div class="vse-line"><span>Why:</span> ${esc(t.tQ4)}</div>
-                    <div class="vse-line"><span>Unsaid:</span> ${esc(t.tQ5)}</div>
+            if (!list.length) return `<div class="lpe-empty">No inner thoughts captured this turn.</div>`;
+            return `<div class="lpe-cards-grid">${list.map((t) => `
+                <div class="lpe-subcard">
+                    <div class="lpe-subcard-head"><strong>${esc(t.name)}</strong></div>
+                    <div class="lpe-line"><span>Goal:</span> ${esc(t.tQ1)}</div>
+                    <div class="lpe-line"><span>Feeling:</span> ${esc(t.tQ2)}</div>
+                    <div class="lpe-line"><span>Mind:</span> ${esc(t.tQ3)}</div>
+                    <div class="lpe-line"><span>Why:</span> ${esc(t.tQ4)}</div>
+                    <div class="lpe-line"><span>Unsaid:</span> ${esc(t.tQ5)}</div>
                 </div>
             `).join('')}</div>`;
         }
         case 'dam': {
             const list = state.dam || [];
-            if (!list.length) return `<div class="vse-empty">No Aether Dam records.</div>`;
-            return `<div class="vse-cards-grid">${list.map((d) => `
-                <div class="vse-subcard">
-                    <div class="vse-subcard-head"><strong>${esc(d.pair)}</strong><span class="vse-pill">${esc(d.sluice)}</span></div>
-                    <div class="vse-line"><span>Filters:</span> ${esc(d.filters)}</div>
-                    <div class="vse-line"><span>Misc:</span> ${esc(d.misc)}</div>
-                    <div class="vse-line"><span>Intent:</span> ${esc(d.intent)}</div>
+            if (!list.length) return `<div class="lpe-empty">No Aether Dam records.</div>`;
+            return `<div class="lpe-cards-grid">${list.map((d) => `
+                <div class="lpe-subcard">
+                    <div class="lpe-subcard-head"><strong>${esc(d.pair)}</strong><span class="lpe-pill">${esc(d.sluice)}</span></div>
+                    <div class="lpe-line"><span>Filters:</span> ${esc(d.filters)}</div>
+                    <div class="lpe-line"><span>Misc:</span> ${esc(d.misc)}</div>
+                    <div class="lpe-line"><span>Intent:</span> ${esc(d.intent)}</div>
                 </div>
             `).join('')}</div>`;
         }
@@ -224,36 +225,36 @@ function renderTabBody(tabId, state, view, settings, prevState = null) {
         }
         case 'tracks': {
             const tr = state.tracks || {};
-            return `<div class="vse-stack">
-                <div class="vse-subcard"><div class="vse-subcard-head"><strong>Main Arc Track</strong></div><div>${esc(tr.main || '∅')}</div></div>
-                ${(tr.tracks || []).map((x) => `<div class="vse-subcard"><div class="vse-subcard-head"><strong>Track</strong></div><div>${esc(x)}</div></div>`).join('')}
-                ${(tr.history || []).length ? `<div class="vse-subcard"><div class="vse-subcard-head"><strong>History</strong></div><ul class="vse-list">${tr.history.map((h) => `<li>${esc(h)}</li>`).join('')}</ul></div>` : ''}
+            return `<div class="lpe-stack">
+                <div class="lpe-subcard"><div class="lpe-subcard-head"><strong>Main Arc Track</strong></div><div>${esc(tr.main || '∅')}</div></div>
+                ${(tr.tracks || []).map((x) => `<div class="lpe-subcard"><div class="lpe-subcard-head"><strong>Track</strong></div><div>${esc(x)}</div></div>`).join('')}
+                ${(tr.history || []).length ? `<div class="lpe-subcard"><div class="lpe-subcard-head"><strong>History</strong></div><ul class="lpe-list">${tr.history.map((h) => `<li>${esc(h)}</li>`).join('')}</ul></div>` : ''}
             </div>`;
         }
         case 'arc': {
             const a = state.arc || {};
-            if (isEmptySentinel(a.info) && !a.ki?.length) return `<div class="vse-empty">ARC Engine in Ki phase (no active ARC generated yet).</div>`;
-            return `<div class="vse-stack">
-                <div class="vse-subcard"><div><span>Info:</span> ${esc(a.info)}</div><div><span>Timeline:</span> ${esc(a.timeline)}</div></div>
+            if (isEmptySentinel(a.info) && !a.ki?.length) return `<div class="lpe-empty">ARC Engine in Ki phase (no active ARC generated yet).</div>`;
+            return `<div class="lpe-stack">
+                <div class="lpe-subcard"><div><span>Info:</span> ${esc(a.info)}</div><div><span>Timeline:</span> ${esc(a.timeline)}</div></div>
                 ${['ki', 'sho', 'ten', 'ketsu'].map((act) => `
-                    <div class="vse-subcard">
-                        <div class="vse-subcard-head"><strong>${act.toUpperCase()}</strong></div>
-                        <ul class="vse-list">${(a[act] || ['∅']).map((b) => `<li>${esc(b)}</li>`).join('')}</ul>
+                    <div class="lpe-subcard">
+                        <div class="lpe-subcard-head"><strong>${act.toUpperCase()}</strong></div>
+                        <ul class="lpe-list">${(a[act] || ['∅']).map((b) => `<li>${esc(b)}</li>`).join('')}</ul>
                     </div>
                 `).join('')}
             </div>`;
         }
         case 'chekhov': {
             const ch = state.chekhov || {};
-            return `<div class="vse-stack">
-                <div class="vse-subcard"><div class="vse-subcard-head"><strong>Chambered</strong><span class="vse-pill">${(ch.chamber || []).length}/20</span></div><ul class="vse-list">${(ch.chamber || []).length ? ch.chamber.map((b) => `<li>${esc(b)}</li>`).join('') : '<li>∅</li>'}</ul></div>
-                <div class="vse-subcard"><div class="vse-subcard-head"><strong>Locked</strong><span class="vse-pill">${(ch.locked || []).length}/20</span></div><ul class="vse-list">${(ch.locked || []).length ? ch.locked.map((b) => `<li>${esc(b)}</li>`).join('') : '<li>∅</li>'}</ul></div>
-                <div class="vse-subcard"><div class="vse-subcard-head"><strong>Fired This Turn</strong></div><ul class="vse-list">${(ch.fired || []).length ? ch.fired.map((b) => `<li>${esc(b)}</li>`).join('') : '<li>∅</li>'}</ul></div>
+            return `<div class="lpe-stack">
+                <div class="lpe-subcard"><div class="lpe-subcard-head"><strong>Chambered</strong><span class="lpe-pill">${(ch.chamber || []).length}/20</span></div><ul class="lpe-list">${(ch.chamber || []).length ? ch.chamber.map((b) => `<li>${esc(b)}</li>`).join('') : '<li>∅</li>'}</ul></div>
+                <div class="lpe-subcard"><div class="lpe-subcard-head"><strong>Locked</strong><span class="lpe-pill">${(ch.locked || []).length}/20</span></div><ul class="lpe-list">${(ch.locked || []).length ? ch.locked.map((b) => `<li>${esc(b)}</li>`).join('') : '<li>∅</li>'}</ul></div>
+                <div class="lpe-subcard"><div class="lpe-subcard-head"><strong>Fired This Turn</strong></div><ul class="lpe-list">${(ch.fired || []).length ? ch.fired.map((b) => `<li>${esc(b)}</li>`).join('') : '<li>∅</li>'}</ul></div>
             </div>`;
         }
         case 'inv': {
             const inv = state.inv || {};
-            return `<div class="vse-kv-grid">
+            return `<div class="lpe-kv-grid">
                 <div class="wide"><span>Inventory</span><b>${esc(inv.inv || '∅')}</b></div>
                 <div class="wide"><span>Titles & Modifiers</span><b>${esc(inv.titles || '∅')}</b></div>
                 <div class="wide"><span>Status & Conditions</span><b>${esc(inv.status || '∅')}</b></div>
@@ -271,41 +272,41 @@ function renderTabBody(tabId, state, view, settings, prevState = null) {
             const props = state.tracker_proposals || [];
             const active = (state.custom_trackers || []).filter((t) => t && !t.archived);
             const propsHtml = props.length
-                ? `<div class="vse-stack" style="margin-bottom:8px;">${props.map((p) => {
+                ? `<div class="lpe-stack" style="margin-bottom:8px;">${props.map((p) => {
                     const kv = Object.entries(p.fields || {}).map(([k, v]) => `<b>${esc(k)}</b>=${esc(v)}`).join(' · ');
-                    return `<div class="vse-subcard" style="border-color:var(--ist-yellow);">
-                        <div class="vse-subcard-head">
-                            <span class="vse-pill warn">Proposed Tracker</span>
+                    return `<div class="lpe-subcard" style="border-color:var(--ist-yellow);">
+                        <div class="lpe-subcard-head">
+                            <span class="lpe-pill warn">Proposed Tracker</span>
                             <strong>${esc(p.title)}</strong>
                             <span style="margin-left:auto;display:inline-flex;gap:4px;">
-                                <button type="button" class="vse-mini-btn vse-hud-approve-prop" data-prop-id="${esc(p.id)}" title="Approve tracker"><i class="fa-solid fa-check"></i> Approve</button>
-                                <button type="button" class="vse-mini-btn vse-hud-dismiss-prop" data-prop-id="${esc(p.id)}" title="Dismiss proposal"><i class="fa-solid fa-xmark"></i> Dismiss</button>
+                                <button type="button" class="lpe-mini-btn lpe-hud-approve-prop" data-prop-id="${esc(p.id)}" title="Approve tracker"><i class="fa-solid fa-check"></i> Approve</button>
+                                <button type="button" class="lpe-mini-btn lpe-hud-dismiss-prop" data-prop-id="${esc(p.id)}" title="Dismiss proposal"><i class="fa-solid fa-xmark"></i> Dismiss</button>
                             </span>
                         </div>
-                        <div class="vse-line">${kv}</div>
-                        ${p.reason ? `<div class="vse-line"><span>Reason:</span> ${esc(p.reason)}</div>` : ''}
+                        <div class="lpe-line">${kv}</div>
+                        ${p.reason ? `<div class="lpe-line"><span>Reason:</span> ${esc(p.reason)}</div>` : ''}
                     </div>`;
                 }).join('')}</div>`
                 : '';
             const activeHtml = active.length
-                ? `<div class="vse-cards-grid">${active.map((t) => `
-                    <div class="vse-subcard">
-                        <div class="vse-subcard-head">
+                ? `<div class="lpe-cards-grid">${active.map((t) => `
+                    <div class="lpe-subcard">
+                        <div class="lpe-subcard-head">
                             <strong>${esc(t.title)}</strong>
-                            <span class="vse-pill">${esc(t.id)}</span>
+                            <span class="lpe-pill">${esc(t.id)}</span>
                         </div>
-                        <div class="vse-kv-grid">
+                        <div class="lpe-kv-grid">
                             ${Object.entries(t.fields || {}).map(([k, v]) => `<div><span>${esc(k)}</span><b>${esc(v)}</b></div>`).join('')}
                         </div>
-                        ${t.notes ? `<div class="vse-line" style="margin-top:5px;"><span>Notes:</span> ${esc(t.notes)}</div>` : ''}
+                        ${t.notes ? `<div class="lpe-line" style="margin-top:5px;"><span>Notes:</span> ${esc(t.notes)}</div>` : ''}
                     </div>
                 `).join('')}</div>`
-                : (props.length ? '' : `<div class="vse-empty">No custom trackers active. Main model can propose trackers for recurring businesses, estates, ships, or ledgers when enabled.</div>`);
+                : (props.length ? '' : `<div class="lpe-empty">No custom trackers active. Main model can propose trackers for recurring businesses, estates, ships, or ledgers when enabled.</div>`);
             return `${propsHtml}${activeHtml}`;
         }
         case 'story_notes': {
             const sn = state.story_notes || {};
-            return `<div class="vse-kv-grid">
+            return `<div class="lpe-kv-grid">
                 <div class="wide"><span>Threads</span><b>${esc(sn.threads)}</b></div>
                 <div class="wide"><span>Seeds</span><b>${esc(sn.seeds)}</b></div>
                 <div class="wide"><span>Motives</span><b>${esc(sn.motives)}</b></div>
@@ -316,17 +317,17 @@ function renderTabBody(tabId, state, view, settings, prevState = null) {
         }
         case 'notebook': {
             const nb = state.notebook || [];
-            if (!nb.length) return `<div class="vse-empty">Notebook is empty.</div>`;
-            return `<ul class="vse-list">${nb.map((ent) => {
+            if (!nb.length) return `<div class="lpe-empty">Notebook is empty.</div>`;
+            return `<ul class="lpe-list">${nb.map((ent) => {
                 const tagMatch = ent.match(/^\s*(\[[RTD]\])\s*([\s\S]*)$/);
                 if (!tagMatch) return `<li>${esc(ent)}</li>`;
                 const cls = tagMatch[1] === '[R]' ? 'rule' : tagMatch[1] === '[T]' ? 'thread' : 'debug';
-                return `<li><span class="vse-nb-badge ${cls}">${esc(tagMatch[1])}</span> ${esc(tagMatch[2])}</li>`;
+                return `<li><span class="lpe-nb-badge ${cls}">${esc(tagMatch[1])}</span> ${esc(tagMatch[2])}</li>`;
             }).join('')}</ul>`;
         }
         case 'vent': {
-            return `<div class="vse-stack">
-                <div class="vse-subcard"><div class="vse-subcard-head"><strong>Vexa Vent</strong></div><div class="vse-vent-text">${esc(state.vent || '∅')}</div></div>
+            return `<div class="lpe-stack">
+                <div class="lpe-subcard"><div class="lpe-subcard-head"><strong>LPE Vent</strong></div><div class="lpe-vent-text">${esc(state.vent || '∅')}</div></div>
             </div>`;
         }
         default:
@@ -340,14 +341,14 @@ function parseReceiptSummaryPills(rc) {
     const ws = String(rc.world_sim || '').trim();
     if (ws && !isEmptySentinel(ws)) {
         const firstTok = ws.split('|')[0].trim();
-        if (firstTok) pills.push(`<span class="vse-pill">${esc(firstTok.slice(0, 28))}</span>`);
+        if (firstTok) pills.push(`<span class="lpe-pill">${esc(firstTok.slice(0, 28))}</span>`);
     }
     const ch = String(rc.chekhov || '').trim();
     if (ch && !isEmptySentinel(ch) && ch !== '∅') {
-        pills.push(`<span class="vse-pill">${esc(ch.slice(0, 32))}</span>`);
+        pills.push(`<span class="lpe-pill">${esc(ch.slice(0, 32))}</span>`);
     }
     const propCount = Array.isArray(rc.tracker_proposals) ? rc.tracker_proposals.length : 0;
-    if (propCount) pills.push(`<span class="vse-pill warn">+${propCount} Proposal${propCount > 1 ? 's' : ''}</span>`);
+    if (propCount) pills.push(`<span class="lpe-pill warn">+${propCount} Proposal${propCount > 1 ? 's' : ''}</span>`);
     return pills.join('');
 }
 
@@ -364,16 +365,16 @@ function renderReceiptDrawer(state, view) {
     ].filter(Boolean).join('');
 
     return `
-        <div class="vse-receipt-drawer ${open ? 'is-open' : ''}">
-            <button type="button" class="vse-receipt-head-btn" title="Show or hide main-model CoT Receipt (<vexa_receipt>)">
-                <span class="vse-receipt-title"><i class="fa-solid fa-receipt"></i> CoT Receipt</span>
-                <span class="vse-receipt-pills">${pills || '<span class="vse-muted">raw</span>'}</span>
-                <i class="fa-solid fa-chevron-${open ? 'up' : 'down'} vse-receipt-caret"></i>
+        <div class="lpe-receipt-drawer ${open ? 'is-open' : ''}">
+            <button type="button" class="lpe-receipt-head-btn" title="Show or hide main-model CoT Receipt (<lpe_receipt>)">
+                <span class="lpe-receipt-title"><i class="fa-solid fa-receipt"></i> CoT Receipt</span>
+                <span class="lpe-receipt-pills">${pills || '<span class="lpe-muted">raw</span>'}</span>
+                <i class="fa-solid fa-chevron-${open ? 'up' : 'down'} lpe-receipt-caret"></i>
             </button>
             ${open ? `
-                <div class="vse-receipt-body${(view.receiptRaw || !structuredRows) ? ' show-raw' : ''}">
-                    ${structuredRows ? `<div class="vse-kv-grid vse-receipt-kv">${structuredRows}</div><div class="vse-receipt-body-bar"><button type="button" class="vse-mini-btn vse-receipt-raw-btn" title="Toggle raw <vexa_receipt> text">${view.receiptRaw ? 'Hide Raw' : 'Raw'}</button></div>` : ''}
-                    <pre class="vse-pre">${esc(rc.raw)}</pre>
+                <div class="lpe-receipt-body${(view.receiptRaw || !structuredRows) ? ' show-raw' : ''}">
+                    ${structuredRows ? `<div class="lpe-kv-grid lpe-receipt-kv">${structuredRows}</div><div class="lpe-receipt-body-bar"><button type="button" class="lpe-mini-btn lpe-receipt-raw-btn" title="Toggle raw <lpe_receipt> text">${view.receiptRaw ? 'Hide Raw' : 'Raw'}</button></div>` : ''}
+                    <pre class="lpe-pre">${esc(rc.raw)}</pre>
                 </div>
             ` : ''}
         </div>
@@ -381,7 +382,7 @@ function renderReceiptDrawer(state, view) {
 }
 
 function applyThemeVars($card, themeName) {
-    const theme = VEXA_THEMES[themeName] || VEXA_THEMES.Sola;
+    const theme = LPE_THEMES[themeName] || LPE_THEMES.Sola;
     for (const [k, v] of Object.entries(theme)) {
         if (k === 'scheme') $card.css('color-scheme', v);
         else $card.css(`--ist-${k}`, v);
@@ -389,10 +390,10 @@ function applyThemeVars($card, themeName) {
 }
 
 /**
- * Hide any un-regexed <vexa_tail> text inside .mes_text surgically WITHOUT calling `.html(...)`
+ * Hide any un-regexed <lpe_tail> or legacy <vexa_tail> text inside .mes_text surgically WITHOUT calling `.html(...)`
  * or mutating msg.mes — preserves live sandboxed card iframes, listeners, and code blocks.
  */
-export function hideVexaTailInMessageEl($mesText) {
+export function hideLpeTailInMessageEl($mesText) {
     const rootEl = $mesText && ($mesText[0] || ($mesText.nodeType ? $mesText : null));
     if (!rootEl) return;
 
@@ -400,18 +401,18 @@ export function hideVexaTailInMessageEl($mesText) {
     const isProtected = (node) => {
         for (let cur = node; cur && cur !== rootEl; cur = cur.parentElement) {
             if (SKIP_TAGS.has(cur.tagName)) return true;
-            if (cur.classList?.contains('vse-card-frame-wrap') || cur.classList?.contains('vse-code-fold-toggle')) {
+            if (cur.classList?.contains('lpe-card-frame-wrap') || cur.classList?.contains('lpe-code-fold-toggle')) {
                 return true;
             }
         }
         return false;
     };
 
-    // Hide semantic custom tags (<vexa_tail>, <vexa_receipt>, <state:vent>) directly via class
-    for (const sel of ['vexa_tail', 'vexa_receipt', 'state\\:vent']) {
+    // Hide semantic custom tags (<lpe_tail>, <lpe_receipt>, legacy <vexa_*>, <state:vent>) directly via class
+    for (const sel of ['lpe_tail', 'lpe_receipt', 'vexa_tail', 'vexa_receipt', 'state\\:vent']) {
         try {
             for (const el of rootEl.querySelectorAll(sel)) {
-                if (!isProtected(el)) el.classList.add('vse-hidden-tail');
+                if (!isProtected(el)) el.classList.add('lpe-hidden-tail');
             }
         } catch {
             // Ignore selector edge cases
@@ -422,12 +423,12 @@ export function hideVexaTailInMessageEl($mesText) {
     for (const p of rootEl.querySelectorAll('p')) {
         if (isProtected(p)) continue;
         const txt = String(p.textContent || '').replace(/\u2800/g, ' ').trim();
-        if (/^(?:world_sim:|chekhov:|arc:|ooc:|tracker_propose:|<vexa_tail>|<vexa_receipt>|<state:vent>)/i.test(txt)) {
-            p.classList.add('vse-hidden-tail');
+        if (/^(?:world_sim:|chekhov:|arc:|ooc:|tracker_propose:|<(?:lpe|vexa)_tail>|<(?:lpe|vexa)_receipt>|<state:vent>)/i.test(txt)) {
+            p.classList.add('lpe-hidden-tail');
         }
     }
 
-    // Strip escaped or unparsed <vexa_tail>...</vexa_tail> inside leaf text nodes only
+    // Strip escaped or unparsed <lpe_tail> / <vexa_tail> inside leaf text nodes only
     const ownerDoc = rootEl.ownerDocument || (typeof document !== 'undefined' ? document : null);
     const filter = typeof NodeFilter !== 'undefined' ? NodeFilter.SHOW_TEXT : 4;
     if (ownerDoc && typeof ownerDoc.createTreeWalker === 'function') {
@@ -435,16 +436,17 @@ export function hideVexaTailInMessageEl($mesText) {
         let textNode = walker.nextNode();
         while (textNode) {
             const val = textNode.nodeValue;
-            if (val && /<vexa_tail\b/i.test(val) && !isProtected(textNode.parentElement)) {
+            if (val && /<(?:lpe|vexa)_tail\b/i.test(val) && !isProtected(textNode.parentElement)) {
                 const cleaned = val
-                    .replace(/<vexa_tail\b[^>]*>[\s\S]*?<\/vexa_tail\s*>\s*(?:<!--[\s\u2800]*GFX_END[\s\u2800]*-->)?/gi, '')
-                    .replace(/<vexa_tail\b[^>]*>[\s\S]*$/i, '');
+                    .replace(/<(?:lpe|vexa)_tail\b[^>]*>[\s\S]*?<\/(?:lpe|vexa)_tail\s*>\s*(?:<!--[\s\u2800]*GFX_END[\s\u2800]*-->)?/gi, '')
+                    .replace(/<(?:lpe|vexa)_tail\b[^>]*>[\s\S]*$/i, '');
                 if (cleaned !== val) textNode.nodeValue = cleaned;
             }
             textNode = walker.nextNode();
         }
     }
 }
+export const hideVexaTailInMessageEl = hideLpeTailInMessageEl;
 
 /**
  * Refresh HUD cards for all rendered AI messages currently in #chat.
@@ -470,10 +472,9 @@ function refreshSingleHudCard($mes, ctx) {
     if (msg.is_user) return;
 
     const $mesText = $mes.find('.mes_text').first();
-    hideVexaTailInMessageEl($mesText);
+    hideLpeTailInMessageEl($mesText);
 
-    const uid = msg.extra?.vexa_uid;
-    const seq = msg.extra?.vexa_seq;
+    const { uid, seq } = getMessageStamp(msg);
     const swipe = typeof msg.swipe_id === 'number' ? msg.swipe_id : 0;
     const entry = uid ? store.getEntryFor(uid, swipe) : null;
     const step = uid ? store.getStep(uid, tl) : null;
@@ -509,7 +510,7 @@ function refreshSingleHudCard($mes, ctx) {
         || hMetrics.missingCount > 0
         || (effHealth.wholeBody || []).length > 0;
     const healthPillHtml = hasHealthAlert
-        ? `<button type="button" class="vse-mini-btn vse-health-bar-pill ${hMetrics.bleedingCount > 0 ? 'bleeding' : (hMetrics.overallHp < 80 ? 'warn' : '')}" title="Inspect Body Health Doll"><i class="fa-solid fa-heart-pulse"></i> ${hMetrics.overallHp}%${hMetrics.totalWounds ? ` · ${hMetrics.totalWounds}w` : ''}</button>`
+        ? `<button type="button" class="lpe-mini-btn lpe-health-bar-pill ${hMetrics.bleedingCount > 0 ? 'bleeding' : (hMetrics.overallHp < 80 ? 'warn' : '')}" title="Inspect Body Health Doll"><i class="fa-solid fa-heart-pulse"></i> ${hMetrics.overallHp}%${hMetrics.totalWounds ? ` · ${hMetrics.totalWounds}w` : ''}</button>`
         : '';
 
     const changeLog = step
@@ -570,29 +571,29 @@ function refreshSingleHudCard($mes, ctx) {
 
     const stamp = buildStamp(view);
 
-    let $card = $mes.find('.vse-hud-card').first();
+    let $card = $mes.find('.lpe-hud-card').first();
     if ($card.length) {
-        $card.data('vseLiveCtx', { ctx, state, view, mesId, buildStamp });
-        if ($card.attr('data-vse-stamp') === stamp) return;
+        $card.data('lpeLiveCtx', { ctx, state, view, mesId, buildStamp });
+        if ($card.attr('data-lpe-stamp') === stamp) return;
     }
 
     if (!$card.length) {
-        $card = $('<div class="vse-hud-card"></div>');
+        $card = $('<div class="lpe-hud-card"></div>');
         if ($mesText.length) $mesText.after($card);
         else $mes.find('.mes_block').append($card);
-        $card.data('vseLiveCtx', { ctx, state, view, mesId, buildStamp });
+        $card.data('lpeLiveCtx', { ctx, state, view, mesId, buildStamp });
     }
 
     const diffSet = new Set(step?.diff || []);
     const statusBadge = isBusyForThis
-        ? `<span class="vse-status busy"><i class="fa-solid fa-spinner fa-spin"></i> ${esc(workerStatus.runningLabel || 'Updating...')} <button type="button" class="vse-mini-btn vse-stop-btn" title="Stop worker"><i class="fa-solid fa-stop"></i></button></span>`
+        ? `<span class="lpe-status busy"><i class="fa-solid fa-spinner fa-spin"></i> ${esc(workerStatus.runningLabel || 'Updating...')} <button type="button" class="lpe-mini-btn lpe-stop-btn" title="Stop worker"><i class="fa-solid fa-stop"></i></button></span>`
         : entry?.status === 'error'
-            ? `<span class="vse-status err" title="${esc(entry.error || 'Worker failed')}"><i class="fa-solid fa-triangle-exclamation"></i> Failed <button type="button" class="vse-mini-btn vse-retry-btn"><i class="fa-solid fa-rotate-right"></i> Retry</button></span>`
+            ? `<span class="lpe-status err" title="${esc(entry.error || 'Worker failed')}"><i class="fa-solid fa-triangle-exclamation"></i> Failed <button type="button" class="lpe-mini-btn lpe-retry-btn"><i class="fa-solid fa-rotate-right"></i> Retry</button></span>`
             : entry?.status === 'pending'
-                ? `<span class="vse-status busy"><i class="fa-solid fa-clock"></i> Queued</span>`
-                : `<span class="vse-status ok"><i class="fa-solid fa-circle-check"></i> ${entry?.source === 'import' ? 'Imported' : 'Synced'}</span>`;
+                ? `<span class="lpe-status busy"><i class="fa-solid fa-clock"></i> Queued</span>`
+                : `<span class="lpe-status ok"><i class="fa-solid fa-circle-check"></i> ${entry?.source === 'import' ? 'Imported' : 'Synced'}</span>`;
 
-    const themeOpts = Object.keys(VEXA_THEMES).map((t) =>
+    const themeOpts = Object.keys(LPE_THEMES).map((t) =>
         `<option value="${esc(t)}" ${t === view.theme ? 'selected' : ''}>${esc(t)}</option>`,
     ).join('');
 
@@ -600,17 +601,17 @@ function refreshSingleHudCard($mes, ctx) {
         const tabCnt = changeLog?.byTab?.[t.id] || 0;
         const hasDiff = diffSet.has(t.id);
         const badge = tabCnt > 0
-            ? `<span class="vse-tab-diff-cnt" title="${tabCnt} change${tabCnt === 1 ? '' : 's'} this turn">${tabCnt}</span>`
-            : (hasDiff ? '<span class="vse-diff-dot" title="Changed this turn"></span>' : '');
-        return `<button type="button" class="vse-tab-btn ${view.tab === t.id ? 'active' : ''}" data-tab="${t.id}">
+            ? `<span class="lpe-tab-diff-cnt" title="${tabCnt} change${tabCnt === 1 ? '' : 's'} this turn">${tabCnt}</span>`
+            : (hasDiff ? '<span class="lpe-diff-dot" title="Changed this turn"></span>' : '');
+        return `<button type="button" class="lpe-tab-btn ${view.tab === t.id ? 'active' : ''}" data-tab="${t.id}">
             <i class="fa-solid ${t.icon}"></i> ${esc(t.label)}${badge}
         </button>`;
     }).join('');
 
     const changeHeaderBadge = entry?.disabled
-        ? '<span class="vse-pill warn" title="Changes from this reply are reverted">Reverted</span>'
+        ? '<span class="lpe-pill warn" title="Changes from this reply are reverted">Reverted</span>'
         : (changeLog?.total
-            ? `<span class="vse-pill vse-diff-hdr-pill" title="${changeLog.total} changes in this reply">Δ ${changeLog.total}</span>`
+            ? `<span class="lpe-pill lpe-diff-hdr-pill" title="${changeLog.total} changes in this reply">Δ ${changeLog.total}</span>`
             : '');
 
     const diffStripHtml = showInlineChanges
@@ -626,44 +627,44 @@ function refreshSingleHudCard($mes, ctx) {
         : '';
 
     $card
-        .attr('data-vse-stamp', stamp)
-        .attr('data-vse-style', view.style)
-        .attr('data-vse-mesid', String(mesId));
+        .attr('data-lpe-stamp', stamp)
+        .attr('data-lpe-style', view.style)
+        .attr('data-lpe-mesid', String(mesId));
     applyThemeVars($card, view.theme);
 
     $card.html(`
-        <div class="vse-hud-bar">
-            <button type="button" class="vse-toggle-btn">
+        <div class="lpe-hud-bar">
+            <button type="button" class="lpe-toggle-btn">
                 <i class="fa-solid fa-chevron-${view.collapsed ? 'right' : 'down'}"></i>
-                <span class="vse-hud-title">Vexa State</span>
-                <span class="vse-pill">ct:${esc(state.world?.ct ?? 0)}</span>
-                <span class="vse-hud-loc">${esc(state.world?.loc || 'No location')}</span>
-                <span class="vse-hud-time">${esc(state.world?.time || '')}</span>
+                <span class="lpe-hud-title">LPE State</span>
+                <span class="lpe-pill">ct:${esc(state.world?.ct ?? 0)}</span>
+                <span class="lpe-hud-loc">${esc(state.world?.loc || 'No location')}</span>
+                <span class="lpe-hud-time">${esc(state.world?.time || '')}</span>
             </button>
-            <div class="vse-hud-actions">
+            <div class="lpe-hud-actions">
                 ${changeHeaderBadge}
-                ${proposalCount ? `<span class="vse-pill warn" title="Pending custom tracker proposal"><i class="fa-solid fa-sparkles"></i> ${proposalCount} Proposal</span>` : ''}
+                ${proposalCount ? `<span class="lpe-pill warn" title="Pending custom tracker proposal"><i class="fa-solid fa-sparkles"></i> ${proposalCount} Proposal</span>` : ''}
                 ${healthPillHtml}
                 ${statusBadge}
-                <button type="button" class="vse-icon-btn vse-reread-btn" title="Re-run worker on this reply"><i class="fa-solid fa-rotate"></i></button>
-                <button type="button" class="vse-icon-btn vse-edit-btn" title="Edit Vexa state"><i class="fa-solid fa-pen-to-square"></i></button>
-                <button type="button" class="vse-icon-btn vse-copy-btn" title="Copy compiled <internal_states> XML"><i class="fa-solid fa-copy"></i></button>
+                <button type="button" class="lpe-icon-btn lpe-reread-btn" title="Re-run worker on this reply"><i class="fa-solid fa-rotate"></i></button>
+                <button type="button" class="lpe-icon-btn lpe-edit-btn" title="Edit LPE state"><i class="fa-solid fa-pen-to-square"></i></button>
+                <button type="button" class="lpe-icon-btn lpe-copy-btn" title="Copy compiled <internal_states> XML"><i class="fa-solid fa-copy"></i></button>
             </div>
         </div>
-        <div class="vse-hud-body" style="display:${view.collapsed ? 'none' : 'block'};">
-            <div class="vse-subtoolbar">
-                <label>Theme: <select class="vse-theme-sel">${themeOpts}</select></label>
-                <label>Style: <select class="vse-style-sel">${VEXA_STYLES.map((st) => `<option value="${esc(st)}" ${st === view.style ? 'selected' : ''}>${esc(st)}</option>`).join('')}</select></label>
+        <div class="lpe-hud-body" style="display:${view.collapsed ? 'none' : 'block'};">
+            <div class="lpe-subtoolbar">
+                <label>Theme: <select class="lpe-theme-sel">${themeOpts}</select></label>
+                <label>Style: <select class="lpe-style-sel">${LPE_STYLES.map((st) => `<option value="${esc(st)}" ${st === view.style ? 'selected' : ''}>${esc(st)}</option>`).join('')}</select></label>
             </div>
             ${diffStripHtml}
-            <div class="vse-tabs">${tabsHtml}</div>
-            <div class="vse-tab-panel">${view.collapsed ? '' : renderTabBody(view.tab, state, view, settings, step?.prevState || null)}</div>
+            <div class="lpe-tabs">${tabsHtml}</div>
+            <div class="lpe-tab-panel">${view.collapsed ? '' : renderTabBody(view.tab, state, view, settings, step?.prevState || null)}</div>
         </div>
         ${renderReceiptDrawer(state, view)}
     `);
 
     const triggerLocalRefresh = () => {
-        const live = $card.data('vseLiveCtx');
+        const live = $card.data('lpeLiveCtx');
         if (!live) return;
         const freshChat = window.SillyTavern?.getContext?.()?.chat || live.ctx.chat;
         const freshTl = live.ctx.store.timeline();
@@ -673,8 +674,8 @@ function refreshSingleHudCard($mes, ctx) {
     };
 
     if (!view.collapsed) {
-        const tabsEl = $card.find('.vse-tabs')[0];
-        const activeBtn = tabsEl?.querySelector('.vse-tab-btn.active');
+        const tabsEl = $card.find('.lpe-tabs')[0];
+        const activeBtn = tabsEl?.querySelector('.lpe-tab-btn.active');
         if (tabsEl && activeBtn && tabsEl.scrollWidth > tabsEl.clientWidth) {
             tabsEl.scrollLeft = Math.max(0, activeBtn.offsetLeft - (tabsEl.clientWidth - activeBtn.offsetWidth) / 2);
         }
@@ -682,11 +683,11 @@ function refreshSingleHudCard($mes, ctx) {
 
     if (!view.collapsed && view.tab === 'locations') {
         if (effectiveAtlasMode === '3d') {
-            const vpEl = $card.find('.vse-poly-viewport')[0];
+            const vpEl = $card.find('.lpe-poly-viewport')[0];
             if (vpEl) {
                 bindPolyOrbitControls(vpEl, view.camera, {
                     onSelectRoom: (roomId) => {
-                        const live = $card.data('vseLiveCtx');
+                        const live = $card.data('lpeLiveCtx');
                         if (live) live.view.roomId = roomId;
                         triggerLocalRefresh();
                     },
@@ -694,40 +695,40 @@ function refreshSingleHudCard($mes, ctx) {
                 observePolyViewports(vpEl);
             }
         } else if (effectiveAtlasMode === '2d') {
-            const svgWrapEl = $card.find('.vse-atlas-svg-wrap')[0];
+            const svgWrapEl = $card.find('.lpe-atlas-svg-wrap')[0];
             if (svgWrapEl) bindAtlasSvgControls(svgWrapEl, view.svgCamera);
         }
     }
 
     // Wire card controls once via scoped delegation reading fresh liveCtx
-    if (!$card.data('vseBound')) {
-        $card.data('vseBound', true);
-        $card.on('click', '.vse-toggle-btn', () => {
-            const live = $card.data('vseLiveCtx');
+    if (!$card.data('lpeBound')) {
+        $card.data('lpeBound', true);
+        $card.on('click', '.lpe-toggle-btn', () => {
+            const live = $card.data('lpeLiveCtx');
             if (!live) return;
             live.view.collapsed = !live.view.collapsed;
             triggerLocalRefresh();
         });
-        $card.on('click', '.vse-tab-btn', function () {
-            const live = $card.data('vseLiveCtx');
+        $card.on('click', '.lpe-tab-btn', function () {
+            const live = $card.data('lpeLiveCtx');
             if (!live) return;
             live.view.tab = $(this).data('tab');
             triggerLocalRefresh();
         });
-        $card.on('change', '.vse-theme-sel', function () {
-            const live = $card.data('vseLiveCtx');
+        $card.on('change', '.lpe-theme-sel', function () {
+            const live = $card.data('lpeLiveCtx');
             if (!live) return;
             live.view.theme = $(this).val();
             triggerLocalRefresh();
         });
-        $card.on('change', '.vse-style-sel', function () {
-            const live = $card.data('vseLiveCtx');
+        $card.on('change', '.lpe-style-sel', function () {
+            const live = $card.data('lpeLiveCtx');
             if (!live) return;
             live.view.style = $(this).val();
             triggerLocalRefresh();
         });
-        $card.on('change', '.vse-atlas-map-sel', function () {
-            const live = $card.data('vseLiveCtx');
+        $card.on('change', '.lpe-atlas-map-sel', function () {
+            const live = $card.data('lpeLiveCtx');
             if (!live) return;
             live.view.mapId = $(this).val();
             live.view.level = null;
@@ -735,8 +736,8 @@ function refreshSingleHudCard($mes, ctx) {
             live.view.svgCamera = { zoom: 1, panX: 0, panY: 0 };
             triggerLocalRefresh();
         });
-        $card.on('click', '.vse-atlas-floor-btn', function () {
-            const live = $card.data('vseLiveCtx');
+        $card.on('click', '.lpe-atlas-floor-btn', function () {
+            const live = $card.data('lpeLiveCtx');
             if (!live) return;
             live.view.level = String($(this).data('level'));
             live.view.allFloors = false;
@@ -744,162 +745,162 @@ function refreshSingleHudCard($mes, ctx) {
             live.view.svgCamera = { zoom: 1, panX: 0, panY: 0 };
             triggerLocalRefresh();
         });
-        $card.on('click', '.vse-atlas-allfloors-btn', function () {
-            const live = $card.data('vseLiveCtx');
+        $card.on('click', '.lpe-atlas-allfloors-btn', function () {
+            const live = $card.data('lpeLiveCtx');
             if (!live) return;
             live.view.allFloors = !live.view.allFloors;
             triggerLocalRefresh();
         });
-        $card.on('click', '.vse-atlas-mode-btn:not(.vse-atlas-open-webgl-btn)', function () {
-            const live = $card.data('vseLiveCtx');
+        $card.on('click', '.lpe-atlas-mode-btn:not(.lpe-atlas-open-webgl-btn)', function () {
+            const live = $card.data('lpeLiveCtx');
             if (!live) return;
             live.view.atlasMode = String($(this).data('atlas-mode') || '2d');
             triggerLocalRefresh();
         });
-        $card.on('click', '.vse-atlas-open-webgl-btn', (e) => {
+        $card.on('click', '.lpe-atlas-open-webgl-btn', (e) => {
             e.stopPropagation();
-            const live = $card.data('vseLiveCtx');
+            const live = $card.data('lpeLiveCtx');
             live?.ctx?.onOpenEditor?.(live.mesId, 'locations');
         });
-        $card.on('click', '.vse-poly-cutaway-btn', function (e) {
+        $card.on('click', '.lpe-poly-cutaway-btn', function (e) {
             e.stopPropagation();
-            const live = $card.data('vseLiveCtx');
+            const live = $card.data('lpeLiveCtx');
             if (!live) return;
             live.view.cutaway = !live.view.cutaway;
             triggerLocalRefresh();
         });
-        $card.on('click', '.vse-poly-labels-btn', function (e) {
+        $card.on('click', '.lpe-poly-labels-btn', function (e) {
             e.stopPropagation();
-            const live = $card.data('vseLiveCtx');
+            const live = $card.data('lpeLiveCtx');
             if (!live) return;
             live.view.showLabels = !live.view.showLabels;
             triggerLocalRefresh();
         });
-        $card.on('click', '.vse-atlas-room-g, .vse-atlas-room-pill', function () {
-            const live = $card.data('vseLiveCtx');
+        $card.on('click', '.lpe-atlas-room-g, .lpe-atlas-room-pill', function () {
+            const live = $card.data('lpeLiveCtx');
             if (!live) return;
             live.view.roomId = $(this).data('room-id');
             triggerLocalRefresh();
         });
-        $card.on('click', '.vse-hud-approve-prop', function (e) {
+        $card.on('click', '.lpe-hud-approve-prop', function (e) {
             e.stopPropagation();
-            const live = $card.data('vseLiveCtx');
+            const live = $card.data('lpeLiveCtx');
             live?.ctx?.onApproveProposal?.(String($(this).data('prop-id') || ''));
         });
-        $card.on('click', '.vse-hud-dismiss-prop', function (e) {
+        $card.on('click', '.lpe-hud-dismiss-prop', function (e) {
             e.stopPropagation();
-            const live = $card.data('vseLiveCtx');
+            const live = $card.data('lpeLiveCtx');
             live?.ctx?.onDismissProposal?.(String($(this).data('prop-id') || ''));
         });
-        $card.on('click', '.vse-doll-part', function (e) {
+        $card.on('click', '.lpe-doll-part', function (e) {
             e.stopPropagation();
-            const live = $card.data('vseLiveCtx');
+            const live = $card.data('lpeLiveCtx');
             if (!live) return;
             const pid = String($(this).data('part-id') || '');
             live.view.healthPart = live.view.healthPart === pid ? null : (pid || null);
             triggerLocalRefresh();
         });
-        $card.on('click', '.vse-health-part-chip', function (e) {
+        $card.on('click', '.lpe-health-part-chip', function (e) {
             e.stopPropagation();
-            const live = $card.data('vseLiveCtx');
+            const live = $card.data('lpeLiveCtx');
             if (!live) return;
             live.view.healthPart = String($(this).data('part-id') || '') || null;
             triggerLocalRefresh();
         });
-        $card.on('click', '.vse-health-clear-sel', function (e) {
+        $card.on('click', '.lpe-health-clear-sel', function (e) {
             e.stopPropagation();
-            const live = $card.data('vseLiveCtx');
+            const live = $card.data('lpeLiveCtx');
             if (!live) return;
             live.view.healthPart = null;
             triggerLocalRefresh();
         });
-        $card.on('click', '.vse-health-layer-btn, .vse-doll-internal-alert', function (e) {
+        $card.on('click', '.lpe-health-layer-btn, .lpe-doll-internal-alert', function (e) {
             e.stopPropagation();
-            const live = $card.data('vseLiveCtx');
+            const live = $card.data('lpeLiveCtx');
             if (!live) return;
             live.view.healthLayer = String($(this).data('health-layer') || $(this).data('layer-jump') || 'body');
             triggerLocalRefresh();
         });
-        $card.on('click', '.vse-health-bar-pill, .vse-health-jump-btn', function (e) {
+        $card.on('click', '.lpe-health-bar-pill, .lpe-health-jump-btn', function (e) {
             e.stopPropagation();
-            const live = $card.data('vseLiveCtx');
+            const live = $card.data('lpeLiveCtx');
             if (!live) return;
             live.view.collapsed = false;
             live.view.tab = 'health';
             triggerLocalRefresh();
         });
-        $card.on('click', '.vse-stop-btn', (e) => {
+        $card.on('click', '.lpe-stop-btn', (e) => {
             e.stopPropagation();
-            $card.data('vseLiveCtx')?.ctx?.onStopWorker?.();
+            $card.data('lpeLiveCtx')?.ctx?.onStopWorker?.();
         });
-        $card.on('click', '.vse-retry-btn, .vse-reread-btn', (e) => {
+        $card.on('click', '.lpe-retry-btn, .lpe-reread-btn', (e) => {
             e.stopPropagation();
-            const live = $card.data('vseLiveCtx');
+            const live = $card.data('lpeLiveCtx');
             live?.ctx?.onRetryMsg?.(live.mesId);
         });
-        $card.on('click', '.vse-edit-btn', (e) => {
+        $card.on('click', '.lpe-edit-btn', (e) => {
             e.stopPropagation();
-            const live = $card.data('vseLiveCtx');
+            const live = $card.data('lpeLiveCtx');
             live?.ctx?.onOpenEditor?.(live.mesId, live.view.tab);
         });
-        $card.on('click', '.vse-copy-btn', (e) => {
+        $card.on('click', '.lpe-copy-btn', (e) => {
             e.stopPropagation();
-            const live = $card.data('vseLiveCtx');
+            const live = $card.data('lpeLiveCtx');
             if (!live) return;
             const xml = serializeInternalStates(live.state, { scoped: false, includeVent: true });
             live.ctx?.onCopyXml?.(xml);
         });
-        $card.on('click', '.vse-receipt-head-btn', (e) => {
+        $card.on('click', '.lpe-receipt-head-btn', (e) => {
             e.stopPropagation();
-            const live = $card.data('vseLiveCtx');
+            const live = $card.data('lpeLiveCtx');
             if (!live) return;
             live.view.receiptOpen = !live.view.receiptOpen;
             triggerLocalRefresh();
         });
-        $card.on('click', '.vse-receipt-raw-btn', (e) => {
+        $card.on('click', '.lpe-receipt-raw-btn', (e) => {
             e.stopPropagation();
-            const live = $card.data('vseLiveCtx');
+            const live = $card.data('lpeLiveCtx');
             if (!live) return;
             live.view.receiptRaw = !live.view.receiptRaw;
             triggerLocalRefresh();
         });
-        $card.on('click', '.vse-diff-head-btn', (e) => {
+        $card.on('click', '.lpe-diff-head-btn', (e) => {
             e.stopPropagation();
-            const live = $card.data('vseLiveCtx');
+            const live = $card.data('lpeLiveCtx');
             if (!live) return;
             live.view.diffOpen = !live.view.diffOpen;
             triggerLocalRefresh();
         });
-        $card.on('click', '.vse-diff-filter-btn', function (e) {
+        $card.on('click', '.lpe-diff-filter-btn', function (e) {
             e.stopPropagation();
-            const live = $card.data('vseLiveCtx');
+            const live = $card.data('lpeLiveCtx');
             if (!live) return;
             live.view.diffFilter = String($(this).data('diff-filter') || 'all');
             triggerLocalRefresh();
         });
-        $card.on('click', '.vse-diff-more-btn', function (e) {
+        $card.on('click', '.lpe-diff-more-btn', function (e) {
             e.stopPropagation();
-            const live = $card.data('vseLiveCtx');
+            const live = $card.data('lpeLiveCtx');
             if (!live) return;
             live.view.diffShowAll = String($(this).data('diff-all')) === '1';
             triggerLocalRefresh();
         });
-        $card.on('click', '.vse-diff-jump', function (e) {
+        $card.on('click', '.lpe-diff-jump', function (e) {
             e.stopPropagation();
-            const live = $card.data('vseLiveCtx');
+            const live = $card.data('lpeLiveCtx');
             if (!live) return;
             live.view.collapsed = false;
             live.view.tab = String($(this).data('diff-jump') || 'world');
             triggerLocalRefresh();
         });
-        $card.on('click', '.vse-diff-revert-btn', function (e) {
+        $card.on('click', '.lpe-diff-revert-btn', function (e) {
             e.stopPropagation();
-            const live = $card.data('vseLiveCtx');
+            const live = $card.data('lpeLiveCtx');
             live?.ctx?.onToggleEntryDisabled?.(live.mesId, String($(this).data('diff-toggle')) === '1');
         });
-        $card.on('click', '.vse-diff-read-btn', (e) => {
+        $card.on('click', '.lpe-diff-read-btn', (e) => {
             e.stopPropagation();
-            const live = $card.data('vseLiveCtx');
+            const live = $card.data('lpeLiveCtx');
             live?.ctx?.onRetryMsg?.(live.mesId);
         });
     }
@@ -910,8 +911,8 @@ function refreshSingleHudCard($mes, ctx) {
  * to the chosen theme & style in-place without tearing down/rebuilding DOM.
  */
 export function alignAllHudThemes(theme, style) {
-    const nextTheme = VEXA_THEMES[theme] ? theme : 'Sola';
-    const nextStyle = VEXA_STYLES.includes(style) ? style : 'Afterglow';
+    const nextTheme = LPE_THEMES[theme] ? theme : 'Sola';
+    const nextStyle = LPE_STYLES.includes(style) ? style : 'Afterglow';
     const activePrefix = `${currentChatKey()}::`;
     for (const [k, v] of viewState.entries()) {
         if (String(k).startsWith(activePrefix)) {
@@ -921,19 +922,19 @@ export function alignAllHudThemes(theme, style) {
     }
     let updated = 0;
     if (typeof $ === 'function') {
-        $('#chat .vse-hud-card').each(function () {
+        $('#chat .lpe-hud-card').each(function () {
             const $card = $(this);
-            const live = $card.data('vseLiveCtx');
+            const live = $card.data('lpeLiveCtx');
             if (live?.view) {
                 live.view.theme = nextTheme;
                 live.view.style = nextStyle;
             }
             applyThemeVars($card, nextTheme);
-            $card.attr('data-vse-style', nextStyle);
-            $card.find('.vse-theme-sel').val(nextTheme);
-            $card.find('.vse-style-sel').val(nextStyle);
+            $card.attr('data-lpe-style', nextStyle);
+            $card.find('.lpe-theme-sel').val(nextTheme);
+            $card.find('.lpe-style-sel').val(nextStyle);
             if (live?.buildStamp && live?.view) {
-                $card.attr('data-vse-stamp', live.buildStamp(live.view));
+                $card.attr('data-lpe-stamp', live.buildStamp(live.view));
             }
             updated++;
         });
@@ -943,7 +944,7 @@ export function alignAllHudThemes(theme, style) {
 
 export function refreshAllHudCards({ store, settings, workerStatus, onOpenEditor, onRetryMsg, onStopWorker, onCopyXml, onApproveProposal, onDismissProposal, onToggleEntryDisabled }) {
     if (!store || !settings.enabled) {
-        $('#chat .vse-hud-card').remove();
+        $('#chat .lpe-hud-card').remove();
         return;
     }
     const chat = window.SillyTavern?.getContext?.()?.chat || [];

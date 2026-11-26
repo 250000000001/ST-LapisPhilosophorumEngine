@@ -1,12 +1,12 @@
 /**
- * Clean-Room Scoped EJS Template Engine for Vexa State Engine.
+ * Clean-Room Scoped EJS Template Engine for Lapis Philosophorum Engine (LPE).
  *
  * Original implementation under CC BY-NC 4.0.
  * Inspiration & Attribution:
  *   Dynamically evaluated EJS prompting & World Info logic inspired by ST-Prompt-Template
  *   by zonde306 (https://github.com/zonde306/ST-Prompt-Template).
  *   Zero code was copied from ST-Prompt-Template; compiled runtime, AST-free safety scanner,
- *   loop-budget instrumentation, dice roller, and Vexa state bindings are written from scratch.
+ *   loop-budget instrumentation, dice roller, and LPE state bindings are written from scratch.
  *
  * Pure ES module with zero DOM/npm dependencies so it runs identically in browser & Node tests.
  */
@@ -411,31 +411,31 @@ export function compileEjs(template, {
         const tokens = tokenizeEjs(template);
         const bodyParts = [
             '"use strict";',
-            'const { vexa, state, vars, getvexa, getvar, setvar, roll, chance, pick, clamp, getwi, char, user, turn, __vseEsc, __vseKey, __vseStep, __vseAppend, __vseGetOut } = __vseEnv;',
+            'const { lpe, vexa, state, vars, getlpe, getvexa, getvar, setvar, roll, chance, pick, clamp, getwi, char, user, turn, __lpeEsc, __lpeKey, __lpeStep, __lpeAppend, __lpeGetOut } = __lpeEnv;',
             'return (function () {',
         ];
 
         for (const tok of tokens) {
             if (tok.type === 'text') {
-                bodyParts.push(`__vseAppend(${JSON.stringify(tok.value)});`);
+                bodyParts.push(`__lpeAppend(${JSON.stringify(tok.value)});`);
             } else if (tok.type === 'comment') {
                 // Deliberately skipped
             } else if (tok.type === 'esc' || tok.type === 'raw') {
                 const exprCode = compileJsForTag(tok.value.trim(), true);
                 if (tok.type === 'esc') {
-                    bodyParts.push(`__vseAppend(__vseEsc((${exprCode})));`);
+                    bodyParts.push(`__lpeAppend(__lpeEsc((${exprCode})));`);
                 } else {
-                    bodyParts.push(`__vseAppend((${exprCode}));`);
+                    bodyParts.push(`__lpeAppend((${exprCode}));`);
                 }
             } else if (tok.type === 'exec') {
                 const stmtCode = compileJsForTag(tok.value, false);
                 bodyParts.push(stmtCode);
             }
         }
-        bodyParts.push('return __vseGetOut();');
+        bodyParts.push('return __lpeGetOut();');
         bodyParts.push('})();');
 
-        const compiledFn = new Function('__vseEnv', ...SHADOWED_PARAMS, bodyParts.join('\n'));
+        const compiledFn = new Function('__lpeEnv', ...SHADOWED_PARAMS, bodyParts.join('\n'));
         const render = (env) => compiledFn(env);
 
         if (useCache) {
@@ -580,7 +580,7 @@ function compileJsForTag(code, isExpression) {
                 i++;
             }
             const ident = src.slice(start, i);
-            if (ident.startsWith('__vse')) {
+            if (ident.startsWith('__lpe') || ident.startsWith('__vse')) {
                 throw new Error(`Reserved internal identifier "${ident}" is not allowed inside EJS templates`);
             }
             if (FORBIDDEN_PROTO_TOKENS.has(ident)) {
@@ -616,7 +616,7 @@ function compileJsForTag(code, isExpression) {
             const isComputedObjKey = top?.ch === '{' && (lastKind === 'sep');
             const isBracketAccess = lastKind === 'ident' || lastKind === 'value_end' || lastKind === 'dot';
             const guardKey = isBracketAccess || isComputedObjKey;
-            out += guardKey ? '[__vseKey(' : '[';
+            out += guardKey ? '[__lpeKey(' : '[';
             stack.push({ ch: '[', guarded: guardKey });
             i++;
             lastKind = 'sep';
@@ -646,7 +646,7 @@ function compileJsForTag(code, isExpression) {
             stack.push(frame);
             out += '(';
             if (frame.loopKind === 'while') {
-                out += '__vseStep(),(';
+                out += '__lpeStep(),(';
             }
             i++;
             lastKind = 'sep';
@@ -658,7 +658,7 @@ function compileJsForTag(code, isExpression) {
             if (top && top.ch === '(' && top.loopKind === 'for') {
                 if (top.forSemicolons === 0) {
                     top.forSemicolons = 1;
-                    out += '; __vseStep(), (';
+                    out += '; __lpeStep(), (';
                     top.inForCond = true;
                     top.forHasCondExpr = false;
                     i++;
@@ -708,7 +708,7 @@ function compileJsForTag(code, isExpression) {
             stack.push({ ch: '{' });
             out += '{';
             if (pendingLoop && (pendingLoop.kind === 'do' || pendingLoop.kind === 'for_iter')) {
-                out += ' __vseStep(); ';
+                out += ' __lpeStep(); ';
                 pendingLoop = null;
             }
             i++;
@@ -766,8 +766,8 @@ function compileJsForTag(code, isExpression) {
     return out;
 }
 
-/** Build a deeply frozen, safe read-only Vexa snapshot for EJS templates (never exposes settings or keys). */
-export function buildReadOnlyVexaSnapshot(state, extraHealthStatus = '') {
+/** Build a deeply frozen, safe read-only LPE snapshot for EJS templates (never exposes settings or keys). */
+export function buildReadOnlyLpeSnapshot(state, extraHealthStatus = '') {
     const src = state && typeof state === 'object' ? state : {};
     const snap = {
         world: cloneJsonSafe(src.world || {}) || {},
@@ -811,15 +811,16 @@ export function buildReadOnlyVexaSnapshot(state, extraHealthStatus = '') {
 
     return deepFreeze(snap);
 }
+export const buildReadOnlyVexaSnapshot = buildReadOnlyLpeSnapshot;
 
-function resolveTrackerLookup(vexaSnap, pathStr) {
+function resolveTrackerLookup(lpeSnap, pathStr) {
     if (!pathStr || typeof pathStr !== 'string') return undefined;
     const trimmed = pathStr.trim();
     if (!trimmed.startsWith('custom_trackers.')) return undefined;
     const parts = trimmed.split('.');
     if (parts.length < 3) return undefined;
     const trackerId = parts[1];
-    const tracker = (vexaSnap.custom_trackers || []).find(
+    const tracker = (lpeSnap.custom_trackers || []).find(
         (t) => t && !t.archived && String(t.id || '').toLowerCase() === trackerId.toLowerCase(),
     );
     if (!tracker) return undefined;
@@ -834,7 +835,7 @@ function resolveTrackerLookup(vexaSnap, pathStr) {
     return readDotPathSafe(tracker, parts.slice(2).join('.'));
 }
 
-function resolveCardVarValue(varsObj, vexaSnap, pathStr, fallback) {
+function resolveCardVarValue(varsObj, lpeSnap, pathStr, fallback) {
     const s = String(pathStr || '').trim();
     if (!s || FORBIDDEN_PROTO_REGEX.test(s)) return fallback;
 
@@ -845,14 +846,14 @@ function resolveCardVarValue(varsObj, vexaSnap, pathStr, fallback) {
     if (hit === undefined && s.startsWith('stat_data.')) {
         hit = readDotPathSafe(varsObj, s.slice('stat_data.'.length));
     }
-    if (hit === undefined && vexaSnap) {
-        hit = resolveTrackerLookup(vexaSnap, s);
+    if (hit === undefined && lpeSnap) {
+        hit = resolveTrackerLookup(lpeSnap, s);
     }
     return hit === undefined ? fallback : hit;
 }
 
 /**
- * Evaluate an EJS template against frozen Vexa state + scoped card variables.
+ * Evaluate an EJS template against frozen LPE state + scoped card variables.
  * Never throws; returns `{ ok, text, error?, elapsedMs }`.
  */
 export function evaluateEjs(template, context = {}, opts = {}) {
@@ -867,7 +868,7 @@ export function evaluateEjs(template, context = {}, opts = {}) {
         return { ok: false, text: template, error: compiled.error, elapsedMs: elapsed };
     }
 
-    const vexaSnap = context.frozenState || buildReadOnlyVexaSnapshot(context.state);
+    const lpeSnap = context.frozenState || buildReadOnlyLpeSnapshot(context.state);
     const varsObj = deepFreeze(cloneJsonSafe(context.cardVars || {}) || {});
     const wiMap = new Map();
     if (Array.isArray(context.wiEntries)) {
@@ -878,13 +879,13 @@ export function evaluateEjs(template, context = {}, opts = {}) {
         }
     }
 
-    const getvexa = (path, fallback = undefined) => {
+    const getlpe = (path, fallback = undefined) => {
         if (typeof path !== 'string') return fallback;
         if (path.startsWith('custom_trackers.')) {
-            const tr = resolveTrackerLookup(vexaSnap, path);
+            const tr = resolveTrackerLookup(lpeSnap, path);
             if (tr !== undefined) return tr;
         }
-        const v = readDotPathSafe(vexaSnap, path);
+        const v = readDotPathSafe(lpeSnap, path);
         return v === undefined ? fallback : v;
     };
 
@@ -896,7 +897,7 @@ export function evaluateEjs(template, context = {}, opts = {}) {
         const fallback = hasOptsObj
             ? (fallbackOrOpts.defaults !== undefined ? fallbackOrOpts.defaults : fallbackOrOpts.default)
             : fallbackOrOpts;
-        return resolveCardVarValue(varsObj, vexaSnap, path, fallback);
+        return resolveCardVarValue(varsObj, lpeSnap, path, fallback);
     };
 
     const stagedWrites = [];
@@ -915,7 +916,7 @@ export function evaluateEjs(template, context = {}, opts = {}) {
     let stepCount = 0;
     let outBuf = '';
 
-    const __vseStep = () => {
+    const __lpeStep = () => {
         stepCount++;
         if (stepCount > maxSteps) {
             throw new Error(`EJS loop step limit exceeded (${maxSteps})`);
@@ -925,7 +926,7 @@ export function evaluateEjs(template, context = {}, opts = {}) {
         }
         return true;
     };
-    const __vseAppend = (v) => {
+    const __lpeAppend = (v) => {
         if (v === null || v === undefined) return;
         const s = String(v);
         if (outBuf.length + s.length > maxOut) {
@@ -933,7 +934,7 @@ export function evaluateEjs(template, context = {}, opts = {}) {
         }
         outBuf += s;
     };
-    const __vseGetOut = () => outBuf;
+    const __lpeGetOut = () => outBuf;
 
     const rng = typeof opts.rng === 'function' ? opts.rng : Math.random;
     const roll = (expr) => rollDice(expr, rng);
@@ -952,10 +953,12 @@ export function evaluateEjs(template, context = {}, opts = {}) {
     const getwi = (name) => wiMap.get(String(name || '').trim().toLowerCase()) ?? '';
 
     const env = Object.freeze({
-        vexa: vexaSnap,
-        state: vexaSnap,
+        lpe: lpeSnap,
+        vexa: lpeSnap,
+        state: lpeSnap,
         vars: varsObj,
-        getvexa,
+        getlpe,
+        getvexa: getlpe,
         getvar,
         setvar,
         roll,
@@ -965,12 +968,12 @@ export function evaluateEjs(template, context = {}, opts = {}) {
         getwi,
         char: String(context.charName || ''),
         user: String(context.userName || ''),
-        turn: Number(vexaSnap.world?.ct || 0),
-        __vseEsc: escapeHtml,
-        __vseKey: safeBracketKey,
-        __vseStep,
-        __vseAppend,
-        __vseGetOut,
+        turn: Number(lpeSnap.world?.ct || 0),
+        __lpeEsc: escapeHtml,
+        __lpeKey: safeBracketKey,
+        __lpeStep,
+        __lpeAppend,
+        __lpeGetOut,
     });
 
     try {
@@ -998,29 +1001,29 @@ function formatMacroScalar(val) {
 }
 
 /**
- * Lightweight non-EJS macro expansion for `{{get_card_var::path}}`, `{{vexa::path}}`,
+ * Lightweight non-EJS macro expansion for `{{get_card_var::path}}`, `{{lpe::path}}` (plus legacy `{{vexa::path}}`),
  * read-only `{{get_message_variable::path}}` (only replaced when resolved),
  * `{{format_message_variable::path}}`, and `{{roll:NdS}}` fallback.
  */
-export function substituteVexaMacros(text, context = {}, { rng = Math.random } = {}) {
+export function substituteLpeMacros(text, context = {}, { rng = Math.random } = {}) {
     if (typeof text !== 'string' || !text.includes('{{')) return text;
-    const vexaSnap = context.frozenState || buildReadOnlyVexaSnapshot(context.state);
+    const lpeSnap = context.frozenState || buildReadOnlyLpeSnapshot(context.state);
     const varsObj = context.cardVars && typeof context.cardVars === 'object' ? context.cardVars : {};
 
-    let out = text.replace(/\{\{(get_card_var|get_message_variable|format_message_variable|vexa)::([^}]+)\}\}/gi, (full, fnName, rawPath) => {
+    let out = text.replace(/\{\{(get_card_var|get_message_variable|format_message_variable|lpe|vexa)::([^}]+)\}\}/gi, (full, fnName, rawPath) => {
         const fn = fnName.toLowerCase();
         const path = String(rawPath || '').trim();
         if (!path || FORBIDDEN_PROTO_REGEX.test(path)) return full;
 
-        if (fn === 'vexa') {
-            let val = readDotPathSafe(vexaSnap, path);
+        if (fn === 'lpe' || fn === 'vexa') {
+            let val = readDotPathSafe(lpeSnap, path);
             if (val === undefined && path.startsWith('custom_trackers.')) {
-                val = resolveTrackerLookup(vexaSnap, path);
+                val = resolveTrackerLookup(lpeSnap, path);
             }
             return val === undefined ? '' : formatMacroScalar(val);
         }
 
-        const val = resolveCardVarValue(varsObj, vexaSnap, path, undefined);
+        const val = resolveCardVarValue(varsObj, lpeSnap, path, undefined);
         if (fn === 'get_card_var') {
             return val === undefined ? '' : formatMacroScalar(val);
         }
@@ -1042,6 +1045,7 @@ export function substituteVexaMacros(text, context = {}, { rng = Math.random } =
 
     return out;
 }
+export const substituteVexaMacros = substituteLpeMacros;
 
 function stripMetaKeysDeep(val, depth = 0) {
     if (depth > 20 || val === null || val === undefined) return val;
@@ -1058,7 +1062,7 @@ function stripMetaKeysDeep(val, depth = 0) {
 }
 
 /**
- * Scan World Info entries for `[InitVar]` or `[VexaInitVar]` JSON variable seeds.
+ * Scan World Info entries for `[InitVar]`, `[LPEInitVar]`, or legacy `[VexaInitVar]` JSON variable seeds.
  * Cleans `$meta` schema markers and wraps flat roots under `{ stat_data }` when absent
  * so `getvar('stat_data.x')` and `getvar('x')` both resolve cleanly.
  */
@@ -1072,8 +1076,8 @@ export function tryParseInitVarsFromEntries(entries) {
         const label = String(e.comment || '').trim();
         const rawKey = e.key ?? e.keys;
         const keyStr = Array.isArray(rawKey) ? rawKey.join(' ') : String(rawKey || '');
-        const isInit = /^\[(?:InitVar|VexaInitVars?)\]$/i.test(label)
-            || /\[(?:InitVar|VexaInitVars?)\]/i.test(keyStr);
+        const isInit = /^\[(?:InitVar|(?:LPE|Vexa)InitVars?)\]$/i.test(label)
+            || /\[(?:InitVar|(?:LPE|Vexa)InitVars?)\]/i.test(keyStr);
         if (!isInit) continue;
 
         let raw = e.content.trim();

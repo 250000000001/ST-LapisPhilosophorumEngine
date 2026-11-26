@@ -1,5 +1,5 @@
 /**
- * SillyTavern runtime shim for Vexa State Engine.
+ * SillyTavern runtime shim for Lapis Philosophorum Engine (LPE).
  */
 
 export function getContextSafe() {

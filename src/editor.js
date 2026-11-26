@@ -1,5 +1,5 @@
 /**
- * Interactive Modal State Editor for Vexa State Engine.
+ * Interactive Modal State Editor for Lapis Philosophorum Engine (LPE).
  * Allows editing any of the 16 state sections (plus Raw JSON) and saving as a
  * persistent user edit entry in the journaled state store.
  */
@@ -32,27 +32,27 @@ const EDITOR_TABS = [
 ];
 
 export function openStateEditorModal({ store, seq = null, onSaved = () => {} }) {
-    $('#vse_editor_overlay').remove();
+    $('#lpe_editor_overlay').remove();
 
     const baseState = typeof seq === 'number' ? store.getStateAt(seq) : store.getState();
     let draft = cloneState(baseState || emptyState());
     let activeTab = 'world';
 
     const $overlay = $(`
-        <div id="vse_editor_overlay" class="vse-modal-overlay">
-            <div class="vse-modal">
-                <div class="vse-modal-header">
-                    <h3><i class="fa-solid fa-pen-to-square"></i> Vexa State Editor <small>(ct: <span id="vse_ed_ct">${esc(draft.world?.ct ?? 0)}</span>)</small></h3>
-                    <button type="button" class="vse-icon-btn vse-ed-close"><i class="fa-solid fa-xmark"></i></button>
+        <div id="lpe_editor_overlay" class="lpe-modal-overlay">
+            <div class="lpe-modal">
+                <div class="lpe-modal-header">
+                    <h3><i class="fa-solid fa-pen-to-square"></i> LPE State Editor <small>(ct: <span id="lpe_ed_ct">${esc(draft.world?.ct ?? 0)}</span>)</small></h3>
+                    <button type="button" class="lpe-icon-btn lpe-ed-close"><i class="fa-solid fa-xmark"></i></button>
                 </div>
-                <div class="vse-modal-tabs">
-                    ${EDITOR_TABS.map((t) => `<button type="button" class="vse-ed-tab ${t.id === activeTab ? 'active' : ''}" data-tab="${t.id}">${esc(t.label)}</button>`).join('')}
+                <div class="lpe-modal-tabs">
+                    ${EDITOR_TABS.map((t) => `<button type="button" class="lpe-ed-tab ${t.id === activeTab ? 'active' : ''}" data-tab="${t.id}">${esc(t.label)}</button>`).join('')}
                 </div>
-                <div class="vse-modal-body" id="vse_ed_body"></div>
-                <div class="vse-modal-footer">
-                    <span class="vse-muted" id="vse_ed_err" style="color:#f38ba8;"></span>
-                    <button type="button" class="menu_button vse-ed-close">Cancel</button>
-                    <button type="button" class="menu_button vse-btn-primary" id="vse_ed_save"><i class="fa-solid fa-floppy-disk"></i> Save Edit</button>
+                <div class="lpe-modal-body" id="lpe_ed_body"></div>
+                <div class="lpe-modal-footer">
+                    <span class="lpe-muted" id="lpe_ed_err" style="color:#f38ba8;"></span>
+                    <button type="button" class="menu_button lpe-ed-close">Cancel</button>
+                    <button type="button" class="menu_button lpe-btn-primary" id="lpe_ed_save"><i class="fa-solid fa-floppy-disk"></i> Save Edit</button>
                 </div>
             </div>
         </div>
@@ -61,15 +61,15 @@ export function openStateEditorModal({ store, seq = null, onSaved = () => {} }) 
     $('body').append($overlay);
 
     function collectCurrentTab() {
-        const $b = $overlay.find('#vse_ed_body');
-        $('#vse_ed_err').text('');
+        const $b = $overlay.find('#lpe_ed_body');
+        $('#lpe_ed_err').text('');
         try {
             if (activeTab === 'world') {
                 draft.world.ct = parseInt($b.find('[data-w="ct"]').val(), 10) || 0;
                 for (const k of ['loc', 'time', 'date', 'weather', 'room', 'user_pos', 'entries', 'obstacles', 'audio', 'pacing']) {
                     draft.world[k] = String($b.find(`[data-w="${k}"]`).val() ?? '');
                 }
-                $overlay.find('#vse_ed_ct').text(draft.world.ct);
+                $overlay.find('#lpe_ed_ct').text(draft.world.ct);
             } else if (activeTab === 'inv') {
                 for (const k of ['inv', 'titles', 'status']) {
                     draft.inv[k] = String($b.find(`[data-inv="${k}"]`).val() ?? '');
@@ -79,7 +79,7 @@ export function openStateEditorModal({ store, seq = null, onSaved = () => {} }) 
                 }
                 draft.vent = String($b.find('[data-vent]').val() ?? '');
             } else if (activeTab === 'notebook') {
-                const raw = String($b.find('#vse_ed_notebook_txt').val() ?? '');
+                const raw = String($b.find('#lpe_ed_notebook_txt').val() ?? '');
                 draft.notebook = raw.split(/\r?\n/).map((l) => l.trim()).filter(Boolean).slice(0, 20);
             } else if (activeTab === 'chekhov') {
                 for (const b of ['chamber', 'locked', 'fired']) {
@@ -88,7 +88,7 @@ export function openStateEditorModal({ store, seq = null, onSaved = () => {} }) 
                 }
             } else if (activeTab === 'entity_state') {
                 const rows = [];
-                $b.find('.vse-ed-es-row').each(function () {
+                $b.find('.lpe-ed-es-row').each(function () {
                     const name = String($(this).find('[data-es="name"]').val() ?? '').trim();
                     if (!name) return;
                     rows.push({
@@ -102,42 +102,42 @@ export function openStateEditorModal({ store, seq = null, onSaved = () => {} }) 
                 });
                 draft.entity_state = rows;
             } else if (activeTab === 'onscreen') {
-                draft.onscreen = JSON.parse(String($b.find('#vse_ed_json_sec').val() || '[]'));
+                draft.onscreen = JSON.parse(String($b.find('#lpe_ed_json_sec').val() || '[]'));
             } else if (activeTab === 'offscreen_agendas') {
-                draft.offscreen_agendas = JSON.parse(String($b.find('#vse_ed_json_sec').val() || '[]'));
+                draft.offscreen_agendas = JSON.parse(String($b.find('#lpe_ed_json_sec').val() || '[]'));
             } else if (activeTab === 'locations') {
-                const parsed = JSON.parse(String($b.find('#vse_ed_json_sec').val() || '{}'));
+                const parsed = JSON.parse(String($b.find('#lpe_ed_json_sec').val() || '{}'));
                 for (const r of parsed.rooms || []) {
                     const box = computeBbox(r.grid, r.dim);
                     if (box) r.bbox = box.str;
                 }
                 draft.locations = parsed;
             } else if (activeTab === 'pair_dam') {
-                const parsed = JSON.parse(String($b.find('#vse_ed_json_sec').val() || '{}'));
+                const parsed = JSON.parse(String($b.find('#lpe_ed_json_sec').val() || '{}'));
                 if (Array.isArray(parsed.pair)) draft.pair = parsed.pair;
                 if (Array.isArray(parsed.dam)) draft.dam = parsed.dam;
             } else if (activeTab === 'tracks_arc') {
-                const parsed = JSON.parse(String($b.find('#vse_ed_json_sec').val() || '{}'));
+                const parsed = JSON.parse(String($b.find('#lpe_ed_json_sec').val() || '{}'));
                 if (parsed.tracks) draft.tracks = parsed.tracks;
                 if (parsed.arc) draft.arc = parsed.arc;
             } else if (activeTab === 'health') {
-                const parsed = JSON.parse(String($b.find('#vse_ed_json_sec').val() || '{}'));
+                const parsed = JSON.parse(String($b.find('#lpe_ed_json_sec').val() || '{}'));
                 draft.health = normalizeHealthState(parsed);
             } else if (activeTab === 'raw') {
-                draft = JSON.parse(String($b.find('#vse_ed_json_sec').val() || '{}'));
+                draft = JSON.parse(String($b.find('#lpe_ed_json_sec').val() || '{}'));
             }
             return true;
         } catch (err) {
-            $('#vse_ed_err').text(`Invalid syntax: ${err.message}`);
+            $('#lpe_ed_err').text(`Invalid syntax: ${err.message}`);
             return false;
         }
     }
 
     function renderTab() {
-        const $b = $overlay.find('#vse_ed_body');
+        const $b = $overlay.find('#lpe_ed_body');
         if (activeTab === 'world') {
             const w = draft.world || {};
-            $b.html(`<div class="vse-ed-grid">
+            $b.html(`<div class="lpe-ed-grid">
                 <label>ct <input type="number" class="text_pole" data-w="ct" value="${esc(w.ct)}"></label>
                 <label>Pacing <select class="text_pole" data-w="pacing">
                     ${['SLOW', 'FLOW', 'PUSH'].map((p) => `<option value="${p}" ${w.pacing === p ? 'selected' : ''}>${p}</option>`).join('')}
@@ -153,7 +153,7 @@ export function openStateEditorModal({ store, seq = null, onSaved = () => {} }) 
                 <label class="wide">Audio <textarea class="text_pole" rows="2" data-w="audio">${esc(w.audio)}</textarea></label>
             </div>`);
         } else if (activeTab === 'inv') {
-            $b.html(`<div class="vse-ed-grid">
+            $b.html(`<div class="lpe-ed-grid">
                 <label class="wide">Inventory <textarea class="text_pole" rows="2" data-inv="inv">${esc(draft.inv?.inv)}</textarea></label>
                 <label class="wide">Titles <input type="text" class="text_pole" data-inv="titles" value="${esc(draft.inv?.titles)}"></label>
                 <label class="wide">Status <textarea class="text_pole" rows="2" data-inv="status">${esc(draft.inv?.status)}</textarea></label>
@@ -167,24 +167,24 @@ export function openStateEditorModal({ store, seq = null, onSaved = () => {} }) 
             </div>`);
         } else if (activeTab === 'notebook') {
             $b.html(`
-                <div class="vse-ed-inline-add">
-                    <input type="text" id="vse_ed_new_rule" class="text_pole" placeholder="Quick-add [R] rule (e.g. [R] Keep responses punchy)">
-                    <button type="button" class="menu_button" id="vse_ed_add_rule_btn">Add [R]</button>
+                <div class="lpe-ed-inline-add">
+                    <input type="text" id="lpe_ed_new_rule" class="text_pole" placeholder="Quick-add [R] rule (e.g. [R] Keep responses punchy)">
+                    <button type="button" class="menu_button" id="lpe_ed_add_rule_btn">Add [R]</button>
                 </div>
                 <label class="wide">One entry per line (newest at top, max 20; [R] rules pinned):
-                    <textarea id="vse_ed_notebook_txt" class="text_pole" rows="12">${esc((draft.notebook || []).join('\n'))}</textarea>
+                    <textarea id="lpe_ed_notebook_txt" class="text_pole" rows="12">${esc((draft.notebook || []).join('\n'))}</textarea>
                 </label>
             `);
-            $b.find('#vse_ed_add_rule_btn').on('click', () => {
-                const val = String($b.find('#vse_ed_new_rule').val() || '').trim();
+            $b.find('#lpe_ed_add_rule_btn').on('click', () => {
+                const val = String($b.find('#lpe_ed_new_rule').val() || '').trim();
                 if (!val) return;
                 const formatted = /^\s*\[[RTD]\]/i.test(val) ? val : `[R] ${val}`;
-                const cur = String($b.find('#vse_ed_notebook_txt').val() || '').trim();
-                $b.find('#vse_ed_notebook_txt').val(cur ? `${formatted}\n${cur}` : formatted);
-                $b.find('#vse_ed_new_rule').val('');
+                const cur = String($b.find('#lpe_ed_notebook_txt').val() || '').trim();
+                $b.find('#lpe_ed_notebook_txt').val(cur ? `${formatted}\n${cur}` : formatted);
+                $b.find('#lpe_ed_new_rule').val('');
             });
         } else if (activeTab === 'chekhov') {
-            $b.html(`<div class="vse-ed-grid">
+            $b.html(`<div class="lpe-ed-grid">
                 <label class="wide">Chamber (one bullet per line)<textarea class="text_pole" rows="5" data-chekhov="chamber">${esc((draft.chekhov?.chamber || []).join('\n'))}</textarea></label>
                 <label class="wide">Locked (one bullet per line)<textarea class="text_pole" rows="5" data-chekhov="locked">${esc((draft.chekhov?.locked || []).join('\n'))}</textarea></label>
                 <label class="wide">Fired (one bullet per line)<textarea class="text_pole" rows="3" data-chekhov="fired">${esc((draft.chekhov?.fired || []).join('\n'))}</textarea></label>
@@ -199,11 +199,11 @@ export function openStateEditorModal({ store, seq = null, onSaved = () => {} }) 
                 })].join('');
             };
             const rowsHtml = (draft.entity_state || []).map((es, idx) => `
-                <div class="vse-ed-es-row" data-idx="${idx}">
-                    <div class="vse-ed-es-top">
+                <div class="lpe-ed-es-row" data-idx="${idx}">
+                    <div class="lpe-ed-es-top">
                         <input type="text" class="text_pole" data-es="name" value="${esc(es.name)}" placeholder="Name">
                         <select class="text_pole" data-es="fontColor">${colorOptions(es.fontColor)}</select>
-                        <button type="button" class="menu_button vse-ed-del-es" title="Delete NPC"><i class="fa-solid fa-trash"></i></button>
+                        <button type="button" class="menu_button lpe-ed-del-es" title="Delete NPC"><i class="fa-solid fa-trash"></i></button>
                     </div>
                     <input type="text" class="text_pole" data-es="look" value="${esc(es.look)}" placeholder="Look">
                     <input type="text" class="text_pole" data-es="voice" value="${esc(es.voice)}" placeholder="Voice">
@@ -212,13 +212,13 @@ export function openStateEditorModal({ store, seq = null, onSaved = () => {} }) 
                 </div>
             `).join('');
             $b.html(`
-                <div style="margin-bottom:8px;"><button type="button" class="menu_button" id="vse_ed_add_es"><i class="fa-solid fa-plus"></i> Add Entity</button></div>
-                <div id="vse_ed_es_list">${rowsHtml}</div>
+                <div style="margin-bottom:8px;"><button type="button" class="menu_button" id="lpe_ed_add_es"><i class="fa-solid fa-plus"></i> Add Entity</button></div>
+                <div id="lpe_ed_es_list">${rowsHtml}</div>
             `);
-            $b.on('click', '.vse-ed-del-es', function () {
-                $(this).closest('.vse-ed-es-row').remove();
+            $b.on('click', '.lpe-ed-del-es', function () {
+                $(this).closest('.lpe-ed-es-row').remove();
             });
-            $b.find('#vse_ed_add_es').on('click', () => {
+            $b.find('#lpe_ed_add_es').on('click', () => {
                 collectCurrentTab();
                 draft.entity_state.push({ name: 'New NPC', fontColor: '', look: '', voice: '', persona: '', private: '' });
                 renderTab();
@@ -233,24 +233,24 @@ export function openStateEditorModal({ store, seq = null, onSaved = () => {} }) 
             else if (activeTab === 'tracks_arc') { obj = { tracks: draft.tracks, arc: draft.arc }; hint = 'Tracks & ARC objects'; }
             else if (activeTab === 'health') { obj = draft.health || normalizeHealthState({}); hint = 'Persona Body Health JSON (Nice Health System)'; }
             $b.html(`
-                <div class="vse-muted" style="margin-bottom:6px;">${esc(hint)}</div>
-                <textarea id="vse_ed_json_sec" class="text_pole vse-code-area" rows="18">${esc(JSON.stringify(obj, null, 2))}</textarea>
+                <div class="lpe-muted" style="margin-bottom:6px;">${esc(hint)}</div>
+                <textarea id="lpe_ed_json_sec" class="text_pole lpe-code-area" rows="18">${esc(JSON.stringify(obj, null, 2))}</textarea>
             `);
         }
     }
 
     renderTab();
 
-    $overlay.on('click', '.vse-ed-tab', function () {
+    $overlay.on('click', '.lpe-ed-tab', function () {
         if (!collectCurrentTab()) return;
         activeTab = $(this).data('tab');
-        $overlay.find('.vse-ed-tab').removeClass('active');
+        $overlay.find('.lpe-ed-tab').removeClass('active');
         $(this).addClass('active');
         renderTab();
     });
 
-    $overlay.on('click', '.vse-ed-close', () => $overlay.remove());
-    $overlay.find('#vse_ed_save').on('click', () => {
+    $overlay.on('click', '.lpe-ed-close', () => $overlay.remove());
+    $overlay.find('#lpe_ed_save').on('click', () => {
         if (!collectCurrentTab()) return;
         store.addUserEdit(draft, { kind: 'snapshot' });
         $overlay.remove();

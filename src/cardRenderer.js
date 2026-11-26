@@ -58,21 +58,21 @@ export function shouldYieldRenderer(settings) {
 
 /**
  * Fast, conservative detector distinguishing full interactive frontend HTML screens
- * from Vexa XML, Markdown code examples, and ordinary programming snippets.
+ * from LPE XML, Markdown code examples, and ordinary programming snippets.
  */
 export function isFrontendHtmlBlock(codeText) {
     if (typeof codeText !== 'string') return false;
     const head = codeText.slice(0, 2048).trimStart();
     if (!head || head.length < 16) return false;
 
-    // Never hijack Vexa internal XML/tail payloads
-    if (/^<(?:internal_states|vexa_tail|vexa_receipt|state:|UpdateVariable)/i.test(head)) {
+    // Never hijack LPE/legacy Vexa internal XML/tail payloads
+    if (/^<(?:internal_states|(?:lpe|vexa)_tail|(?:lpe|vexa)_receipt|state:|UpdateVariable)/i.test(head)) {
         return false;
     }
 
     if (/^(?:<!DOCTYPE\s+html\b|<html\b)/i.test(head)) return true;
-    if (/<!--\s*vexa-(?:screen|widget)\s*-->/i.test(head)) return true;
-    if (/data-vexa-screen\s*=/.test(head)) return true;
+    if (/<!--\s*(?:lpe|vexa)-(?:screen|widget)\s*-->/i.test(head)) return true;
+    if (/data-(?:lpe|vexa)-screen\s*=/.test(head)) return true;
     if (/<head\b[^>]*>[\s\S]*?<body\b/i.test(codeText.slice(0, 8192))) return true;
 
     const hasInteractiveTag = /<(?:script|style|form|canvas|button|input|select|iframe)\b/i.test(codeText);
@@ -111,13 +111,13 @@ export function installHljsGuard(getSettings) {
         return isFrontendHtmlBlock(txt);
     };
 
-    if (typeof hljsObj.highlightElement === 'function' && !hljsObj.highlightElement.__vseGuarded) {
+    if (typeof hljsObj.highlightElement === 'function' && !hljsObj.highlightElement.__lpeGuarded) {
         const origFn = hljsObj.highlightElement.bind(hljsObj);
         installedHljsOrig = origFn;
-        const wrapped = function vexaGuardedHighlightElement(el, ...rest) {
+        const wrapped = function lpeGuardedHighlightElement(el, ...rest) {
             try {
                 if (shouldSkipHljs(el)) {
-                    if (el.dataset) el.dataset.vseHljsSkipped = '1';
+                    if (el.dataset) el.dataset.lpeHljsSkipped = '1';
                     return;
                 }
             } catch {
@@ -125,18 +125,18 @@ export function installHljsGuard(getSettings) {
             }
             return origFn(el, ...rest);
         };
-        wrapped.__vseGuarded = true;
-        wrapped.__vseOrig = origFn;
+        wrapped.__lpeGuarded = true;
+        wrapped.__lpeOrig = origFn;
         hljsObj.highlightElement = wrapped;
     }
 
-    if (typeof hljsObj.highlightBlock === 'function' && !hljsObj.highlightBlock.__vseGuarded) {
+    if (typeof hljsObj.highlightBlock === 'function' && !hljsObj.highlightBlock.__lpeGuarded) {
         const origBlockFn = hljsObj.highlightBlock.bind(hljsObj);
         installedHljsBlockOrig = origBlockFn;
-        const wrappedBlock = function vexaGuardedHighlightBlock(el, ...rest) {
+        const wrappedBlock = function lpeGuardedHighlightBlock(el, ...rest) {
             try {
                 if (shouldSkipHljs(el)) {
-                    if (el.dataset) el.dataset.vseHljsSkipped = '1';
+                    if (el.dataset) el.dataset.lpeHljsSkipped = '1';
                     return;
                 }
             } catch {
@@ -144,8 +144,8 @@ export function installHljsGuard(getSettings) {
             }
             return origBlockFn(el, ...rest);
         };
-        wrappedBlock.__vseGuarded = true;
-        wrappedBlock.__vseOrig = origBlockFn;
+        wrappedBlock.__lpeGuarded = true;
+        wrappedBlock.__lpeOrig = origBlockFn;
         hljsObj.highlightBlock = wrappedBlock;
     }
 
@@ -155,14 +155,14 @@ export function installHljsGuard(getSettings) {
 export function uninstallHljsGuard() {
     const hljsObj = globalThis.hljs || globalThis.window?.hljs;
     if (hljsObj) {
-        if (hljsObj.highlightElement?.__vseGuarded && hljsObj.highlightElement.__vseOrig) {
-            hljsObj.highlightElement = hljsObj.highlightElement.__vseOrig;
-        } else if (installedHljsOrig && hljsObj.highlightElement?.__vseGuarded) {
+        if (hljsObj.highlightElement?.__lpeGuarded && hljsObj.highlightElement.__lpeOrig) {
+            hljsObj.highlightElement = hljsObj.highlightElement.__lpeOrig;
+        } else if (installedHljsOrig && hljsObj.highlightElement?.__lpeGuarded) {
             hljsObj.highlightElement = installedHljsOrig;
         }
-        if (hljsObj.highlightBlock?.__vseGuarded && hljsObj.highlightBlock.__vseOrig) {
-            hljsObj.highlightBlock = hljsObj.highlightBlock.__vseOrig;
-        } else if (installedHljsBlockOrig && hljsObj.highlightBlock?.__vseGuarded) {
+        if (hljsObj.highlightBlock?.__lpeGuarded && hljsObj.highlightBlock.__lpeOrig) {
+            hljsObj.highlightBlock = hljsObj.highlightBlock.__lpeOrig;
+        } else if (installedHljsBlockOrig && hljsObj.highlightBlock?.__lpeGuarded) {
             hljsObj.highlightBlock = installedHljsBlockOrig;
         }
     }
@@ -212,7 +212,7 @@ export function createCardRenderer({
 
     function removeRecordDom(preEl, rec) {
         revokeRecord(rec);
-        try { preEl?.classList?.remove('vse-code-hidden'); } catch { /* ignore */ }
+        try { preEl?.classList?.remove('lpe-code-hidden'); } catch { /* ignore */ }
         if (rec?.wrapEl && rec.wrapEl.isConnected) {
             rec.wrapEl.remove();
         }
@@ -228,7 +228,7 @@ export function createCardRenderer({
         }
         // Also sweep non-frontend code-collapse toggles whose <pre> detached
         if (typeof document !== 'undefined') {
-            for (const bar of document.querySelectorAll('#chat .vse-code-fold-toggle')) {
+            for (const bar of document.querySelectorAll('#chat .lpe-code-fold-toggle')) {
                 const next = bar.nextElementSibling;
                 if (!next || next.tagName !== 'PRE' || !next.isConnected) {
                     bar.remove();
@@ -243,11 +243,11 @@ export function createCardRenderer({
         }
         mounted.clear();
         if (typeof document !== 'undefined') {
-            for (const el of document.querySelectorAll('#chat .vse-card-frame-wrap, #chat .vse-code-fold-toggle')) {
+            for (const el of document.querySelectorAll('#chat .lpe-card-frame-wrap, #chat .lpe-code-fold-toggle')) {
                 el.remove();
             }
-            for (const pre of document.querySelectorAll('#chat pre.vse-code-hidden')) {
-                pre.classList.remove('vse-code-hidden');
+            for (const pre of document.querySelectorAll('#chat pre.lpe-code-hidden')) {
+                pre.classList.remove('lpe-code-hidden');
             }
         }
     }
@@ -255,21 +255,21 @@ export function createCardRenderer({
     function showConfirmSendBar(token, text) {
         for (const rec of mounted.values()) {
             if (rec.token !== token || !rec.wrapEl) continue;
-            const existing = rec.wrapEl.querySelector('.vse-card-confirm-bar');
+            const existing = rec.wrapEl.querySelector('.lpe-card-confirm-bar');
             if (existing) existing.remove();
             const fullText = String(text || '');
             const bar = document.createElement('div');
-            bar.className = 'vse-card-confirm-bar';
+            bar.className = 'lpe-card-confirm-bar';
             const label = document.createElement('span');
             const previewShort = `${fullText.slice(0, 72)}${fullText.length > 72 ? '...' : ''}`;
             label.innerHTML = `<i class="fa-solid fa-paper-plane"></i> Screen queued reply (${esc(fullText.length)} chars): <code>${esc(previewShort)}</code>`;
             let expanded = false;
             const actions = document.createElement('div');
-            actions.className = 'vse-card-confirm-actions';
+            actions.className = 'lpe-card-confirm-actions';
             if (fullText.length > 72) {
                 const viewBtn = document.createElement('button');
                 viewBtn.type = 'button';
-                viewBtn.className = 'vse-mini-btn';
+                viewBtn.className = 'lpe-mini-btn';
                 viewBtn.textContent = 'View Full';
                 viewBtn.addEventListener('click', () => {
                     expanded = !expanded;
@@ -281,7 +281,7 @@ export function createCardRenderer({
             }
             const sendBtn = document.createElement('button');
             sendBtn.type = 'button';
-            sendBtn.className = 'vse-mini-btn vse-card-send-confirm';
+            sendBtn.className = 'lpe-mini-btn lpe-card-send-confirm';
             sendBtn.innerHTML = '<i class="fa-solid fa-check"></i> Send to Chat';
             sendBtn.addEventListener('click', () => {
                 bar.remove();
@@ -289,7 +289,7 @@ export function createCardRenderer({
             });
             const dismissBtn = document.createElement('button');
             dismissBtn.type = 'button';
-            dismissBtn.className = 'vse-mini-btn';
+            dismissBtn.className = 'lpe-mini-btn';
             dismissBtn.textContent = 'Dismiss';
             dismissBtn.addEventListener('click', () => bar.remove());
             actions.appendChild(sendBtn);
@@ -304,23 +304,23 @@ export function createCardRenderer({
 
     function applyPlainCodeCollapse(preEl, collapseMode) {
         const shouldHidePlain = collapseMode === 'all';
-        let toggleEl = preEl.previousElementSibling?.classList?.contains('vse-code-fold-toggle')
+        let toggleEl = preEl.previousElementSibling?.classList?.contains('lpe-code-fold-toggle')
             ? preEl.previousElementSibling
             : null;
         if (!shouldHidePlain) {
-            preEl.classList.remove('vse-code-hidden');
+            preEl.classList.remove('lpe-code-hidden');
             if (toggleEl) toggleEl.remove();
             return;
         }
         if (!toggleEl) {
             toggleEl = document.createElement('div');
-            toggleEl.className = 'vse-code-fold-toggle';
+            toggleEl.className = 'lpe-code-fold-toggle';
             const btn = document.createElement('button');
             btn.type = 'button';
-            btn.className = 'vse-mini-btn';
+            btn.className = 'lpe-mini-btn';
             const updateBtn = () => {
                 const open = sourceOpenPres.has(preEl);
-                preEl.classList.toggle('vse-code-hidden', !open);
+                preEl.classList.toggle('lpe-code-hidden', !open);
                 btn.innerHTML = open
                     ? '<i class="fa-solid fa-eye-slash"></i> Hide Code Block'
                     : '<i class="fa-solid fa-code"></i> Show Code Block';
@@ -335,27 +335,27 @@ export function createCardRenderer({
             preEl.before(toggleEl);
             updateBtn();
         } else {
-            preEl.classList.toggle('vse-code-hidden', !sourceOpenPres.has(preEl));
+            preEl.classList.toggle('lpe-code-hidden', !sourceOpenPres.has(preEl));
         }
     }
 
     function buildPlaceholderWrap(preEl, { kind, title, byteLen, onActivate, collapseSource }) {
         const wrap = document.createElement('div');
-        wrap.className = 'vse-card-frame-wrap is-placeholder';
+        wrap.className = 'lpe-card-frame-wrap is-placeholder';
         const box = document.createElement('div');
-        box.className = 'vse-card-placeholder';
+        box.className = 'lpe-card-placeholder';
         const kb = (byteLen / 1024).toFixed(1);
         const msg = kind === 'oversized'
             ? `Large interactive screen (${kb} KB) paused by performance guard`
             : `Interactive screen outside active Render Depth (${kb} KB)`;
         box.innerHTML = `
-            <span class="vse-card-ph-text"><i class="fa-solid ${kind === 'oversized' ? 'fa-shield-halved' : 'fa-layer-group'}"></i> <b>${esc(title)}</b> — ${esc(msg)}</span>
+            <span class="lpe-card-ph-text"><i class="fa-solid ${kind === 'oversized' ? 'fa-shield-halved' : 'fa-layer-group'}"></i> <b>${esc(title)}</b> — ${esc(msg)}</span>
         `;
         const btns = document.createElement('span');
-        btns.className = 'vse-card-ph-btns';
+        btns.className = 'lpe-card-ph-btns';
         const loadBtn = document.createElement('button');
         loadBtn.type = 'button';
-        loadBtn.className = 'vse-mini-btn vse-card-load-btn';
+        loadBtn.className = 'lpe-mini-btn lpe-card-load-btn';
         loadBtn.innerHTML = kind === 'oversized'
             ? '<i class="fa-solid fa-play"></i> Render Once'
             : '<i class="fa-solid fa-play"></i> Load Interactive Screen';
@@ -367,13 +367,13 @@ export function createCardRenderer({
         if (collapseSource) {
             const srcBtn = document.createElement('button');
             srcBtn.type = 'button';
-            srcBtn.className = 'vse-mini-btn vse-card-src-btn';
+            srcBtn.className = 'lpe-mini-btn lpe-card-src-btn';
             srcBtn.textContent = sourceOpenPres.has(preEl) ? 'Hide Source' : 'Source';
             srcBtn.addEventListener('click', (e) => {
                 e.stopPropagation();
                 if (sourceOpenPres.has(preEl)) sourceOpenPres.delete(preEl);
                 else sourceOpenPres.add(preEl);
-                preEl.classList.toggle('vse-code-hidden', !sourceOpenPres.has(preEl));
+                preEl.classList.toggle('lpe-code-hidden', !sourceOpenPres.has(preEl));
                 srcBtn.textContent = sourceOpenPres.has(preEl) ? 'Hide Source' : 'Source';
             });
             btns.appendChild(srcBtn);
@@ -406,7 +406,7 @@ export function createCardRenderer({
         ) {
             // Keep live iframe completely undisturbed; only sync code-collapse state
             const shouldHideCode = collapseMode !== 'none' && !sourceOpenPres.has(preEl);
-            preEl.classList.toggle('vse-code-hidden', shouldHideCode);
+            preEl.classList.toggle('lpe-code-hidden', shouldHideCode);
             return existing;
         }
         if (existing) removeRecordDom(preEl, existing);
@@ -432,32 +432,32 @@ export function createCardRenderer({
         let blobUrl = null;
         try {
             const wrap = document.createElement('div');
-            wrap.className = 'vse-card-frame-wrap';
-            wrap.dataset.vseFrameMesid = String(mesId);
+            wrap.className = 'lpe-card-frame-wrap';
+            wrap.dataset.lpeFrameMesid = String(mesId);
 
             const bar = document.createElement('div');
-            bar.className = 'vse-card-frame-bar';
-            bar.innerHTML = `<span class="vse-card-frame-title"><i class="fa-solid fa-window-maximize"></i> ${esc(title)} <small class="vse-card-sandbox-pill" title="Sandboxed iframe (${useBlob ? 'Blob URL' : 'srcdoc'}) without host access">Sandboxed · ${useBlob ? 'Blob' : 'srcdoc'}</small></span>`;
+            bar.className = 'lpe-card-frame-bar';
+            bar.innerHTML = `<span class="lpe-card-frame-title"><i class="fa-solid fa-window-maximize"></i> ${esc(title)} <small class="lpe-card-sandbox-pill" title="Sandboxed iframe (${useBlob ? 'Blob URL' : 'srcdoc'}) without host access">Sandboxed · ${useBlob ? 'Blob' : 'srcdoc'}</small></span>`;
 
             const barBtns = document.createElement('span');
-            barBtns.className = 'vse-card-frame-actions';
+            barBtns.className = 'lpe-card-frame-actions';
             if (collapseMode !== 'none') {
                 const srcBtn = document.createElement('button');
                 srcBtn.type = 'button';
-                srcBtn.className = 'vse-mini-btn vse-card-src-btn';
+                srcBtn.className = 'lpe-mini-btn lpe-card-src-btn';
                 srcBtn.textContent = sourceOpenPres.has(preEl) ? 'Hide Source' : 'Source';
                 srcBtn.addEventListener('click', (e) => {
                     e.stopPropagation();
                     if (sourceOpenPres.has(preEl)) sourceOpenPres.delete(preEl);
                     else sourceOpenPres.add(preEl);
-                    preEl.classList.toggle('vse-code-hidden', !sourceOpenPres.has(preEl));
+                    preEl.classList.toggle('lpe-code-hidden', !sourceOpenPres.has(preEl));
                     srcBtn.textContent = sourceOpenPres.has(preEl) ? 'Hide Source' : 'Source';
                 });
                 barBtns.appendChild(srcBtn);
             }
             const unloadBtn = document.createElement('button');
             unloadBtn.type = 'button';
-            unloadBtn.className = 'vse-mini-btn';
+            unloadBtn.className = 'lpe-mini-btn';
             unloadBtn.title = 'Unload interactive iframe & free memory';
             unloadBtn.innerHTML = '<i class="fa-solid fa-power-off"></i>';
             unloadBtn.addEventListener('click', (e) => {
@@ -471,7 +471,7 @@ export function createCardRenderer({
             bar.appendChild(barBtns);
 
             const iframe = document.createElement('iframe');
-            iframe.className = 'vse-card-iframe';
+            iframe.className = 'lpe-card-iframe';
             // Tightest sandbox: ONLY allow-scripts (no allow-same-origin, no allow-forms, no allow-popups)
             iframe.setAttribute('sandbox', 'allow-scripts');
             iframe.setAttribute('referrerpolicy', 'no-referrer');
@@ -499,7 +499,7 @@ export function createCardRenderer({
             preEl.after(wrap);
 
             const shouldHideCode = collapseMode !== 'none' && !sourceOpenPres.has(preEl);
-            preEl.classList.toggle('vse-code-hidden', shouldHideCode);
+            preEl.classList.toggle('lpe-code-hidden', shouldHideCode);
 
             const rec = {
                 status: 'mounted',
@@ -576,7 +576,7 @@ export function createCardRenderer({
                 }
 
                 // Ensure non-frontend toggle isn't left behind on frontend <pre>
-                if (preEl.previousElementSibling?.classList?.contains('vse-code-fold-toggle')) {
+                if (preEl.previousElementSibling?.classList?.contains('lpe-code-fold-toggle')) {
                     preEl.previousElementSibling.remove();
                 }
 
@@ -594,7 +594,7 @@ export function createCardRenderer({
                     const phKey = `ph:${kind}:${srcHash}`;
                     const existing = mounted.get(preEl);
                     const shouldHide = collapseMode !== 'none' && !sourceOpenPres.has(preEl);
-                    preEl.classList.toggle('vse-code-hidden', shouldHide);
+                    preEl.classList.toggle('lpe-code-hidden', shouldHide);
 
                     if (existing && existing.status === 'placeholder' && existing.hash === phKey && existing.wrapEl?.isConnected) {
                         placeholderCount++;

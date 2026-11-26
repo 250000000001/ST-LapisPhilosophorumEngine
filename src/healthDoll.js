@@ -881,7 +881,7 @@ function renderMiniBadgeGlyph(rec, cx, cy) {
     if (hasBleed) {
         const bx = rec.missing || rec.prosthetic ? cx + 9 : cx;
         badges.push(`
-            <g class="vse-doll-bleed-badge">
+            <g class="lpe-doll-bleed-badge">
                 <circle cx="${bx}" cy="${cy}" r="7" fill="#2a0a0d" stroke="#ef4444" stroke-width="1.2" />
                 <path d="M${bx},${cy - 4.5} C${bx + 3.5},${cy - 0.5} ${bx + 3.5},${cy + 4} ${bx},${cy + 4} C${bx - 3.5},${cy + 4} ${bx - 3.5},${cy - 0.5} ${bx},${cy - 4.5} Z" fill="#ef4444" />
             </g>
@@ -943,26 +943,26 @@ export function renderHealthDollSvg(health, { layer = 'body', selectedPart = nul
 
     const defs = `
         <defs>
-            <pattern id="vse-pat-bandage-${uid}" width="12" height="12" patternUnits="userSpaceOnUse" patternTransform="rotate(28)">
+            <pattern id="lpe-pat-bandage-${uid}" width="12" height="12" patternUnits="userSpaceOnUse" patternTransform="rotate(28)">
                 <rect width="12" height="12" fill="rgba(241,245,249,0.12)" />
                 <line x1="0" y1="3" x2="12" y2="3" stroke="rgba(248,250,252,0.72)" stroke-width="3.2" />
                 <line x1="0" y1="9" x2="12" y2="9" stroke="rgba(203,213,225,0.45)" stroke-width="2" />
             </pattern>
-            <pattern id="vse-pat-scar-${uid}" width="14" height="14" patternUnits="userSpaceOnUse" patternTransform="rotate(-35)">
+            <pattern id="lpe-pat-scar-${uid}" width="14" height="14" patternUnits="userSpaceOnUse" patternTransform="rotate(-35)">
                 <line x1="2" y1="7" x2="12" y2="7" stroke="rgba(226,232,240,0.68)" stroke-width="1.6" stroke-linecap="round" />
                 <line x1="6" y1="3" x2="8" y2="11" stroke="rgba(203,213,225,0.45)" stroke-width="1.1" />
             </pattern>
-            <pattern id="vse-pat-sharp-${uid}" width="12" height="12" patternUnits="userSpaceOnUse" patternTransform="rotate(-42)">
+            <pattern id="lpe-pat-sharp-${uid}" width="12" height="12" patternUnits="userSpaceOnUse" patternTransform="rotate(-42)">
                 <line x1="1" y1="6" x2="11" y2="6" stroke="rgba(252,165,165,0.8)" stroke-width="1.8" stroke-linecap="round" />
             </pattern>
-            <pattern id="vse-pat-burn-${uid}" width="10" height="10" patternUnits="userSpaceOnUse">
+            <pattern id="lpe-pat-burn-${uid}" width="10" height="10" patternUnits="userSpaceOnUse">
                 <circle cx="3" cy="3" r="1.7" fill="rgba(253,186,116,0.55)" />
                 <circle cx="8" cy="8" r="1.4" fill="rgba(251,146,60,0.45)" />
             </pattern>
-            <pattern id="vse-pat-frost-${uid}" width="12" height="12" patternUnits="userSpaceOnUse">
+            <pattern id="lpe-pat-frost-${uid}" width="12" height="12" patternUnits="userSpaceOnUse">
                 <path d="M6,1 L6,11 M1,6 L11,6" stroke="rgba(186,230,253,0.55)" stroke-width="1.1" />
             </pattern>
-            <pattern id="vse-pat-prosthetic-${uid}" width="8" height="8" patternUnits="userSpaceOnUse">
+            <pattern id="lpe-pat-prosthetic-${uid}" width="8" height="8" patternUnits="userSpaceOnUse">
                 <path d="M0,4 L8,4 M4,0 L4,8" stroke="rgba(125,211,252,0.34)" stroke-width="0.9" />
             </pattern>
         </defs>
@@ -977,33 +977,33 @@ export function renderHealthDollSvg(health, { layer = 'body', selectedPart = nul
         const title = `${bp.label}: ${rec?.missing ? 'Missing' : `${rec ? rec.hp : 100}% HP`}${rec?.prosthetic ? ` [${rec.prosthetic}]` : ''}${condSummary}`;
 
         if (ghostOnly) {
-            return `<g class="vse-doll-ghost">${shapeMarkup}</g>`;
+            return `<g class="lpe-doll-ghost">${shapeMarkup}</g>`;
         }
 
-        const clipId = `vse-clip-${bp.id}-${uid}`;
+        const clipId = `lpe-clip-${bp.id}-${uid}`;
         const overlays = [];
         if (rec?.prosthetic && !rec.missing) {
-            overlays.push(`<rect x="0" y="0" width="260" height="480" fill="url(#vse-pat-prosthetic-${uid})" clip-path="url(#${clipId})" />`);
+            overlays.push(`<rect x="0" y="0" width="260" height="480" fill="url(#lpe-pat-prosthetic-${uid})" clip-path="url(#${clipId})" />`);
         }
         if (conds.some((c) => c.scar || c.kind === 'scar')) {
-            overlays.push(`<rect x="0" y="0" width="260" height="480" fill="url(#vse-pat-scar-${uid})" clip-path="url(#${clipId})" />`);
+            overlays.push(`<rect x="0" y="0" width="260" height="480" fill="url(#lpe-pat-scar-${uid})" clip-path="url(#${clipId})" />`);
         }
         if (conds.some((c) => (c.kind === 'sharp' || c.kind === 'bleeding') && !c.scar)) {
-            overlays.push(`<rect x="0" y="0" width="260" height="480" fill="url(#vse-pat-sharp-${uid})" clip-path="url(#${clipId})" />`);
+            overlays.push(`<rect x="0" y="0" width="260" height="480" fill="url(#lpe-pat-sharp-${uid})" clip-path="url(#${clipId})" />`);
         }
         if (conds.some((c) => c.kind === 'burn' && !c.scar)) {
-            overlays.push(`<rect x="0" y="0" width="260" height="480" fill="url(#vse-pat-burn-${uid})" clip-path="url(#${clipId})" />`);
+            overlays.push(`<rect x="0" y="0" width="260" height="480" fill="url(#lpe-pat-burn-${uid})" clip-path="url(#${clipId})" />`);
         }
         if (conds.some((c) => c.kind === 'frost' && !c.scar)) {
-            overlays.push(`<rect x="0" y="0" width="260" height="480" fill="url(#vse-pat-frost-${uid})" clip-path="url(#${clipId})" />`);
+            overlays.push(`<rect x="0" y="0" width="260" height="480" fill="url(#lpe-pat-frost-${uid})" clip-path="url(#${clipId})" />`);
         }
         if (conds.some((c) => c.treated && !c.scar)) {
-            overlays.push(`<rect x="0" y="0" width="260" height="480" fill="url(#vse-pat-bandage-${uid})" clip-path="url(#${clipId})" />`);
+            overlays.push(`<rect x="0" y="0" width="260" height="480" fill="url(#lpe-pat-bandage-${uid})" clip-path="url(#${clipId})" />`);
         }
 
         const dashAttr = rec?.missing ? 'stroke-dasharray="4 3"' : '';
         const classes = [
-            'vse-doll-part',
+            'lpe-doll-part',
             `is-${st.statusClass}`,
             isSel ? 'is-selected' : '',
             conds.some((c) => c.bleeding) ? 'is-bleeding' : '',
@@ -1047,14 +1047,14 @@ export function renderHealthDollSvg(health, { layer = 'body', selectedPart = nul
 
     // Internal injury indicator on 'body' layer if organs or bones are damaged
     const internalAlertBadge = (activeLayer === 'body' && metrics.internalIssues > 0)
-        ? `<g class="vse-doll-internal-alert" data-layer-jump="xray" style="cursor:pointer;">
+        ? `<g class="lpe-doll-internal-alert" data-layer-jump="xray" style="cursor:pointer;">
             <title>${metrics.internalIssues} internal organ/bone condition(s) — switch to Organs/Bones/X-Ray</title>
             <circle cx="130" cy="144" r="10" fill="rgba(220,38,38,0.86)" stroke="#fecaca" stroke-width="1.4" />
             <path d="M130,139 L130,149 M125,144 L135,144" stroke="#ffffff" stroke-width="2" stroke-linecap="round" />
         </g>`
         : '';
 
-    const cls = compact ? 'vse-doll-svg compact' : 'vse-doll-svg';
+    const cls = compact ? 'lpe-doll-svg compact' : 'lpe-doll-svg';
     return `
         <svg class="${cls}" viewBox="0 0 260 468" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Persona Body Health Doll">
             ${defs}
@@ -1083,29 +1083,29 @@ function renderConditionRow(partId, cond, idx, { showActions = false } = {}) {
     const color = CONDITION_COLORS[cond.kind] || CONDITION_COLORS.other;
     const partLabel = BODY_PART_BY_ID[partId]?.label || partId;
     const badges = [
-        `<span class="vse-health-kind-pill" style="border-color:${color};color:${color};">${esc(CONDITION_LABELS[cond.kind] || cond.kind)}</span>`,
-        cond.scar ? `<span class="vse-pill">Scar</span>` : '',
-        cond.bleeding ? `<span class="vse-pill vse-pill-bleed">Bleeding</span>` : '',
-        cond.treated ? `<span class="vse-pill ok">Bandaged</span>` : '',
-        `<span class="vse-pill">${esc(cond.severity)}%</span>`,
+        `<span class="lpe-health-kind-pill" style="border-color:${color};color:${color};">${esc(CONDITION_LABELS[cond.kind] || cond.kind)}</span>`,
+        cond.scar ? `<span class="lpe-pill">Scar</span>` : '',
+        cond.bleeding ? `<span class="lpe-pill lpe-pill-bleed">Bleeding</span>` : '',
+        cond.treated ? `<span class="lpe-pill ok">Bandaged</span>` : '',
+        `<span class="lpe-pill">${esc(cond.severity)}%</span>`,
     ].filter(Boolean).join('');
 
     const actions = showActions
-        ? `<div class="vse-health-cond-actions">
-            ${!cond.treated && !cond.scar ? `<button type="button" class="vse-mini-btn vse-health-treat-btn" data-part-id="${esc(partId)}" data-cond-idx="${idx}" title="Bandage / Treat"><i class="fa-solid fa-bandage"></i> Treat</button>` : ''}
-            ${!cond.scar ? `<button type="button" class="vse-mini-btn vse-health-scar-btn" data-part-id="${esc(partId)}" data-cond-idx="${idx}" title="Convert to permanent scar"><i class="fa-solid fa-bolt-lightning"></i> Scar</button>` : ''}
-            <button type="button" class="vse-mini-btn vse-health-heal-btn" data-part-id="${esc(partId)}" data-cond-idx="${idx}" title="Remove / Heal condition"><i class="fa-solid fa-check"></i> Heal</button>
+        ? `<div class="lpe-health-cond-actions">
+            ${!cond.treated && !cond.scar ? `<button type="button" class="lpe-mini-btn lpe-health-treat-btn" data-part-id="${esc(partId)}" data-cond-idx="${idx}" title="Bandage / Treat"><i class="fa-solid fa-bandage"></i> Treat</button>` : ''}
+            ${!cond.scar ? `<button type="button" class="lpe-mini-btn lpe-health-scar-btn" data-part-id="${esc(partId)}" data-cond-idx="${idx}" title="Convert to permanent scar"><i class="fa-solid fa-bolt-lightning"></i> Scar</button>` : ''}
+            <button type="button" class="lpe-mini-btn lpe-health-heal-btn" data-part-id="${esc(partId)}" data-cond-idx="${idx}" title="Remove / Heal condition"><i class="fa-solid fa-check"></i> Heal</button>
         </div>`
         : '';
 
     return `
-        <div class="vse-health-cond-card" style="border-left:3px solid ${color};">
-            <div class="vse-health-cond-head">
-                <button type="button" class="vse-health-part-chip" data-part-id="${esc(partId)}">${esc(partLabel)}</button>
+        <div class="lpe-health-cond-card" style="border-left:3px solid ${color};">
+            <div class="lpe-health-cond-head">
+                <button type="button" class="lpe-health-part-chip" data-part-id="${esc(partId)}">${esc(partLabel)}</button>
                 <strong>${esc(cond.label)}</strong>
                 ${badges}
             </div>
-            ${cond.note ? `<div class="vse-line">${esc(cond.note)}</div>` : ''}
+            ${cond.note ? `<div class="lpe-line">${esc(cond.note)}</div>` : ''}
             ${actions}
         </div>
     `;
@@ -1140,7 +1140,7 @@ export function renderHealthTab(state, {
         { id: 'bones', label: 'Bones', icon: 'fa-bone' },
         { id: 'xray', label: 'X-Ray', icon: 'fa-x-ray' },
     ].map((l) => `
-        <button type="button" class="vse-health-layer-btn ${l.id === activeLayer ? 'active' : ''}" data-health-layer="${l.id}">
+        <button type="button" class="lpe-health-layer-btn ${l.id === activeLayer ? 'active' : ''}" data-health-layer="${l.id}">
             <i class="fa-solid ${l.icon}"></i> ${l.label}
         </button>
     `).join('');
@@ -1167,16 +1167,16 @@ export function renderHealthTab(state, {
         const hp = rec ? rec.hp : 100;
         const condCards = (rec?.conditions || []).length
             ? rec.conditions.map((c, idx) => renderConditionRow(part.id, c, idx, { showActions })).join('')
-            : `<div class="vse-empty">${rec?.missing ? 'Body part is missing.' : rec?.prosthetic ? `Replaced with ${esc(rec.prosthetic)}.` : 'No injuries or conditions on this body part.'}</div>`;
+            : `<div class="lpe-empty">${rec?.missing ? 'Body part is missing.' : rec?.prosthetic ? `Replaced with ${esc(rec.prosthetic)}.` : 'No injuries or conditions on this body part.'}</div>`;
         partRows.push(`
-            <div class="vse-health-selected-head">
+            <div class="lpe-health-selected-head">
                 <strong>${esc(part.label)}</strong>
-                <span class="vse-pill ${barColorClass(hp)}">${rec?.missing ? 'Missing (0%)' : `${hp}% HP`}</span>
-                ${rec?.prosthetic ? `<span class="vse-pill">${esc(rec.prosthetic)}</span>` : ''}
-                ${rec?.armor ? `<span class="vse-pill"><i class="fa-solid fa-shield"></i> ${esc(rec.armor)}</span>` : ''}
-                <button type="button" class="vse-mini-btn vse-health-clear-sel" style="margin-left:auto;">Show All</button>
+                <span class="lpe-pill ${barColorClass(hp)}">${rec?.missing ? 'Missing (0%)' : `${hp}% HP`}</span>
+                ${rec?.prosthetic ? `<span class="lpe-pill">${esc(rec.prosthetic)}</span>` : ''}
+                ${rec?.armor ? `<span class="lpe-pill"><i class="fa-solid fa-shield"></i> ${esc(rec.armor)}</span>` : ''}
+                <button type="button" class="lpe-mini-btn lpe-health-clear-sel" style="margin-left:auto;">Show All</button>
             </div>
-            <div class="vse-stack">${condCards}</div>
+            <div class="lpe-stack">${condCards}</div>
         `);
     } else {
         const allCards = [];
@@ -1185,21 +1185,21 @@ export function renderHealthTab(state, {
             if (!rec) continue;
             if (rec.missing) {
                 allCards.push(`
-                    <div class="vse-health-cond-card" style="border-left:3px solid #ef4444;">
-                        <div class="vse-health-cond-head">
-                            <button type="button" class="vse-health-part-chip" data-part-id="${esc(bp.id)}">${esc(bp.label)}</button>
+                    <div class="lpe-health-cond-card" style="border-left:3px solid #ef4444;">
+                        <div class="lpe-health-cond-head">
+                            <button type="button" class="lpe-health-part-chip" data-part-id="${esc(bp.id)}">${esc(bp.label)}</button>
                             <strong>Missing Body Part</strong>
-                            <span class="vse-pill vse-pill-bleed">0% HP</span>
+                            <span class="lpe-pill lpe-pill-bleed">0% HP</span>
                         </div>
                     </div>
                 `);
             } else if (rec.prosthetic && (!rec.conditions || rec.conditions.length === 0)) {
                 allCards.push(`
-                    <div class="vse-health-cond-card" style="border-left:3px solid #38bdf8;">
-                        <div class="vse-health-cond-head">
-                            <button type="button" class="vse-health-part-chip" data-part-id="${esc(bp.id)}">${esc(bp.label)}</button>
+                    <div class="lpe-health-cond-card" style="border-left:3px solid #38bdf8;">
+                        <div class="lpe-health-cond-head">
+                            <button type="button" class="lpe-health-part-chip" data-part-id="${esc(bp.id)}">${esc(bp.label)}</button>
                             <strong>${esc(rec.prosthetic)}</strong>
-                            <span class="vse-pill ok">Prosthetic · ${rec.hp}%</span>
+                            <span class="lpe-pill ok">Prosthetic · ${rec.hp}%</span>
                         </div>
                     </div>
                 `);
@@ -1209,36 +1209,36 @@ export function renderHealthTab(state, {
             });
         }
         if (allCards.length) {
-            partRows.push(`<div class="vse-stack">${allCards.join('')}</div>`);
+            partRows.push(`<div class="lpe-stack">${allCards.join('')}</div>`);
         } else {
-            partRows.push('<div class="vse-empty">All body parts healthy (100% HP). Click any part on the silhouette to inspect or record a condition.</div>');
+            partRows.push('<div class="lpe-empty">All body parts healthy (100% HP). Click any part on the silhouette to inspect or record a condition.</div>');
         }
     }
 
     const wholeHtml = (effective.wholeBody || []).length
-        ? `<div class="vse-health-whole-row">${effective.wholeBody.map((wb) => `
-            <span class="vse-health-whole-pill type-${esc(wb.type)}" title="${esc(wb.note || wb.label)}">
+        ? `<div class="lpe-health-whole-row">${effective.wholeBody.map((wb) => `
+            <span class="lpe-health-whole-pill type-${esc(wb.type)}" title="${esc(wb.note || wb.label)}">
                 <b>${esc(wb.label)}</b> · ${esc(wb.severity)}%${wb.treated ? ' (treated)' : ''}
-                ${showActions ? `<button type="button" class="vse-mini-btn vse-health-rm-whole" data-wb-label="${esc(wb.label)}" title="Remove"><i class="fa-solid fa-xmark"></i></button>` : ''}
+                ${showActions ? `<button type="button" class="lpe-mini-btn lpe-health-rm-whole" data-wb-label="${esc(wb.label)}" title="Remove"><i class="fa-solid fa-xmark"></i></button>` : ''}
             </span>
         `).join('')}</div>`
         : '';
 
     const statusLine = state?.inv?.status && !isEmptySentinel(state.inv.status)
-        ? `<div class="vse-health-status-note"><span>Scene Status:</span> ${esc(state.inv.status)}</div>`
+        ? `<div class="lpe-health-status-note"><span>Scene Status:</span> ${esc(state.inv.status)}</div>`
         : '';
 
     return `
-        <div class="vse-health-layout">
-            <div class="vse-health-doll-col">
-                <div class="vse-health-toolbar">
-                    <div class="vse-health-layers">${layerButtons}</div>
-                    ${isInferred ? '<span class="vse-pill warn" title="Preview parsed from inv.status">Inferred</span>' : ''}
+        <div class="lpe-health-layout">
+            <div class="lpe-health-doll-col">
+                <div class="lpe-health-toolbar">
+                    <div class="lpe-health-layers">${layerButtons}</div>
+                    ${isInferred ? '<span class="lpe-pill warn" title="Preview parsed from inv.status">Inferred</span>' : ''}
                 </div>
-                <div class="vse-health-doll-stage">
+                <div class="lpe-health-doll-stage">
                     ${dollSvg}
                 </div>
-                <div class="vse-health-legend">
+                <div class="lpe-health-legend">
                     <span><i style="background:#facc15;"></i> Minor</span>
                     <span><i style="background:#fb923c;"></i> Moderate</span>
                     <span><i style="background:#ef4444;"></i> Severe / Bleed</span>
@@ -1246,35 +1246,35 @@ export function renderHealthTab(state, {
                     <span><i style="background:#38bdf8;"></i> Frost / Bionics</span>
                 </div>
             </div>
-            <div class="vse-health-info-col">
-                <div class="vse-health-vitals">
-                    <div class="vse-vital-box">
-                        <div class="vse-vital-top"><span>Overall HP</span><b>${metrics.overallHp}%</b></div>
-                        <div class="vse-bar"><i class="vse-bar-fill ${barColorClass(metrics.overallHp)}" style="width:${metrics.overallHp}%"></i></div>
+            <div class="lpe-health-info-col">
+                <div class="lpe-health-vitals">
+                    <div class="lpe-vital-box">
+                        <div class="lpe-vital-top"><span>Overall HP</span><b>${metrics.overallHp}%</b></div>
+                        <div class="lpe-bar"><i class="lpe-bar-fill ${barColorClass(metrics.overallHp)}" style="width:${metrics.overallHp}%"></i></div>
                     </div>
-                    <div class="vse-vital-box">
-                        <div class="vse-vital-top"><span>Pain</span><b>${esc(metrics.painLabel)} (${metrics.pain}%)</b></div>
-                        <div class="vse-bar"><i class="vse-bar-fill ${barColorClass(metrics.pain, { invert: true })}" style="width:${metrics.pain}%"></i></div>
+                    <div class="lpe-vital-box">
+                        <div class="lpe-vital-top"><span>Pain</span><b>${esc(metrics.painLabel)} (${metrics.pain}%)</b></div>
+                        <div class="lpe-bar"><i class="lpe-bar-fill ${barColorClass(metrics.pain, { invert: true })}" style="width:${metrics.pain}%"></i></div>
                     </div>
-                    <div class="vse-vital-box">
-                        <div class="vse-vital-top"><span>Blood Loss</span><b>${esc(metrics.bleedingLevel)} (${metrics.bloodLoss}%)</b></div>
-                        <div class="vse-bar"><i class="vse-bar-fill ${barColorClass(metrics.bloodLoss, { invert: true })}" style="width:${metrics.bloodLoss}%"></i></div>
+                    <div class="lpe-vital-box">
+                        <div class="lpe-vital-top"><span>Blood Loss</span><b>${esc(metrics.bleedingLevel)} (${metrics.bloodLoss}%)</b></div>
+                        <div class="lpe-bar"><i class="lpe-bar-fill ${barColorClass(metrics.bloodLoss, { invert: true })}" style="width:${metrics.bloodLoss}%"></i></div>
                     </div>
                 </div>
-                <div class="vse-health-caps">
+                <div class="lpe-health-caps">
                     ${capItems.map(([lbl, val]) => `
-                        <div class="vse-cap-row">
+                        <div class="lpe-cap-row">
                             <span>${esc(lbl)}</span>
-                            <div class="vse-bar thin"><i class="vse-bar-fill ${barColorClass(val)}" style="width:${val}%"></i></div>
+                            <div class="lpe-bar thin"><i class="lpe-bar-fill ${barColorClass(val)}" style="width:${val}%"></i></div>
                             <b>${val}%</b>
                         </div>
                     `).join('')}
                 </div>
                 ${wholeHtml}
-                <div class="vse-health-conds-wrap">
-                    <div class="vse-health-conds-title">
+                <div class="lpe-health-conds-wrap">
+                    <div class="lpe-health-conds-title">
                         <span>${selectedInfo ? `Inspecting: ${esc(selectedInfo.part.label)}` : `Conditions (${metrics.totalWounds} active · ${metrics.scarCount} scar${metrics.scarCount === 1 ? '' : 's'})`}</span>
-                        ${metrics.internalIssues > 0 && activeLayer === 'body' ? `<button type="button" class="vse-mini-btn vse-health-layer-btn" data-health-layer="xray">${metrics.internalIssues} Internal</button>` : ''}
+                        ${metrics.internalIssues > 0 && activeLayer === 'body' ? `<button type="button" class="lpe-mini-btn lpe-health-layer-btn" data-health-layer="xray">${metrics.internalIssues} Internal</button>` : ''}
                     </div>
                     ${partRows.join('')}
                 </div>

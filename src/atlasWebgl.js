@@ -982,11 +982,11 @@ export function mountAtlasWebGLViewport(containerEl, state, opts = {}) {
             : (floorZs[0] ?? getRoomZ(mapRooms[0] || {})));
     const visibleRooms = allFloors ? mapRooms : mapRooms.filter((r) => getRoomZ(r) === activeLvl);
 
-    containerEl.querySelector('canvas.vse-webgl-canvas')?.remove();
+    containerEl.querySelector('canvas.lpe-webgl-canvas')?.remove();
     const canvas = document.createElement('canvas');
-    canvas.className = 'vse-webgl-canvas';
+    canvas.className = 'lpe-webgl-canvas';
     containerEl.prepend(canvas);
-    const labelLayer = containerEl.querySelector('.vse-webgl-labels');
+    const labelLayer = containerEl.querySelector('.lpe-webgl-labels');
 
     let renderer = null;
     try {
@@ -999,7 +999,7 @@ export function mountAtlasWebGLViewport(containerEl, state, opts = {}) {
         });
     } catch {
         canvas.remove();
-        containerEl.innerHTML = '<div class="vse-empty">WebGL context unavailable in this browser. Switch to 3D CSS or 2D SVG above.</div>';
+        containerEl.innerHTML = '<div class="lpe-empty">WebGL context unavailable in this browser. Switch to 3D CSS or 2D SVG above.</div>';
         return { dispose: () => {}, resetCamera: () => {}, zoom: () => {}, setMode: () => {}, getStats: () => ({ error: 'no_webgl' }) };
     }
 
@@ -1032,7 +1032,7 @@ export function mountAtlasWebGLViewport(containerEl, state, opts = {}) {
         envRT?.dispose?.();
         renderer.dispose();
         canvas.remove();
-        containerEl.innerHTML = '<div class="vse-empty">WebGL initialization failed. Switch to 3D CSS or 2D SVG above.</div>';
+        containerEl.innerHTML = '<div class="lpe-empty">WebGL initialization failed. Switch to 3D CSS or 2D SVG above.</div>';
         return { dispose: () => {}, resetCamera: () => {}, zoom: () => {}, setMode: () => {}, getStats: () => ({ error: String(err?.message || err) }) };
     }
 
@@ -1439,7 +1439,7 @@ export function mountAtlasWebGLViewport(containerEl, state, opts = {}) {
         const proj = new THREE.Vector3();
 
         if (labelLayer.childElementCount !== labelAnchors.length) {
-            labelLayer.innerHTML = labelAnchors.map((a) => `<span class="vse-webgl-label ${a.kind === 'room' ? 'is-room' : a.kind === 'player' ? 'is-player' : ''}"></span>`).join('');
+            labelLayer.innerHTML = labelAnchors.map((a) => `<span class="lpe-webgl-label ${a.kind === 'room' ? 'is-room' : a.kind === 'player' ? 'is-player' : ''}"></span>`).join('');
         }
 
         const els = labelLayer.children;
@@ -1569,7 +1569,7 @@ export function mountAtlasWebGLViewport(containerEl, state, opts = {}) {
     const pointerNdc = new THREE.Vector2();
 
     const onPointerDown = (e) => {
-        if (e.target?.closest?.('.vse-webgl-controls, .vse-webgl-hud-overlay')) return;
+        if (e.target?.closest?.('.lpe-webgl-controls, .lpe-webgl-hud-overlay')) return;
         dragMode = (e.button === 2 || e.shiftKey) ? 'pan' : 'orbit';
         dragMoved = false;
         lastX = e.clientX;
@@ -1720,7 +1720,7 @@ export function mountAtlasWebGLViewport(containerEl, state, opts = {}) {
         renderNow();
     } catch (err) {
         dispose();
-        containerEl.innerHTML = '<div class="vse-empty">WebGL render error. Switch to 3D CSS or 2D SVG above.</div>';
+        containerEl.innerHTML = '<div class="lpe-empty">WebGL render error. Switch to 3D CSS or 2D SVG above.</div>';
         return { dispose: () => {}, resetCamera: () => {}, zoom: () => {}, setMode: () => {}, getStats: () => ({ error: String(err?.message || err) }) };
     }
 

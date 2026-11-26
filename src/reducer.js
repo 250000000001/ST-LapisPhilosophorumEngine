@@ -1,5 +1,5 @@
 /**
- * Pure worker-delta parser and deterministic JS state reducer for Vexa.
+ * Pure worker-delta parser and deterministic JS state reducer for Lapis Philosophorum Engine (LPE).
  *
  * Responsibilities:
  *  - Parse worker JSON deltas resiliently (strip <think>, code fences, fix minor trailing commas).

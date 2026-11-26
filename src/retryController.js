@@ -1,6 +1,6 @@
 /**
  * Combined state machine controller for Refusal Auto-Retry & Non-Stream Continue
- * inside Vexa State Engine.
+ * inside Lapis Philosophorum Engine (LPE).
  *
  * Pure ES module with zero DOM dependencies so it can be unit-tested directly.
  */
@@ -14,7 +14,7 @@ import {
 
 const IGNORED_GEN_TYPES = new Set(['quiet', 'impersonate']);
 
-export class VexaRetryController {
+export class LpeRetryController {
     /**
      * @param {object} deps
      * @param {() => object} deps.getSettings
@@ -351,3 +351,4 @@ export class VexaRetryController {
         return 0;
     }
 }
+export const VexaRetryController = LpeRetryController;

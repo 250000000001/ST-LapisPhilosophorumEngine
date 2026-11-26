@@ -8,10 +8,10 @@ import {
     endsWithRequiredMarker,
     DEFAULT_END_MARKER,
 } from './retryDetector.js';
-import { VexaRetryController } from './retryController.js';
+import { LpeRetryController } from './retryController.js';
 
-const LOG_PREFIX = '[VexaStateEngine:Retry]';
-const DISPLAY_TITLE = 'Vexa State Engine';
+const LOG_PREFIX = '[LPE:Retry]';
+const DISPLAY_TITLE = 'Lapis Philosophorum Engine (LPE)';
 
 const SEND_BAR_BTN_ID = 'non_stream_continue_btn';
 const OPTION_ITEM_ID = 'option_continue_no_stream';
@@ -27,7 +27,7 @@ function escapeHtml(text) {
     return $('<div>').text(String(text ?? '')).html();
 }
 
-export function createVexaRetryRuntime({
+export function createLpeRetryRuntime({
     getEngineSettings,
     getContextSafe,
     onReplyAccepted = () => {},
@@ -383,7 +383,7 @@ export function createVexaRetryRuntime({
         if (settings.useModalPopup !== false && typeof ctx.callGenericPopup === 'function') {
             const textType = ctx.POPUP_TYPE?.TEXT ?? 1;
             ctx.callGenericPopup(
-                `<div class="vse-rar-popup-message">${escapeHtml(message)}</div>`,
+                `<div class="lpe-rar-popup-message">${escapeHtml(message)}</div>`,
                 textType,
                 '',
                 { okButton: 'OK' },
@@ -418,7 +418,7 @@ export function createVexaRetryRuntime({
         );
     }
 
-    const controller = new VexaRetryController({
+    const controller = new LpeRetryController({
         getSettings: getEffectiveRetrySettings,
         getChat: () => getContextSafe().chat || [],
         applyCleanedMessage,
@@ -430,10 +430,12 @@ export function createVexaRetryRuntime({
         notifyRetry,
         showFailurePopup,
         onReplyAccepted: (detail) => {
+            window.dispatchEvent(new CustomEvent('lpe:reply-accepted', { detail }));
             window.dispatchEvent(new CustomEvent('vexa:reply-accepted', { detail }));
             onReplyAccepted(detail);
         },
         onReplyRetrying: (detail) => {
+            window.dispatchEvent(new CustomEvent('lpe:reply-retrying', { detail }));
             window.dispatchEvent(new CustomEvent('vexa:reply-retrying', { detail }));
             onReplyRetrying(detail);
         },
@@ -515,8 +517,8 @@ export function createVexaRetryRuntime({
         const show = eff.enabled && eff.showNonStreamContinue !== false;
 
         if (!show) {
-            $(`#${SEND_BAR_BTN_ID}[data-vse-nsc="1"]`).remove();
-            $(`#${OPTION_ITEM_ID}[data-vse-nsc="1"]`).remove();
+            $(`#${SEND_BAR_BTN_ID}[data-lpe-nsc="1"]`).remove();
+            $(`#${OPTION_ITEM_ID}[data-lpe-nsc="1"]`).remove();
             return;
         }
 
@@ -528,7 +530,7 @@ export function createVexaRetryRuntime({
                 tabindex: 0,
                 role: 'button',
                 'aria-label': 'Continue without streaming',
-                'data-vse-nsc': '1',
+                'data-lpe-nsc': '1',
             })
                 .on('click', runNonStreamContinue)
                 .on('keydown', (e) => {
@@ -550,7 +552,7 @@ export function createVexaRetryRuntime({
                 const $item = $orig.clone(false);
                 $item
                     .attr('id', OPTION_ITEM_ID)
-                    .attr('data-vse-nsc', '1')
+                    .attr('data-lpe-nsc', '1')
                     .attr('title', 'Uncheck Streaming, run Continue, then re-check Streaming')
                     .removeAttr('data-i18n');
 
@@ -633,3 +635,4 @@ export function createVexaRetryRuntime({
         onChatChanged: () => controller.onChatChanged(),
     };
 }
+export const createVexaRetryRuntime = createLpeRetryRuntime;

@@ -1,5 +1,5 @@
 /**
- * Secondary API Worker Client for Vexa State Engine ("Vexa Clerk").
+ * Secondary API Worker Client for Lapis Philosophorum Engine ("LPE Clerk").
  *
  * Supports:
  *  - Direct OpenAI-compatible API (baseUrl + apiKey + model) via ST's ChatCompletionService
@@ -145,7 +145,7 @@ export async function fetchModelsList({ baseUrl, apiKey, ctx = null, fetchImpl =
 }
 
 /**
- * Create the queued, abortable Vexa worker client.
+ * Create the queued, abortable LPE Clerk worker client.
  */
 export function createWorkerClient({ getSettings, getContextSafe, onStatusChange = () => {}, fetchImpl = globalThis.fetch }) {
     let queue = Promise.resolve();

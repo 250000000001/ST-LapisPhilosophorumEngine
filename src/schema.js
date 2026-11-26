@@ -1,5 +1,5 @@
 /**
- * Canonical Vexa schema constants, color palettes, theme palettes,
+ * Canonical Lapis Philosophorum Engine (LPE) schema constants, color palettes, theme palettes,
  * Braille normalization, time-header / dialogue-color / tail extractors.
  *
  * Pure ES module with zero DOM dependencies so it runs directly under Node tests.
@@ -51,7 +51,7 @@ export const HEX_TO_COLOR = Object.freeze(
     Object.fromEntries(PALETTE.map((c) => [c.hex.toUpperCase(), c.name])),
 );
 
-export const VEXA_STYLES = Object.freeze([
+export const LPE_STYLES = Object.freeze([
     'Afterglow',
     'Velvet',
     'Witchlight',
@@ -59,8 +59,9 @@ export const VEXA_STYLES = Object.freeze([
     'Undertow',
     'Signal',
 ]);
+export const VEXA_STYLES = LPE_STYLES;
 
-export const VEXA_THEMES = Object.freeze({
+export const LPE_THEMES = Object.freeze({
     'Sola': {
         base: '#1a1310', mantle: '#16100e', crust: '#120d0b', surface: '#2a201a',
         border: '#6a5d54', muted: '#a3948a', subtext: '#e8d6be', text: '#f0dcc4', title: '#fdf6f0',
@@ -160,6 +161,7 @@ export const VEXA_THEMES = Object.freeze({
         scheme: 'dark',
     },
 });
+export const VEXA_THEMES = LPE_THEMES;
 
 /** Replace Braille Pattern Blank (U+2800) with regular ASCII space. */
 export function normalizeBraille(text) {
@@ -199,12 +201,12 @@ export function stripGfxBlocks(text) {
         .trim();
 }
 
-/** Strip <internal_states>, <vexa_tail>, and trailing GFX comments to leave pure story prose. */
+/** Strip <internal_states>, <lpe_tail>/<vexa_tail>, and trailing GFX comments to leave pure story prose. */
 export function extractStoryProse(text) {
     if (typeof text !== 'string') return '';
     let out = normalizeBraille(text);
     out = out.replace(/<internal_states>[\s\S]*?<\/internal_states>/gi, '');
-    out = out.replace(/<vexa_tail>[\s\S]*?<\/vexa_tail>/gi, '');
+    out = out.replace(/<(?:lpe|vexa)_tail>[\s\S]*?<\/(?:lpe|vexa)_tail>/gi, '');
     out = out.replace(/<!--\s*GFX_START\s*-->\s*<!--\s*GFX_END\s*-->/gi, '');
     out = out.replace(/<!--\s*GFX_(?:START|END)\s*-->\s*$/gi, '');
     out = stripGfxBlocks(out);
@@ -212,7 +214,7 @@ export function extractStoryProse(text) {
 }
 
 /**
- * Parse the top-of-reply Vexa Time Header:
+ * Parse the top-of-reply Time Header:
  * [🕰️ HH:MM AM/PM | 🗓️ DayName, Month DD, YYYY | 📍 Location - Specific Area | [Emoji] Weather]
  */
 export function parseTimeHeader(text) {
@@ -270,14 +272,14 @@ export function extractProseColors(text) {
 }
 
 /**
- * Extract <vexa_tail>...</vexa_tail> (with <vexa_receipt> and <state:vent>) from a reply.
+ * Extract <lpe_tail>...</lpe_tail> (or legacy <vexa_tail>) with <lpe_receipt>/<vexa_receipt> and <state:vent>.
  */
-export function extractVexaTail(text) {
+export function extractLpeTail(text) {
     const clean = normalizeBraille(text);
-    const tailMatch = clean.match(/<vexa_tail>([\s\S]*?)<\/vexa_tail>/i);
+    const tailMatch = clean.match(/<(?:lpe|vexa)_tail>([\s\S]*?)<\/(?:lpe|vexa)_tail>/i);
     const body = tailMatch ? tailMatch[1] : clean;
 
-    const receiptMatch = body.match(/<vexa_receipt>([\s\S]*?)<\/vexa_receipt>/i);
+    const receiptMatch = body.match(/<(?:lpe|vexa)_receipt>([\s\S]*?)<\/(?:lpe|vexa)_receipt>/i);
     const ventBlockMatch = body.match(/<state:vent>([\s\S]*?)<\/state:vent>/i)
         || clean.match(/<state:vent>([\s\S]*?)<\/state:vent>/i);
 
@@ -327,6 +329,7 @@ export function extractVexaTail(text) {
         rawTail: tailMatch ? tailMatch[0] : '',
     };
 }
+export const extractVexaTail = extractLpeTail;
 
 /** Empty persona health state (Nice Health Tab model). */
 export function emptyHealth(bodyType = 'male') {
@@ -339,7 +342,7 @@ export function emptyHealth(bodyType = 'male') {
     };
 }
 
-/** Empty canonical Vexa state matching all 16 sections. */
+/** Empty canonical LPE state matching all 16 sections. */
 export function emptyState() {
     return {
         world: {
