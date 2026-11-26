@@ -1382,7 +1382,7 @@ export function mountAtlasWebGLViewport(containerEl, state, opts = {}) {
     const tanHalfX = tanHalfY * viewAspect;
     const defaultDist = Math.max(
         7.5,
-        Math.max((projSpanW * 0.54) / tanHalfX, (projSpanH * 0.62) / tanHalfY),
+        Math.max((projSpanW * 0.62) / tanHalfX, (projSpanH * 0.68) / tanHalfY),
     );
 
     keyLight.position.set(sceneCenter.x + sceneRadius * 0.9, sceneCenter.y + sceneRadius * 1.65, sceneCenter.z + sceneRadius * 1.15);
@@ -1635,6 +1635,11 @@ export function mountAtlasWebGLViewport(containerEl, state, opts = {}) {
         resizeObserver.observe(containerEl);
     }
 
+    const syncCamModeButtons = (mode) => {
+        containerEl.querySelector('[data-webgl-act="iso"]')?.classList.toggle('active', mode === 'iso');
+        containerEl.querySelector('[data-webgl-act="top"]')?.classList.toggle('active', mode === 'top');
+    };
+
     const resetCamera = () => {
         camState.yaw = defaultYaw;
         camState.pitch = defaultPitch;
@@ -1642,6 +1647,7 @@ export function mountAtlasWebGLViewport(containerEl, state, opts = {}) {
         camState.tx = sceneCenter.x;
         camState.ty = sceneCenter.y;
         camState.tz = sceneCenter.z;
+        syncCamModeButtons('iso');
         requestRender();
     };
 
@@ -1649,9 +1655,11 @@ export function mountAtlasWebGLViewport(containerEl, state, opts = {}) {
         if (preset === 'top') {
             camState.yaw = 0;
             camState.pitch = Math.PI / 2 - 0.08;
+            syncCamModeButtons('top');
         } else {
             camState.yaw = defaultYaw;
             camState.pitch = defaultPitch;
+            syncCamModeButtons('iso');
         }
         requestRender();
     };

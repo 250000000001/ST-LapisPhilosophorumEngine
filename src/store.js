@@ -16,6 +16,140 @@ import { parseInternalStates } from './parser.js';
 import { applyDelta } from './reducer.js';
 
 const ROOT_VERSION = 1;
+const MAX_CARD_VARS_BYTES = 65536;
+const MAX_CARD_VAR_DEPTH = 16;
+const MAX_CARD_VAR_NODES = 4096;
+const FORBIDDEN_PATH_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
+
+function inspectVarInput(val, state = { nodes: 0 }, depth = 0) {
+    if (depth > MAX_CARD_VAR_DEPTH) {
+        return { ok: false, error: `Card variable nesting exceeds depth ${MAX_CARD_VAR_DEPTH}` };
+    }
+    if (!val || typeof val !== 'object') {
+        state.nodes++;
+        if (state.nodes > MAX_CARD_VAR_NODES) return { ok: false, error: `Card variable count exceeds ${MAX_CARD_VAR_NODES} nodes` };
+        return { ok: true };
+    }
+    state.nodes++;
+    if (state.nodes > MAX_CARD_VAR_NODES) {
+        return { ok: false, error: `Card variable count exceeds ${MAX_CARD_VAR_NODES} nodes` };
+    }
+    if (Array.isArray(val)) {
+        for (const item of val) {
+            const sub = inspectVarInput(item, state, depth + 1);
+            if (!sub.ok) return sub;
+        }
+        return { ok: true };
+    }
+    for (const key of Object.getOwnPropertyNames(val)) {
+        if (FORBIDDEN_PATH_KEYS.has(key)) {
+            return { ok: false, error: `Forbidden key "${key}" in variable payload` };
+        }
+        const sub = inspectVarInput(val[key], state, depth + 1);
+        if (!sub.ok) return sub;
+    }
+    return { ok: true };
+}
+
+function sanitizeJsonValue(val, depth = 0) {
+    if (depth > MAX_CARD_VAR_DEPTH || val === null) return null;
+    const t = typeof val;
+    if (t === 'string' || t === 'boolean') return val;
+    if (t === 'number') return Number.isFinite(val) ? val : null;
+    if (Array.isArray(val)) {
+        return val.map((item) => (item === undefined || typeof item === 'function' || typeof item === 'symbol'
+            ? null
+            : sanitizeJsonValue(item, depth + 1)));
+    }
+    if (t === 'object') {
+        const out = {};
+        for (const key of Object.keys(val)) {
+            if (FORBIDDEN_PATH_KEYS.has(key)) continue;
+            const child = val[key];
+            if (child === undefined || typeof child === 'function' || typeof child === 'symbol') continue;
+            Object.defineProperty(out, key, {
+                value: sanitizeJsonValue(child, depth + 1),
+                enumerable: true,
+                writable: true,
+                configurable: true,
+            });
+        }
+        return out;
+    }
+    return null;
+}
+
+function parseSafeVarPath(pathStr) {
+    if (typeof pathStr !== 'string') return null;
+    const trimmed = pathStr.trim();
+    if (!trimmed || trimmed.length > 256) return null;
+    const segs = trimmed.split('.');
+    if (segs.length > MAX_CARD_VAR_DEPTH) return null;
+    for (const seg of segs) {
+        if (!seg || FORBIDDEN_PATH_KEYS.has(seg)) return null;
+    }
+    return segs;
+}
+
+function readVarPathExact(obj, segs) {
+    let cur = obj;
+    for (const seg of segs) {
+        if (!cur || typeof cur !== 'object' || FORBIDDEN_PATH_KEYS.has(seg)) return undefined;
+        if (!Object.prototype.hasOwnProperty.call(cur, seg)) return undefined;
+        cur = cur[seg];
+    }
+    return cur;
+}
+
+function utf8BytesOf(str) {
+    if (typeof TextEncoder !== 'undefined') {
+        return new TextEncoder().encode(str).length;
+    }
+    let bytes = 0;
+    for (let i = 0; i < str.length; i++) {
+        const c = str.charCodeAt(i);
+        if (c < 0x80) bytes += 1;
+        else if (c < 0x800) bytes += 2;
+        else if (c >= 0xD800 && c <= 0xDBFF) { bytes += 4; i++; }
+        else bytes += 3;
+    }
+    return bytes;
+}
+
+function jsonByteLength(obj) {
+    return utf8BytesOf(JSON.stringify(obj));
+}
+
+function mergePlainVarsDeep(target, patch, depth = 0) {
+    if (depth >= MAX_CARD_VAR_DEPTH) {
+        return { ok: false, error: `Card variable nesting exceeds depth ${MAX_CARD_VAR_DEPTH}` };
+    }
+    for (const key of Object.keys(patch)) {
+        if (FORBIDDEN_PATH_KEYS.has(key)) continue;
+        const nextVal = patch[key];
+        if (nextVal === undefined) continue;
+        const curVal = Object.prototype.hasOwnProperty.call(target, key) ? target[key] : undefined;
+        if (
+            nextVal !== null
+            && typeof nextVal === 'object'
+            && !Array.isArray(nextVal)
+            && curVal !== null
+            && typeof curVal === 'object'
+            && !Array.isArray(curVal)
+        ) {
+            const sub = mergePlainVarsDeep(curVal, nextVal, depth + 1);
+            if (!sub.ok) return sub;
+        } else {
+            Object.defineProperty(target, key, {
+                value: sanitizeJsonValue(nextVal, depth + 1),
+                enumerable: true,
+                writable: true,
+                configurable: true,
+            });
+        }
+    }
+    return { ok: true };
+}
 
 function randomUid() {
     return 'v_' + Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4);
@@ -33,6 +167,7 @@ function emptyRoot() {
         checkpoint: { seq: 0, state: emptyState() },
         journal: [],
         swipeOf: {},
+        cardVars: {},
         imported: false,
     };
 }
@@ -76,6 +211,7 @@ export function createVexaStateStore({ adapter, journalDepth = 200, rootKey = 'v
             for (const k of Object.keys(d)) if (r[k] === undefined) r[k] = d[k];
             if (!Array.isArray(r.journal)) r.journal = [];
             if (!r.checkpoint || typeof r.checkpoint !== 'object') r.checkpoint = { seq: 0, state: emptyState() };
+            if (!r.cardVars || typeof r.cardVars !== 'object' || Array.isArray(r.cardVars)) r.cardVars = {};
         }
         return meta[rootKey];
     }
@@ -498,6 +634,104 @@ export function createVexaStateStore({ adapter, journalDepth = 200, rootKey = 'v
         return importedCount;
     }
 
+    function getCardVars() {
+        const r = root();
+        if (!r) return {};
+        return sanitizeJsonValue(r.cardVars || {}) || {};
+    }
+
+    function getCardVar(path, fallback = undefined) {
+        const r = root();
+        const segs = parseSafeVarPath(path);
+        if (!r || !segs) return fallback;
+        const vars = r.cardVars || {};
+        let hit = readVarPathExact(vars, segs);
+        if (hit === undefined && segs[0] !== 'stat_data') {
+            hit = readVarPathExact(vars, ['stat_data', ...segs]);
+        }
+        if (hit === undefined && segs[0] === 'stat_data' && segs.length > 1) {
+            hit = readVarPathExact(vars, segs.slice(1));
+        }
+        return hit === undefined ? fallback : sanitizeJsonValue(hit);
+    }
+
+    function setCardVar(path, value) {
+        const r = root();
+        if (!r) return { ok: false, error: 'Store root unavailable' };
+        const segs = parseSafeVarPath(path);
+        if (!segs) return { ok: false, error: 'Invalid or unsafe variable path' };
+        if (value === undefined) return { ok: false, error: 'Variable value cannot be undefined' };
+        const chk = inspectVarInput(value, { nodes: 0 }, segs.length);
+        if (!chk.ok) return { ok: false, error: chk.error };
+
+        const draft = sanitizeJsonValue(r.cardVars || {}) || {};
+        let cur = draft;
+        for (let i = 0; i < segs.length - 1; i++) {
+            const k = segs[i];
+            if (!Object.prototype.hasOwnProperty.call(cur, k) || !cur[k] || typeof cur[k] !== 'object' || Array.isArray(cur[k])) {
+                Object.defineProperty(cur, k, {
+                    value: {},
+                    enumerable: true,
+                    writable: true,
+                    configurable: true,
+                });
+            }
+            cur = cur[k];
+        }
+        const cleanVal = sanitizeJsonValue(value, segs.length);
+        Object.defineProperty(cur, segs[segs.length - 1], {
+            value: cleanVal,
+            enumerable: true,
+            writable: true,
+            configurable: true,
+        });
+
+        if (jsonByteLength(draft) > MAX_CARD_VARS_BYTES) {
+            return { ok: false, error: `Card variables exceed ${MAX_CARD_VARS_BYTES} byte cap` };
+        }
+        r.cardVars = draft;
+        changed();
+        return { ok: true, value: sanitizeJsonValue(cleanVal, segs.length) };
+    }
+
+    function patchCardVars(patchObj) {
+        const r = root();
+        if (!r) return { ok: false, error: 'Store root unavailable' };
+        if (!patchObj || typeof patchObj !== 'object' || Array.isArray(patchObj)) {
+            return { ok: false, error: 'Patch must be a plain object' };
+        }
+        const chk = inspectVarInput(patchObj, { nodes: 0 }, 0);
+        if (!chk.ok) {
+            return { ok: false, error: chk.error };
+        }
+        const draft = sanitizeJsonValue(r.cardVars || {}) || {};
+        const merged = mergePlainVarsDeep(draft, patchObj, 0);
+        if (!merged.ok) {
+            return { ok: false, error: merged.error };
+        }
+        if (jsonByteLength(draft) > MAX_CARD_VARS_BYTES) {
+            return { ok: false, error: `Card variables exceed ${MAX_CARD_VARS_BYTES} byte cap` };
+        }
+        r.cardVars = draft;
+        changed();
+        return { ok: true, vars: sanitizeJsonValue(r.cardVars) };
+    }
+
+    function seedCardVarsIfEmpty(initObj) {
+        const r = root();
+        if (!r || !initObj || typeof initObj !== 'object' || Array.isArray(initObj)) return false;
+        if (Object.keys(r.cardVars || {}).length > 0) return false;
+        const res = patchCardVars(initObj);
+        return Boolean(res?.ok);
+    }
+
+    function resetCardVars() {
+        const r = root();
+        if (!r) return;
+        r.cardVars = {};
+        changed();
+    }
+
     return {
         root,
         stamp,
@@ -518,6 +752,12 @@ export function createVexaStateStore({ adapter, journalDepth = 200, rootKey = 'v
         removeUserEntry,
         reset,
         importFromChat,
+        getCardVars,
+        getCardVar,
+        setCardVar,
+        patchCardVars,
+        seedCardVarsIfEmpty,
+        resetCardVars,
         get version() { return version; },
     };
 }

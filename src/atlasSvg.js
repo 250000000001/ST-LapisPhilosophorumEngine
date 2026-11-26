@@ -113,11 +113,13 @@ function parseExitsCoords(exitsStr) {
     return out;
 }
 
-function spreadRoomMarkers(rawPins, box) {
+function spreadRoomMarkers(rawPins, box, topClearance = 0) {
     if (!rawPins.length) return [];
     const minX = box.x1 + 0.85;
     const maxX = Math.max(minX, box.x2 - 0.85);
-    const minY = box.y1 + 0.85;
+    const h = box.y2 - box.y1;
+    const effClear = h >= 6.5 ? Math.max(0.85, topClearance) : 0.85;
+    const minY = Math.min(Math.max(box.y1 + 0.85, box.y2 - 0.85), box.y1 + effClear);
     const maxY = Math.max(minY, box.y2 - 0.85);
     const minDist = rawPins.length > 7 ? 1.32 : 1.55;
     const placed = [];
@@ -263,7 +265,7 @@ export function renderAtlasTab(
                     <span class="vse-webgl-chip">Orbit: Drag · Pan: Shift+Drag · Zoom: Wheel</span>
                 </div>
                 <div class="vse-webgl-controls">
-                    <button type="button" class="vse-webgl-btn" data-webgl-act="iso" title="Isometric view">Iso</button>
+                    <button type="button" class="vse-webgl-btn active" data-webgl-act="iso" title="Isometric view">Iso</button>
                     <button type="button" class="vse-webgl-btn" data-webgl-act="top" title="Top-down view">Top</button>
                     <button type="button" class="vse-webgl-btn" data-webgl-act="in" title="Zoom in">+</button>
                     <button type="button" class="vse-webgl-btn" data-webgl-act="out" title="Zoom out">−</button>
@@ -316,9 +318,11 @@ export function renderAtlasTab(
 
         const defsHtml = [];
         const roomRects = [];
+        const roomLabels = [];
         const propOutlines = [];
         const doorDots = [];
         const markers = [];
+        const roomClearMap = new Map();
 
         const topoInput = positioned.map((p) => {
             const { h: rh, elev: re } = parseRoomHeight(p.room);
@@ -368,6 +372,10 @@ export function renderAtlasTab(
             const titleTspans = titleLines.map((ln, idx) =>
                 `<tspan x="${box.x1 + w / 2}" dy="${idx === 0 ? 0 : lineStep}">${escHtml(ln)}</tspan>`,
             ).join('');
+            const pillTop = box.y1 + 0.4;
+            const pillH = Math.min(h * 0.42, (subY - box.y1) + subFont * 0.55);
+            const pillW = Math.max(2, w - 0.8);
+            roomClearMap.set(room.id, pillTop - box.y1 + pillH + 0.75);
 
             roomRects.push(`
                 <g class="vse-atlas-room-g" data-room-id="${escHtml(room.id)}" style="cursor:pointer;">
@@ -375,16 +383,20 @@ export function renderAtlasTab(
                     <rect x="${box.x1}" y="${box.y1}" width="${w}" height="${h}" rx="0.6"
                           fill="${fill}" fill-opacity="${isUserHere ? '0.92' : '0.78'}"
                           stroke="${stroke}" stroke-width="${isSelected || isUserHere ? '0.45' : '0.28'}" ${dash} />
-                    <g clip-path="url(#${safeClipId})" pointer-events="none">
-                        <text x="${box.x1 + w / 2}" y="${titleStartY}"
-                              text-anchor="middle" fill="var(--ist-title)" font-size="${titleFont.toFixed(2)}" font-weight="600">
-                            ${titleTspans}
-                        </text>
-                        <text x="${box.x1 + w / 2}" y="${subY.toFixed(2)}"
-                              text-anchor="middle" fill="var(--ist-muted)" font-size="${subFont.toFixed(2)}">
-                            ${escHtml(`${dimBase}${elevTag}`)}
-                        </text>
-                    </g>
+                </g>
+            `);
+            roomLabels.push(`
+                <g class="vse-atlas-room-title" clip-path="url(#${safeClipId})" pointer-events="none">
+                    <rect x="${box.x1 + 0.4}" y="${pillTop.toFixed(2)}" width="${pillW.toFixed(2)}" height="${pillH.toFixed(2)}" rx="0.4"
+                          fill="var(--ist-crust)" fill-opacity="0.78" />
+                    <text x="${box.x1 + w / 2}" y="${titleStartY}"
+                          text-anchor="middle" fill="var(--ist-title)" font-size="${titleFont.toFixed(2)}" font-weight="600">
+                        ${titleTspans}
+                    </text>
+                    <text x="${box.x1 + w / 2}" y="${subY.toFixed(2)}"
+                          text-anchor="middle" fill="var(--ist-muted)" font-size="${subFont.toFixed(2)}">
+                        ${escHtml(`${dimBase}${elevTag}`)}
+                    </text>
                 </g>
             `);
 
@@ -458,7 +470,7 @@ export function renderAtlasTab(
                 });
             }
 
-            const spreadPins = spreadRoomMarkers(rawPins, box);
+            const spreadPins = spreadRoomMarkers(rawPins, box, roomClearMap.get(room.id) || 0);
             for (const p of spreadPins) {
                 const elevBadge = p.z > 0.2
                     ? `<text x="${(p.sx + 0.85).toFixed(2)}" y="${(p.sy - 0.55).toFixed(2)}" fill="var(--ist-cyan, #89dceb)" font-size="0.56" font-weight="700">↑${Math.round(p.z * 10) / 10}</text>`
@@ -500,6 +512,7 @@ export function renderAtlasTab(
                         ${propOutlines.join('')}
                         ${doorDots.join('')}
                         ${markers.join('')}
+                        ${roomLabels.join('')}
                     </svg>
                     <div class="vse-svg-controls">
                         <button type="button" class="vse-svg-btn" data-svg-act="in" title="Zoom in">+</button>

@@ -7,6 +7,8 @@ import { VEXA_THEMES, VEXA_STYLES } from './schema.js';
 import { getChatCompletionProfiles } from './st.js';
 import { fetchModelsList, extractErrorMessage } from './workerClient.js';
 import { DEFAULT_END_MARKER } from './retryDetector.js';
+import { shouldYieldEjs } from './ejsEngine.js';
+import { shouldYieldRenderer } from './cardRenderer.js';
 
 function esc(s) {
     return String(s ?? '')
@@ -58,6 +60,23 @@ export function syncSettingsUI(s) {
     $('#vse_retry_show_toasts').prop('checked', r.showStatusToasts !== false);
     $('#vse_retry_use_modal').prop('checked', r.useModalPopup !== false);
     $('#vse_retry_custom_patterns').val(r.customPatterns || '');
+
+    $('#vse_ejs_enabled').prop('checked', s.ejsEnabled !== false);
+    $('#vse_ejs_options_box').toggle(s.ejsEnabled !== false);
+    $('#vse_ejs_eval_wi').prop('checked', s.ejsEvalWorldInfo !== false);
+    $('#vse_ejs_eval_prompts').prop('checked', s.ejsEvalPrompts !== false);
+    $('#vse_ejs_auto_yield').prop('checked', s.ejsAutoYield !== false);
+
+    $('#vse_renderer_enabled').prop('checked', s.rendererEnabled !== false);
+    $('#vse_renderer_options_box').toggle(s.rendererEnabled !== false);
+    $('#vse_renderer_blob').prop('checked', s.rendererUseBlobUrl !== false);
+    $('#vse_renderer_depth').val(String(s.rendererDepth ?? 2));
+    $('#vse_renderer_collapse').val(s.rendererCollapseCode || 'frontend');
+    $('#vse_renderer_skip_hljs').prop('checked', s.rendererSkipHljs !== false);
+    $('#vse_renderer_max_kb').val(String(s.rendererMaxHtmlKb ?? 2048));
+    $('#vse_renderer_allow_ext').prop('checked', Boolean(s.rendererAllowExternalResources));
+    $('#vse_renderer_auto_send').prop('checked', Boolean(s.rendererAllowAutoSend));
+    $('#vse_renderer_auto_yield').prop('checked', s.rendererAutoYield !== false);
 }
 
 export function injectSettingsUI({
@@ -310,6 +329,72 @@ export function injectSettingsUI({
                     </div>
 
                     <hr class="vse-sep" />
+                    <div class="vse-sec-title"><i class="fa-solid fa-code"></i> Card Runtime (EJS &amp; Sandboxed Renderer)</div>
+                    <label class="checkbox_label" for="vse_ejs_enabled">
+                        <input id="vse_ejs_enabled" type="checkbox" />
+                        <span>Enable clean-room scoped EJS &amp; macros in World Info / prompts</span>
+                    </label>
+                    <div id="vse_ejs_options_box" class="vse-retry-box">
+                        <label class="checkbox_label" for="vse_ejs_eval_wi">
+                            <input id="vse_ejs_eval_wi" type="checkbox" />
+                            <span>Evaluate EJS &amp; <code>[InitVar]</code> during World Info loading</span>
+                        </label>
+                        <label class="checkbox_label" for="vse_ejs_eval_prompts">
+                            <input id="vse_ejs_eval_prompts" type="checkbox" />
+                            <span>Evaluate EJS &amp; card macros on outgoing chat prompts</span>
+                        </label>
+                        <label class="checkbox_label" for="vse_ejs_auto_yield">
+                            <input id="vse_ejs_auto_yield" type="checkbox" />
+                            <span>Auto-yield EJS to ST-Prompt-Template when installed ${shouldYieldEjs({ ejsAutoYield: true }) ? '(active — yielding)' : ''}</span>
+                        </label>
+                    </div>
+
+                    <label class="checkbox_label" for="vse_renderer_enabled" style="margin-top:6px;">
+                        <input id="vse_renderer_enabled" type="checkbox" />
+                        <span>Enable Guarded Blob-URL Iframe Renderer for card HTML blocks</span>
+                    </label>
+                    <div id="vse_renderer_options_box" class="vse-retry-box">
+                        <label class="checkbox_label" for="vse_renderer_blob">
+                            <input id="vse_renderer_blob" type="checkbox" />
+                            <span>Use Blob URL iframe loading (fall back to srcdoc when off)</span>
+                        </label>
+                        <div class="vse-two-col">
+                            <div class="vse-field">
+                                <label for="vse_renderer_depth">Render Depth (floors; 0=all, cap 6)</label>
+                                <input id="vse_renderer_depth" type="number" min="0" max="50" step="1" class="text_pole" />
+                            </div>
+                            <div class="vse-field">
+                                <label for="vse_renderer_max_kb">Max HTML KB guard</label>
+                                <input id="vse_renderer_max_kb" type="number" min="64" max="16384" step="64" class="text_pole" />
+                            </div>
+                        </div>
+                        <div class="vse-field">
+                            <label for="vse_renderer_collapse">Code Block Folding</label>
+                            <select id="vse_renderer_collapse" class="text_pole">
+                                <option value="frontend">Frontend screens only</option>
+                                <option value="all">All code blocks in chat</option>
+                                <option value="none">Do not collapse code blocks</option>
+                            </select>
+                        </div>
+                        <label class="checkbox_label" for="vse_renderer_skip_hljs">
+                            <input id="vse_renderer_skip_hljs" type="checkbox" />
+                            <span>Skip highlight.js on rendered HTML code blocks (faster scroll/load)</span>
+                        </label>
+                        <label class="checkbox_label" for="vse_renderer_allow_ext">
+                            <input id="vse_renderer_allow_ext" type="checkbox" />
+                            <span>Allow external CDN fonts/styles (keep offline CSP off for stricter privacy)</span>
+                        </label>
+                        <label class="checkbox_label" for="vse_renderer_auto_send">
+                            <input id="vse_renderer_auto_send" type="checkbox" />
+                            <span>Allow card scripts to auto-send replies without confirmation bar</span>
+                        </label>
+                        <label class="checkbox_label" for="vse_renderer_auto_yield">
+                            <input id="vse_renderer_auto_yield" type="checkbox" />
+                            <span>Auto-yield renderer to JS-Slash-Runner when installed ${shouldYieldRenderer({ rendererAutoYield: true }) ? '(active — yielding)' : ''}</span>
+                        </label>
+                    </div>
+
+                    <hr class="vse-sep" />
                     <div class="vse-sec-title"><i class="fa-solid fa-wrench"></i> Chat Tools</div>
                     <div class="vse-btn-wrap">
                         <button id="vse_import_chat_btn" type="button" class="menu_button"><i class="fa-solid fa-file-import"></i> Import Chat States</button>
@@ -484,6 +569,41 @@ export function injectSettingsUI({
         onSettingsChanged?.();
     });
     $('#vse_retry_clean_last_btn').on('click', () => onCleanLastRefusal?.());
+
+    const syncRuntimeVisibility = () => {
+        $('#vse_ejs_options_box').toggle($('#vse_ejs_enabled').prop('checked'));
+        $('#vse_renderer_options_box').toggle($('#vse_renderer_enabled').prop('checked'));
+    };
+    syncRuntimeVisibility();
+
+    $('#vse_ejs_enabled').on('change', function () { getSettings().ejsEnabled = Boolean($(this).prop('checked')); syncRuntimeVisibility(); saveSettings(); onSettingsChanged?.(); });
+    $('#vse_ejs_eval_wi').on('change', function () { getSettings().ejsEvalWorldInfo = Boolean($(this).prop('checked')); saveSettings(); onSettingsChanged?.(); });
+    $('#vse_ejs_eval_prompts').on('change', function () { getSettings().ejsEvalPrompts = Boolean($(this).prop('checked')); saveSettings(); onSettingsChanged?.(); });
+    $('#vse_ejs_auto_yield').on('change', function () { getSettings().ejsAutoYield = Boolean($(this).prop('checked')); saveSettings(); onSettingsChanged?.(); });
+
+    $('#vse_renderer_enabled').on('change', function () { getSettings().rendererEnabled = Boolean($(this).prop('checked')); syncRuntimeVisibility(); saveSettings(); onSettingsChanged?.(); });
+    $('#vse_renderer_blob').on('change', function () { getSettings().rendererUseBlobUrl = Boolean($(this).prop('checked')); saveSettings(); onSettingsChanged?.(); });
+    $('#vse_renderer_depth').on('input change', function () {
+        const parsed = parseInt(String($(this).val()), 10);
+        if (!Number.isNaN(parsed) && parsed >= 0 && parsed <= 50) {
+            getSettings().rendererDepth = parsed;
+            saveSettings();
+            onSettingsChanged?.();
+        }
+    });
+    $('#vse_renderer_max_kb').on('input change', function () {
+        const parsed = parseInt(String($(this).val()), 10);
+        if (!Number.isNaN(parsed) && parsed >= 64 && parsed <= 16384) {
+            getSettings().rendererMaxHtmlKb = parsed;
+            saveSettings();
+            onSettingsChanged?.();
+        }
+    });
+    $('#vse_renderer_collapse').on('change', function () { getSettings().rendererCollapseCode = String($(this).val() || 'frontend'); saveSettings(); onSettingsChanged?.(); });
+    $('#vse_renderer_skip_hljs').on('change', function () { getSettings().rendererSkipHljs = Boolean($(this).prop('checked')); saveSettings(); onSettingsChanged?.(); });
+    $('#vse_renderer_allow_ext').on('change', function () { getSettings().rendererAllowExternalResources = Boolean($(this).prop('checked')); saveSettings(); onSettingsChanged?.(); });
+    $('#vse_renderer_auto_send').on('change', function () { getSettings().rendererAllowAutoSend = Boolean($(this).prop('checked')); saveSettings(); onSettingsChanged?.(); });
+    $('#vse_renderer_auto_yield').on('change', function () { getSettings().rendererAutoYield = Boolean($(this).prop('checked')); saveSettings(); onSettingsChanged?.(); });
 
     $('#vse_refresh_profiles_btn').on('click', () => {
         const list = getChatCompletionProfiles();

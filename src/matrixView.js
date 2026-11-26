@@ -292,10 +292,10 @@ export function renderAetherMatrixList(pairs = [], prevPairs = null, { showGuide
                                 <span class="vse-axis-name">${esc(ax.negEmoji)} ${esc(ax.negLabel)}</span>
                                 <b>${negVal}</b>
                                 ${negDelta}
-                                <small>acc ${esc(fmtAcc(negAcc))}</small>
+                                <small class="${negAcc === 0 ? 'vse-acc-zero' : 'vse-acc-live'}">acc ${esc(fmtAcc(negAcc))}</small>
                             </span>
                             <span class="vse-axis-side pos" title="${esc(ax.posDesc)}">
-                                <small>acc ${esc(fmtAcc(posAcc))}</small>
+                                <small class="${posAcc === 0 ? 'vse-acc-zero' : 'vse-acc-live'}">acc ${esc(fmtAcc(posAcc))}</small>
                                 ${posDelta}
                                 <b>${posVal}</b>
                                 <span class="vse-axis-name">${esc(ax.posLabel)} ${esc(ax.posEmoji)}</span>

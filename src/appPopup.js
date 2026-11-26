@@ -44,6 +44,8 @@ import {
 import { fetchModelsList, extractErrorMessage } from './workerClient.js';
 import { DEFAULT_END_MARKER } from './retryDetector.js';
 import { getChatCompletionProfiles } from './st.js';
+import { evaluateEjs, shouldYieldEjs } from './ejsEngine.js';
+import { shouldYieldRenderer } from './cardRenderer.js';
 
 const FAB_POS_KEY = 'vexa_state_engine_fab_pos';
 
@@ -62,6 +64,7 @@ export const APP_TABS = Object.freeze([
     { id: 'trackers', group: 'world', title: 'Custom Trackers', sub: 'Main-model-proposed and custom multi-field trackers (businesses, estates, ships, ledgers).', icon: 'fa-chart-simple' },
     { id: 'worker', group: 'engine', title: 'Vexa Clerk', sub: 'Secondary background API worker that tracks deltas after every reply.', icon: 'fa-robot' },
     { id: 'retry', group: 'engine', title: 'Refusal Retry', sub: 'Built-in safety refusal cleanup, GFX_END guard, and Non-Stream Continue.', icon: 'fa-shield-halved' },
+    { id: 'runtime', group: 'engine', title: 'Card Runtime', sub: 'Scoped EJS templating, guarded Blob-URL renderer, sandboxed interactive bridge, and scoped card variables.', icon: 'fa-code' },
     { id: 'appearance', group: 'engine', title: 'HUD & Rules', sub: 'Visual themes, card styles, smart scoping, and deterministic engine caps.', icon: 'fa-palette' },
     { id: 'tools', bottom: true, title: 'Tools & JSON', sub: 'Chat import, compiled XML snapshot preview, and raw canonical JSON.', icon: 'fa-wrench' },
 ]);
@@ -214,6 +217,8 @@ export function createVexaAppPopup({
     onAlignHudThemes,
     onSettingsChanged,
     onStateSaved,
+    getRuntimeStats = () => ({}),
+    onCardVarsChanged,
 }) {
     let activeTab = 'overview';
     const subTabs = {
@@ -407,6 +412,7 @@ export function createVexaAppPopup({
             }
         }
         parts.push('<div class="vse-dock-spacer"></div>');
+        parts.push('<div class="vse-dock-label vse-dock-label-util"><span>Utilities</span></div>');
         parts.push(...bottomItems.map(dockItem));
         return parts.join('');
     }
@@ -1040,7 +1046,7 @@ export function createVexaAppPopup({
                     <div class="vse-inline-actions">
                         ${isInferred ? `<button type="button" class="vse-app-btn gold vse-btn-sm" id="vse_pop_adopt_inferred" title="Save inferred injuries into canonical health state"><i class="fa-solid fa-wand-magic-sparkles"></i> Adopt Inferred</button>` : ''}
                         <button type="button" class="vse-app-btn secondary vse-btn-sm" id="vse_pop_tend_all"><i class="fa-solid fa-bandage"></i> Tend All</button>
-                        <button type="button" class="vse-app-btn primary vse-btn-sm" id="vse_pop_full_heal"><i class="fa-solid fa-heart"></i> Full Heal</button>
+                        <button type="button" class="vse-app-btn vse-btn-heal vse-btn-sm" id="vse_pop_full_heal"><i class="fa-solid fa-heart"></i> Full Heal</button>
                     </div>
                 </div>
                 <div id="vse_pop_health_doll_wrap">
@@ -2289,8 +2295,11 @@ export function createVexaAppPopup({
         const activeStyle = settings.hudStyle || 'Afterglow';
 
         const themeCards = Object.entries(VEXA_THEMES).map(([name, t]) => `
-            <button type="button" class="vse-theme-card ${name === activeTheme ? 'on' : ''}" data-theme-name="${esc(name)}" style="background:${esc(t.base)};color:${esc(t.text)};border-color:${name === activeTheme ? '#f59e0b' : esc(t.border)};">
-                <span class="vse-theme-name">${esc(name)}</span>
+            <button type="button" class="vse-theme-card ${name === activeTheme ? 'on' : ''}" data-theme-name="${esc(name)}" data-scheme="${esc(t.scheme)}" style="background:${esc(t.base)};color:${esc(t.text)};border-color:${name === activeTheme ? '#f59e0b' : esc(t.border)};">
+                <span class="vse-theme-head">
+                    <span class="vse-theme-name">${esc(name)}</span>
+                    ${name === activeTheme ? '<i class="fa-solid fa-check vse-theme-check" aria-hidden="true"></i>' : ''}
+                </span>
                 <span class="vse-theme-swatches">
                     <i style="background:${esc(t.blue)}"></i>
                     <i style="background:${esc(t.green)}"></i>
@@ -2299,6 +2308,23 @@ export function createVexaAppPopup({
                 </span>
             </button>
         `).join('');
+
+        const styleTilesHtml = `
+            <div class="vse-tiles vse-style-tiles" data-tile-group="hudstyle">
+                ${VEXA_STYLES.map((st) => `
+                    <button type="button" class="vse-tile ${st === activeStyle ? 'on' : ''}" data-tile-val="${esc(st)}">
+                        <span class="vse-style-preview" data-vse-style="${esc(st)}" aria-hidden="true">
+                            <span class="vse-sp-bar"><i></i></span>
+                            <span class="vse-sp-lines"><i></i><i></i></span>
+                        </span>
+                        <span class="vse-style-tile-head">
+                            <b>${esc(st)}</b>
+                            ${st === activeStyle ? '<i class="fa-solid fa-check vse-theme-check" aria-hidden="true"></i>' : ''}
+                        </span>
+                    </button>
+                `).join('')}
+            </div>
+        `;
 
         $stage.html(`
             ${renderPageHeader(meta)}
@@ -2314,7 +2340,7 @@ export function createVexaAppPopup({
 
             <div class="vse-glass-card">
                 <div class="vse-card-title">HUD Card Style</div>
-                ${renderTiles('hudstyle', VEXA_STYLES.map((st) => ({ id: st, label: st, desc: '' })), activeStyle)}
+                ${styleTilesHtml}
             </div>
 
             <div class="vse-glass-card">
@@ -2433,9 +2459,8 @@ export function createVexaAppPopup({
         });
         $stage.find('[data-tile-group="hudstyle"]').on('click', '.vse-tile', function () {
             getSettings().hudStyle = String($(this).data('tile-val') || 'Afterglow');
-            $(this).siblings().removeClass('on');
-            $(this).addClass('on');
             notifySettingsChanged();
+            renderAppearanceTab($stage, getSettings());
         });
         $stage.find('[data-tile-group="atlasmode"]').on('click', '.vse-tile', function () {
             getSettings().atlasViewMode = String($(this).data('tile-val') || 'webgl');
@@ -2471,6 +2496,259 @@ export function createVexaAppPopup({
         wireBool('#vse_pop_matrix_cap', 'enforceMatrixStepCap', true);
         wireBool('#vse_pop_allow_proposals', 'allowTrackerProposals', true);
         wireBool('#vse_pop_auto_accept_trackers', 'autoAcceptTrackerProposals', false);
+    }
+
+    function renderRuntimeTab($stage, state, settings) {
+        const meta = tabMeta('runtime');
+        const rtStats = getRuntimeStats?.() || {};
+        const cardVars = store?.getCardVars?.() || {};
+        const yieldingEjs = shouldYieldEjs(settings);
+        const yieldingRenderer = shouldYieldRenderer(settings);
+        const ejsOn = settings.ejsEnabled !== false;
+        const rendererOn = settings.rendererEnabled !== false;
+
+        $stage.html(`
+            ${renderPageHeader({
+                ...meta,
+                badgeHtml: `<span class="vse-head-badge ${ejsOn || rendererOn ? 'ok' : ''}">${rtStats.activeIframes || 0} ACTIVE IFRAMES</span>`,
+            })}
+            <div class="vse-banner ${(yieldingEjs || yieldingRenderer) ? 'warm' : 'ok'}">
+                <i class="fa-solid ${(yieldingEjs || yieldingRenderer) ? 'fa-handshake' : 'fa-shield-halved'}"></i>
+                <span>
+                    ${yieldingEjs ? '<b>EJS auto-yielding</b> to ST-Prompt-Template (window.EjsTemplate detected). ' : '<b>Scoped EJS Ready</b> (5,000-step loop cap, zero DOM/secret access). '}
+                    ${yieldingRenderer ? '<b>Renderer auto-yielding</b> to JS-Slash-Runner (TavernHelper detected).' : '<b>Sandboxed Blob-URL Renderer Ready</b> (sandbox="allow-scripts", CSP-isolated, depth-throttled).'}
+                </span>
+            </div>
+
+            <div class="vse-glass-card">
+                <div class="vse-card-title">Scoped EJS Templating Engine</div>
+                ${renderSwitchRow({
+                    id: 'vse_pop_ejs_enabled',
+                    icon: 'fa-terminal',
+                    color: '#f59e0b',
+                    label: 'Enable Scoped EJS &amp; Macro Evaluation',
+                    desc: 'Evaluates &lt;% ... %&gt;, RPG dice roll(), getvar(), and getvexa() across World Info and chat prompts.',
+                    on: ejsOn,
+                })}
+                ${renderSwitchRow({
+                    id: 'vse_pop_ejs_wi',
+                    icon: 'fa-book-open',
+                    color: '#38bdf8',
+                    label: 'Evaluate World Info &amp; Seed [InitVar]',
+                    desc: 'Automatically seeds scoped card_vars from [InitVar] and evaluates EJS conditions on loaded lore entries.',
+                    on: settings.ejsEvalWorldInfo !== false,
+                })}
+                ${renderSwitchRow({
+                    id: 'vse_pop_ejs_prompts',
+                    icon: 'fa-wand-magic-sparkles',
+                    color: '#10b981',
+                    label: 'Evaluate Outgoing Chat Prompts',
+                    desc: 'Evaluates EJS and {{get_card_var::...}} / {{vexa::...}} macros cleanly before generation (non-Vexa presets included).',
+                    on: settings.ejsEvalPrompts !== false,
+                })}
+                ${renderSwitchRow({
+                    id: 'vse_pop_ejs_yield',
+                    icon: 'fa-code-branch',
+                    color: '#a855f7',
+                    label: 'Auto-Yield to ST-Prompt-Template',
+                    desc: 'Defers EJS execution to window.EjsTemplate when external ST-Prompt-Template is installed.',
+                    on: settings.ejsAutoYield !== false,
+                })}
+                <div class="vse-field-col wide" style="margin-top:8px;">
+                    <label class="vse-field-lbl">EJS Quick Evaluator (Test against live Vexa state &amp; card_vars)</label>
+                    <div class="vse-inline-actions" style="justify-content:stretch;">
+                        <textarea id="vse_pop_ejs_input" class="vse-app-input vse-mono" rows="2" placeholder="Roll: <%= roll('1d100') %> | Loc: <%= getvexa('world.loc', 'Unknown') %> | Luck: <%= getvar('stat_data.luck', 30) %>"><%= roll('1d100') %> · Loc: <%= getvexa('world.loc', 'Unknown') %></textarea>
+                        <button type="button" class="vse-app-btn primary" id="vse_pop_ejs_run"><i class="fa-solid fa-play"></i> Run</button>
+                    </div>
+                    <pre id="vse_pop_ejs_out" class="vse-pre" style="margin-top:4px;min-height:28px;">Click Run to evaluate snippet...</pre>
+                </div>
+            </div>
+
+            <div class="vse-glass-card">
+                <div class="vse-card-head">
+                    <div>
+                        <div class="vse-card-title">Guarded Blob-URL Renderer &amp; Interactive Bridge</div>
+                        <div class="vse-card-sub">
+                            Active Iframes: <b>${rtStats.activeIframes || 0}</b> ·
+                            Placeholders: <b>${rtStats.placeholders || 0}</b> ·
+                            Revoked URLs: <b>${rtStats.totalRevokedUrls || 0}</b> ·
+                            Scan: <b>${rtStats.lastScanMs ?? 0} ms</b> ·
+                            RPCs: <b>${rtStats.totalRpcs || 0}</b> (Blocked: <b>${rtStats.blockedRpcs || 0}</b>)
+                        </div>
+                    </div>
+                </div>
+                ${renderSwitchRow({
+                    id: 'vse_pop_ren_enabled',
+                    icon: 'fa-window-maximize',
+                    color: '#38bdf8',
+                    label: 'Enable Guarded Blob-URL Iframe Renderer',
+                    desc: 'Renders frontend HTML blocks inside sandbox="allow-scripts" iframes via window.VexaCard postMessage bridge.',
+                    on: rendererOn,
+                })}
+                ${renderSwitchRow({
+                    id: 'vse_pop_ren_blob',
+                    icon: 'fa-link',
+                    color: '#10b981',
+                    label: 'Use Blob URL Rendering',
+                    desc: 'Uses URL.createObjectURL(Blob) and revokes URLs on unmount/chat switch (falls back to srcdoc if off).',
+                    on: settings.rendererUseBlobUrl !== false,
+                })}
+                <div class="vse-field-col wide" style="margin-top:6px;">
+                    <label class="vse-field-lbl">Render Depth (Active floors from newest; 0 = all capped at 6)</label>
+                    ${renderTiles('rendepth', [
+                        { id: '1', label: '1 Floor' },
+                        { id: '2', label: '2 Floors' },
+                        { id: '3', label: '3 Floors' },
+                        { id: '5', label: '5 Floors' },
+                        { id: '0', label: 'All (Cap 6)' },
+                    ], String(settings.rendererDepth ?? 2))}
+                </div>
+                <div class="vse-field-col wide" style="margin-top:6px;">
+                    <label class="vse-field-lbl">Code Block Folding</label>
+                    ${renderTiles('rencollapse', [
+                        { id: 'frontend', label: 'Frontend Only', desc: 'Hide HTML blocks replaced by iframes' },
+                        { id: 'all', label: 'All Blocks', desc: 'Collapse every code block in chat' },
+                        { id: 'none', label: 'None', desc: 'Keep raw code visible' },
+                    ], settings.rendererCollapseCode || 'frontend')}
+                </div>
+                <div class="vse-two-col" style="margin-top:8px;">
+                    <div class="vse-field-col">
+                        <label class="vse-field-lbl">Max HTML Guard (KB)</label>
+                        <input id="vse_pop_ren_maxkb" type="number" min="64" max="16384" step="64" class="vse-app-input" value="${esc(settings.rendererMaxHtmlKb ?? 2048)}" />
+                    </div>
+                </div>
+                ${renderSwitchRow({
+                    id: 'vse_pop_ren_hljs',
+                    icon: 'fa-gauge-high',
+                    color: '#f59e0b',
+                    label: 'Skip highlight.js on Frontend Screens',
+                    desc: 'Prevents multi-megabyte HTML blocks from freezing syntax highlighting.',
+                    on: settings.rendererSkipHljs !== false,
+                })}
+                ${renderSwitchRow({
+                    id: 'vse_pop_ren_ext',
+                    icon: 'fa-globe',
+                    color: '#ef4444',
+                    label: 'Allow External CDN Styles/Fonts/Scripts (https:)',
+                    desc: 'Off by default for offline CSP privacy. connect-src remains blocked in all modes.',
+                    on: Boolean(settings.rendererAllowExternalResources),
+                })}
+                ${renderSwitchRow({
+                    id: 'vse_pop_ren_autosend',
+                    icon: 'fa-paper-plane',
+                    color: '#fbbf24',
+                    label: 'Allow Screen Auto-Send Without Confirmation',
+                    desc: 'When off, submitInput() stages a 1-click "Send to Chat" bar instead of submitting silently.',
+                    on: Boolean(settings.rendererAllowAutoSend),
+                })}
+                ${renderSwitchRow({
+                    id: 'vse_pop_ren_yield',
+                    icon: 'fa-code-branch',
+                    color: '#a855f7',
+                    label: 'Auto-Yield to JS-Slash-Runner',
+                    desc: 'Defers rendering to TavernHelper when external JS-Slash-Runner is active.',
+                    on: settings.rendererAutoYield !== false,
+                })}
+            </div>
+
+            <div class="vse-glass-card">
+                <div class="vse-card-head">
+                    <div>
+                        <div class="vse-card-title">Scoped Card Variables (card_vars)</div>
+                        <div class="vse-card-sub">Chat-isolated JSON variables seeded from [InitVar] or written via window.VexaCard (64 KB cap).</div>
+                    </div>
+                    <div class="vse-inline-actions">
+                        <button type="button" class="vse-app-btn secondary" id="vse_pop_reset_cardvars"><i class="fa-solid fa-trash"></i> Reset Vars</button>
+                        <button type="button" class="vse-app-btn primary" id="vse_pop_save_cardvars"><i class="fa-solid fa-floppy-disk"></i> Save Card Vars</button>
+                    </div>
+                </div>
+                <textarea id="vse_pop_cardvars_json" class="vse-app-input vse-mono" rows="10">${esc(JSON.stringify(cardVars, null, 2))}</textarea>
+                <span class="vse-err-text" id="vse_pop_cardvars_err"></span>
+            </div>
+        `);
+
+        const wireRtBool = (sel, key, defTrue = true) => {
+            $stage.find(sel).on('click', function () {
+                const s = getSettings();
+                const cur = defTrue ? (s[key] !== false) : Boolean(s[key]);
+                const next = !cur;
+                s[key] = next;
+                $(this).toggleClass('active', next).attr('aria-checked', String(next));
+                notifySettingsChanged();
+            });
+        };
+        wireRtBool('#vse_pop_ejs_enabled', 'ejsEnabled', true);
+        wireRtBool('#vse_pop_ejs_wi', 'ejsEvalWorldInfo', true);
+        wireRtBool('#vse_pop_ejs_prompts', 'ejsEvalPrompts', true);
+        wireRtBool('#vse_pop_ejs_yield', 'ejsAutoYield', true);
+        wireRtBool('#vse_pop_ren_enabled', 'rendererEnabled', true);
+        wireRtBool('#vse_pop_ren_blob', 'rendererUseBlobUrl', true);
+        wireRtBool('#vse_pop_ren_hljs', 'rendererSkipHljs', true);
+        wireRtBool('#vse_pop_ren_ext', 'rendererAllowExternalResources', false);
+        wireRtBool('#vse_pop_ren_autosend', 'rendererAllowAutoSend', false);
+        wireRtBool('#vse_pop_ren_yield', 'rendererAutoYield', true);
+
+        $stage.find('[data-tile-group="rendepth"]').on('click', '.vse-tile', function () {
+            const val = parseInt(String($(this).data('tile-val') || '2'), 10);
+            getSettings().rendererDepth = Number.isNaN(val) ? 2 : val;
+            $(this).siblings().removeClass('on');
+            $(this).addClass('on');
+            notifySettingsChanged();
+        });
+        $stage.find('[data-tile-group="rencollapse"]').on('click', '.vse-tile', function () {
+            getSettings().rendererCollapseCode = String($(this).data('tile-val') || 'frontend');
+            $(this).siblings().removeClass('on');
+            $(this).addClass('on');
+            notifySettingsChanged();
+        });
+        $stage.find('#vse_pop_ren_maxkb').on('change', function () {
+            const val = parseInt(String($(this).val()), 10);
+            if (!Number.isNaN(val) && val >= 64 && val <= 16384) {
+                getSettings().rendererMaxHtmlKb = val;
+                notifySettingsChanged();
+            }
+        });
+
+        $stage.find('#vse_pop_ejs_run').on('click', () => {
+            const tpl = String($stage.find('#vse_pop_ejs_input').val() || '');
+            const ctx = getContextSafe?.() || {};
+            const res = evaluateEjs(tpl, {
+                state,
+                cardVars: store?.getCardVars?.() || {},
+                charName: ctx.name2 || '',
+                userName: ctx.name1 || '',
+            });
+            $stage.find('#vse_pop_ejs_out').text(res.ok ? res.text : `Error: ${res.error}`);
+        });
+
+        $stage.find('#vse_pop_save_cardvars').on('click', () => {
+            $('#vse_pop_cardvars_err').text('');
+            try {
+                const parsed = JSON.parse(String($stage.find('#vse_pop_cardvars_json').val() || '{}'));
+                if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+                    $('#vse_pop_cardvars_err').text('Root card_vars must be a JSON object.');
+                    return;
+                }
+                store?.resetCardVars?.();
+                const res = store?.patchCardVars?.(parsed);
+                if (!res?.ok) {
+                    $('#vse_pop_cardvars_err').text(res?.error || 'Failed to save card_vars.');
+                    return;
+                }
+                onCardVarsChanged?.(store.getCardVars());
+                window.toastr?.success?.('Saved scoped card_vars.', 'Vexa State Engine');
+                renderRuntimeTab($stage, activeState(), getSettings());
+            } catch (err) {
+                $('#vse_pop_cardvars_err').text(`Invalid JSON: ${err.message}`);
+            }
+        });
+
+        $stage.find('#vse_pop_reset_cardvars').on('click', () => {
+            store?.resetCardVars?.();
+            onCardVarsChanged?.({});
+            window.toastr?.info?.('Cleared scoped card_vars for this chat.', 'Vexa State Engine');
+            renderRuntimeTab($stage, activeState(), getSettings());
+        });
     }
 
     function renderToolsTab($stage, state, settings) {
@@ -2607,6 +2885,9 @@ export function createVexaAppPopup({
                 break;
             case 'retry':
                 renderRetryTab($stage, settings);
+                break;
+            case 'runtime':
+                renderRuntimeTab($stage, state, settings);
                 break;
             case 'appearance':
                 renderAppearanceTab($stage, settings);

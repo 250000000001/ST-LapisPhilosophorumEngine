@@ -523,7 +523,7 @@ export function renderChangeLogStrip(
                 } else if (it.kind === 'removed') {
                     valHtml = `<span class="vse-diff-tag rem">−</span><span class="vse-diff-before">${esc(it.before)}</span>`;
                 } else {
-                    valHtml = `${it.before ? `<span class="vse-diff-before">${esc(it.before)}</span><i class="fa-solid fa-arrow-right vse-diff-arrow"></i>` : ''}<span class="vse-diff-after">${esc(it.after)}</span>`;
+                    valHtml = `${it.before ? `<span class="vse-diff-before">${esc(it.before)}</span>` : ''}<span class="vse-diff-to">${it.before ? '<i class="fa-solid fa-arrow-right vse-diff-arrow"></i>' : ''}<span class="vse-diff-after">${esc(it.after)}</span></span>`;
                 }
                 return `
                     <div class="vse-diff-row">

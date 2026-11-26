@@ -21,7 +21,17 @@ import { parseWorkerDelta, approveTrackerProposal, dismissTrackerProposal } from
 import { createVexaStateStore } from './src/store.js';
 import { buildWorkerMessages } from './src/workerPrompt.js';
 import { createWorkerClient, isWorkerRefusal, extractErrorMessage } from './src/workerClient.js';
-import { transformPromptMessages } from './src/promptInjector.js';
+import { transformPromptMessages, evaluatePromptMessagesEjs } from './src/promptInjector.js';
+import {
+    hasEjsTags,
+    shouldYieldEjs,
+    buildReadOnlyVexaSnapshot,
+    evaluateEjs,
+    substituteVexaMacros,
+    tryParseInitVarsFromEntries,
+} from './src/ejsEngine.js';
+import { createCardBridgeHost } from './src/cardBridge.js';
+import { installHljsGuard, uninstallHljsGuard, createCardRenderer, shouldYieldRenderer } from './src/cardRenderer.js';
 import { refreshAllHudCards, alignAllHudThemes } from './src/hud.js';
 import { openStateEditorModal } from './src/editor.js';
 import { injectSettingsUI, syncSettingsUI } from './src/settingsUi.js';
@@ -78,6 +88,19 @@ const DEFAULT_SETTINGS = Object.freeze({
     enforceMatrixStepCap: true,
     allowTrackerProposals: true,
     autoAcceptTrackerProposals: false,
+    ejsEnabled: true,
+    ejsEvalWorldInfo: true,
+    ejsEvalPrompts: true,
+    ejsAutoYield: true,
+    rendererEnabled: true,
+    rendererUseBlobUrl: true,
+    rendererDepth: 2,
+    rendererCollapseCode: 'frontend',
+    rendererSkipHljs: true,
+    rendererMaxHtmlKb: 2048,
+    rendererAllowExternalResources: false,
+    rendererAllowAutoSend: false,
+    rendererAutoYield: true,
     retry: DEFAULT_RETRY_SETTINGS,
 });
 
@@ -189,7 +212,85 @@ jQuery(() => {
 
     let workerStatus = { busy: false, runningLabel: null, waiting: 0 };
     let refreshTimer = null;
+    let rendererTimer = null;
+    let chatEpoch = 0;
+    let lastWiEntries = [];
     let appPopup = null;
+
+    function fillChatComposer(text) {
+        const ta = document.getElementById('send_textarea');
+        if (!ta) return false;
+        ta.value = String(text || '');
+        ta.dispatchEvent(new Event('input', { bubbles: true }));
+        ta.focus?.();
+        return true;
+    }
+
+    function clickChatSend() {
+        const btn = document.getElementById('send_but');
+        if (!btn) return false;
+        btn.click();
+        return true;
+    }
+
+    const getStateForMesId = (mesId) => {
+        const chat = getContextSafe().chat || [];
+        const msg = Number.isFinite(mesId) ? chat[mesId] : null;
+        const seq = msg?.extra?.vexa_seq;
+        return typeof seq === 'number' ? store.getStateAt(seq) : store.getState();
+    };
+
+    const cardBridgeHost = createCardBridgeHost({
+        getSettings,
+        getStateForMessage: getStateForMesId,
+        store,
+        onFillInput: (text) => {
+            fillChatComposer(text);
+        },
+        onSubmitInput: (text, entry, { autoSend } = {}) => {
+            if (autoSend) {
+                fillChatComposer(text);
+                clickChatSend();
+            } else {
+                // Stage inside confirmation bar WITHOUT overwriting user's in-progress composer draft
+                cardRenderer?.showConfirmSendBar?.(entry.token, text);
+            }
+        },
+        onToast: (text, level) => {
+            const fn = window.toastr?.[level] || window.toastr?.info;
+            fn?.(text, DISPLAY_TITLE);
+        },
+        onVarsUpdated: () => {
+            appPopup?.refresh?.();
+        },
+    });
+
+    const cardRenderer = createCardRenderer({
+        getSettings,
+        bridgeHost: cardBridgeHost,
+        getStateForMesId,
+        store,
+        onConfirmSend: (text) => {
+            fillChatComposer(text);
+            clickChatSend();
+        },
+    });
+
+    installHljsGuard(getSettings);
+
+    function scheduleRendererRefresh(delay = 80, epoch = chatEpoch) {
+        if (rendererTimer) clearTimeout(rendererTimer);
+        rendererTimer = setTimeout(() => {
+            rendererTimer = null;
+            if (epoch !== chatEpoch) return;
+            cardRenderer.refreshAll();
+        }, delay);
+    }
+
+    function cancelScheduledRefreshes() {
+        if (refreshTimer) { clearTimeout(refreshTimer); refreshTimer = null; }
+        if (rendererTimer) { clearTimeout(rendererTimer); rendererTimer = null; }
+    }
 
     function scheduleHudRefresh(delay = 60) {
         if (refreshTimer) clearTimeout(refreshTimer);
@@ -247,6 +348,8 @@ jQuery(() => {
                     scheduleHudRefresh(10);
                 },
             });
+            cardBridgeHost.broadcastState(store.getState());
+            scheduleRendererRefresh(15);
             appPopup?.refresh?.();
         }, delay);
     }
@@ -492,7 +595,7 @@ jQuery(() => {
         processReply(idx, type);
     });
 
-    // Prompt injection on outgoing story request
+    // Prompt injection + scoped EJS / card macro evaluation on outgoing story request
     eventSource.on(event_types.CHAT_COMPLETION_PROMPT_READY, (data) => {
         const settings = getSettings();
         if (!settings.enabled || !data || !Array.isArray(data.chat)) return;
@@ -511,7 +614,79 @@ jQuery(() => {
         if (res.active) {
             console.debug(`[${DISPLAY_TITLE}] Prompt prepared: stripped=${res.strippedCount}, injected=${res.injected}, chars=${res.snapshotChars}`);
         }
+        if (settings.ejsEnabled !== false && settings.ejsEvalPrompts !== false) {
+            const ejsRes = evaluatePromptMessagesEjs(data.chat, {
+                enabled: true,
+                autoYield: settings.ejsAutoYield !== false,
+                state: store.getState(),
+                cardVars: store.getCardVars(),
+                setCardVar: (path, val) => {
+                    const wr = store.setCardVar(path, val);
+                    if (wr?.ok) cardBridgeHost.broadcastVars(store.getCardVars());
+                    return Boolean(wr?.ok);
+                },
+                wiEntries: lastWiEntries,
+                charName: ctx.name2 || '',
+                userName: ctx.name1 || '',
+            });
+            if (ejsRes.errors?.length) {
+                console.warn(`[${DISPLAY_TITLE}] Prompt EJS warning:`, ejsRes.errors);
+            }
+        }
     });
+
+    if (event_types.WORLDINFO_ENTRIES_LOADED) {
+        eventSource.on(event_types.WORLDINFO_ENTRIES_LOADED, (payload) => {
+            const settings = getSettings();
+            if (!settings.enabled || !payload || typeof payload !== 'object') return;
+            const buckets = [
+                payload.globalLore,
+                payload.characterLore,
+                payload.chatLore,
+                payload.personaLore,
+            ];
+            const allEntries = buckets.flatMap((b) => (Array.isArray(b) ? b : []));
+            lastWiEntries = allEntries.map((e) => ({
+                comment: e?.comment || '',
+                key: e?.key || '',
+                content: e?.content || '',
+            }));
+
+            const initVars = tryParseInitVarsFromEntries(allEntries);
+            if (initVars && store.seedCardVarsIfEmpty(initVars)) {
+                cardBridgeHost.broadcastVars(store.getCardVars());
+            }
+
+            if (settings.ejsEnabled === false || settings.ejsEvalWorldInfo === false || shouldYieldEjs(settings)) {
+                return;
+            }
+            const ctx = getContextSafe();
+            const curState = store.getState();
+            const frozenState = buildReadOnlyVexaSnapshot(curState);
+            const cardVars = store.getCardVars();
+
+            for (const entry of allEntries) {
+                if (!entry || typeof entry.content !== 'string') continue;
+                let text = entry.content;
+                if (hasEjsTags(text)) {
+                    const res = evaluateEjs(text, {
+                        frozenState,
+                        state: curState,
+                        cardVars,
+                        wiEntries: lastWiEntries,
+                        charName: ctx.name2 || '',
+                        userName: ctx.name1 || '',
+                    });
+                    if (res.ok) text = res.text;
+                    else console.warn(`[${DISPLAY_TITLE}] WI EJS error in "${entry.comment || entry.uid}": ${res.error}`);
+                }
+                if (text.includes('{{')) {
+                    text = substituteVexaMacros(text, { frozenState, state: curState, cardVars });
+                }
+                entry.content = text;
+            }
+        });
+    }
 
     // Send guard (wait up to 30s if worker still reading last turn) + retry lifecycle
     eventSource.on(event_types.GENERATION_STARTED, async (genType, params, dryRun) => {
@@ -625,8 +800,15 @@ jQuery(() => {
         if (!retryRuntime.isEnabled()) retryRuntime.resetAll();
         retryRuntime.syncButtons();
         syncSettingsUI(getSettings());
+        const cur = getSettings();
+        if (!cur.enabled || !cur.rendererEnabled || shouldYieldRenderer(cur)) {
+            cardRenderer.teardownAll();
+            cardBridgeHost.unregisterAll();
+        }
+        if (!cur.enabled) lastWiEntries = [];
         appPopup?.syncChrome?.();
         scheduleHudRefresh(20);
+        scheduleRendererRefresh(25);
     }
 
     function handleAlignHudThemes(theme, style) {
@@ -655,17 +837,29 @@ jQuery(() => {
         onAlignHudThemes: handleAlignHudThemes,
         onSettingsChanged: handleSettingsChanged,
         onStateSaved: () => scheduleHudRefresh(10),
+        getRuntimeStats: () => ({
+            ...cardRenderer.getStats(),
+            ...cardBridgeHost.getStats(),
+        }),
+        onCardVarsChanged: (nextVars) => {
+            cardBridgeHost.broadcastVars(nextVars);
+        },
     });
 
     eventSource.on(event_types.CHAT_CHANGED, () => {
+        const myEpoch = ++chatEpoch;
         cancelPendingAccept();
+        cancelScheduledRefreshes();
         lastReceivedInfo = null;
+        lastWiEntries = [];
+        cardRenderer.teardownAll();
+        cardBridgeHost.unregisterAll();
         retryRuntime.onChatChanged();
         const chatAtEvent = getContextSafe().chatId;
         workerClient.stopForOtherChats(chatAtEvent);
         appPopup?.syncChrome?.();
         setTimeout(() => {
-            if (getContextSafe().chatId !== chatAtEvent) return;
+            if (myEpoch !== chatEpoch || getContextSafe().chatId !== chatAtEvent) return;
             store.reconcile();
             // Auto-import once when opening an existing vanilla Vexa chat
             const chat = getContextSafe().chat || [];
@@ -675,11 +869,20 @@ jQuery(() => {
             }
             appPopup?.refresh?.();
             scheduleHudRefresh(60);
+            scheduleRendererRefresh(80, myEpoch);
         }, 250);
     });
 
-    for (const evt of [event_types.CHARACTER_MESSAGE_RENDERED, event_types.MESSAGE_UPDATED, event_types.MORE_MESSAGES_LOADED]) {
-        if (evt) eventSource.on(evt, () => scheduleHudRefresh(90));
+    for (const evt of [
+        event_types.CHARACTER_MESSAGE_RENDERED,
+        event_types.USER_MESSAGE_RENDERED,
+        event_types.MESSAGE_UPDATED,
+        event_types.MORE_MESSAGES_LOADED,
+    ]) {
+        if (evt) eventSource.on(evt, () => {
+            scheduleHudRefresh(90);
+            scheduleRendererRefresh(95);
+        });
     }
 
     function wireUi() {
@@ -731,8 +934,18 @@ jQuery(() => {
     wireUi();
     if (event_types.APP_READY) {
         eventSource.on(event_types.APP_READY, () => {
+            installHljsGuard(getSettings);
             wireUi();
             scheduleHudRefresh(150);
+            scheduleRendererRefresh(180);
         });
     }
+
+    window.__vexaStateEngineDispose = () => {
+        cancelPendingAccept();
+        cancelScheduledRefreshes();
+        cardRenderer.teardownAll();
+        cardBridgeHost.destroy();
+        uninstallHljsGuard();
+    };
 });

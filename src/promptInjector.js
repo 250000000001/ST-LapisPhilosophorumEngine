@@ -11,6 +11,13 @@
  */
 
 import { serializeInternalStates } from './parser.js';
+import {
+    hasEjsTags,
+    shouldYieldEjs,
+    buildReadOnlyVexaSnapshot,
+    evaluateEjs,
+    substituteVexaMacros,
+} from './ejsEngine.js';
 
 export const SNAPSHOT_PLACEHOLDER = '{{vexa_state_snapshot}}';
 export const TRACKER_PROPOSE_PLACEHOLDER = '{{vexa_tracker_propose_rule}}';
@@ -178,4 +185,105 @@ export function transformPromptMessages(messages, {
         injected,
         snapshotChars: snapshotXml.length,
     };
+}
+
+/**
+ * Evaluate EJS (`<% ... %>`) and Vexa/Card macros (`{{get_card_var::...}}`, `{{vexa::...}}`)
+ * across outgoing chat messages non-destructively (works even on non-Vexa presets).
+ * Auto-yields cleanly when `ST-Prompt-Template` (`window.EjsTemplate`) is active.
+ */
+export function evaluatePromptMessagesEjs(messages, {
+    enabled = true,
+    autoYield = true,
+    allowChatRoles = false,
+    maxChunkChars = 262144,
+    maxTotalChars = 1048576,
+    state = null,
+    cardVars = {},
+    setCardVar = null,
+    wiEntries = [],
+    charName = '',
+    userName = '',
+    allowVarWrites = false,
+} = {}) {
+    if (!enabled || !Array.isArray(messages) || shouldYieldEjs({ ejsAutoYield: autoYield })) {
+        return { active: false, evaluatedCount: 0, macroCount: 0, errors: [], elapsedMs: 0 };
+    }
+
+    const t0 = typeof performance !== 'undefined' && performance.now ? performance.now() : Date.now();
+    let frozenState = null;
+    const ensureFrozen = () => {
+        if (!frozenState) frozenState = buildReadOnlyVexaSnapshot(state);
+        return frozenState;
+    };
+
+    let evaluatedCount = 0;
+    let macroCount = 0;
+    let totalOutputChars = 0;
+    const errors = [];
+
+    const processChunk = (raw) => {
+        if (typeof raw !== 'string' || (!hasEjsTags(raw) && !raw.includes('{{'))) {
+            return raw;
+        }
+        let next = raw;
+        if (hasEjsTags(next)) {
+            const res = evaluateEjs(next, {
+                frozenState: ensureFrozen(),
+                state,
+                cardVars,
+                setCardVar,
+                wiEntries,
+                charName,
+                userName,
+            }, { allowVarWrites, maxOutputChars: maxChunkChars });
+            if (res.ok) {
+                const candidate = String(res.text ?? '');
+                if (candidate.length <= maxChunkChars && totalOutputChars + candidate.length <= maxTotalChars) {
+                    if (candidate !== next) {
+                        next = candidate;
+                        evaluatedCount++;
+                    }
+                } else {
+                    errors.push('Prompt EJS output exceeded aggregate size cap');
+                }
+            } else if (res.error) {
+                errors.push(res.error);
+            }
+        }
+        if (typeof next === 'string' && next.includes('{{')) {
+            const sub = substituteVexaMacros(next, {
+                frozenState: ensureFrozen(),
+                state,
+                cardVars,
+            });
+            if (sub !== next && sub.length <= maxChunkChars && totalOutputChars + sub.length <= maxTotalChars) {
+                next = sub;
+                macroCount++;
+            }
+        }
+        totalOutputChars += String(next || '').length;
+        return next;
+    };
+
+    for (const msg of messages) {
+        if (!msg) continue;
+        // Skip user & assistant conversation messages by default so chat history cannot execute as EJS
+        const role = String(msg.role || 'system').toLowerCase();
+        if (!allowChatRoles && role !== 'system' && msg.vseAllowEjs !== true) {
+            continue;
+        }
+        if (typeof msg.content === 'string') {
+            msg.content = processChunk(msg.content);
+        } else if (Array.isArray(msg.content)) {
+            for (const part of msg.content) {
+                if (part && part.type === 'text' && typeof part.text === 'string') {
+                    part.text = processChunk(part.text);
+                }
+            }
+        }
+    }
+
+    const elapsedMs = (typeof performance !== 'undefined' && performance.now ? performance.now() : Date.now()) - t0;
+    return { active: true, evaluatedCount, macroCount, errors, elapsedMs };
 }

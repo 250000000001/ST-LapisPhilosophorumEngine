@@ -1,6 +1,5 @@
 test/
 node_modules/
-Presets/
 assets/models/custom/
 .DS_Store
 *.log

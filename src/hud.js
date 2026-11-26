@@ -69,6 +69,7 @@ function getView(viewKey, defaults) {
             healthLayer: 'body',
             healthPart: null,
             receiptOpen: false,
+            receiptRaw: false,
             diffOpen: false,
             diffFilter: 'all',
             diffShowAll: false,
@@ -370,8 +371,8 @@ function renderReceiptDrawer(state, view) {
                 <i class="fa-solid fa-chevron-${open ? 'up' : 'down'} vse-receipt-caret"></i>
             </button>
             ${open ? `
-                <div class="vse-receipt-body">
-                    ${structuredRows ? `<div class="vse-kv-grid vse-receipt-kv">${structuredRows}</div>` : ''}
+                <div class="vse-receipt-body${(view.receiptRaw || !structuredRows) ? ' show-raw' : ''}">
+                    ${structuredRows ? `<div class="vse-kv-grid vse-receipt-kv">${structuredRows}</div><div class="vse-receipt-body-bar"><button type="button" class="vse-mini-btn vse-receipt-raw-btn" title="Toggle raw <vexa_receipt> text">${view.receiptRaw ? 'Hide Raw' : 'Raw'}</button></div>` : ''}
                     <pre class="vse-pre">${esc(rc.raw)}</pre>
                 </div>
             ` : ''}
@@ -387,23 +388,62 @@ function applyThemeVars($card, themeName) {
     }
 }
 
-/** Hide any un-regexed <vexa_tail> text inside .mes_text cleanly without touching msg.mes. */
+/**
+ * Hide any un-regexed <vexa_tail> text inside .mes_text surgically WITHOUT calling `.html(...)`
+ * or mutating msg.mes — preserves live sandboxed card iframes, listeners, and code blocks.
+ */
 export function hideVexaTailInMessageEl($mesText) {
-    if (!$mesText || !$mesText.length) return;
-    // If ST sanitizer stripped <vexa_tail> tag names into plain text paragraphs, hide trailing text nodes matching world_sim:/vent markers
-    const html = $mesText.html();
-    if (!html) return;
-    if (/&lt;vexa_tail&gt;|<vexa_tail\b/i.test(html)) {
-        const cleaned = html.replace(/(?:&lt;|<)vexa_tail(?:&gt;|>)[\s\S]*?(?:&lt;|<)\/vexa_tail(?:&gt;|>)/gi, '');
-        if (cleaned !== html) $mesText.html(cleaned);
-    }
-    // Also hide sanitized loose <vexa_receipt> / <state:vent> plain paragraphs at bottom
-    $mesText.find('p').each(function () {
-        const txt = $(this).text().replace(/\u2800/g, ' ').trim();
-        if (/^(?:world_sim:|chekhov:|arc:|ooc:|tracker_propose:|<vexa_tail>|<vexa_receipt>|<state:vent>)/i.test(txt)) {
-            $(this).addClass('vse-hidden-tail');
+    const rootEl = $mesText && ($mesText[0] || ($mesText.nodeType ? $mesText : null));
+    if (!rootEl) return;
+
+    const SKIP_TAGS = new Set(['PRE', 'CODE', 'IFRAME', 'SCRIPT', 'STYLE', 'TEXTAREA']);
+    const isProtected = (node) => {
+        for (let cur = node; cur && cur !== rootEl; cur = cur.parentElement) {
+            if (SKIP_TAGS.has(cur.tagName)) return true;
+            if (cur.classList?.contains('vse-card-frame-wrap') || cur.classList?.contains('vse-code-fold-toggle')) {
+                return true;
+            }
         }
-    });
+        return false;
+    };
+
+    // Hide semantic custom tags (<vexa_tail>, <vexa_receipt>, <state:vent>) directly via class
+    for (const sel of ['vexa_tail', 'vexa_receipt', 'state\\:vent']) {
+        try {
+            for (const el of rootEl.querySelectorAll(sel)) {
+                if (!isProtected(el)) el.classList.add('vse-hidden-tail');
+            }
+        } catch {
+            // Ignore selector edge cases
+        }
+    }
+
+    // Hide sanitized plain-text tail paragraphs (<p>world_sim: ...</p> etc.)
+    for (const p of rootEl.querySelectorAll('p')) {
+        if (isProtected(p)) continue;
+        const txt = String(p.textContent || '').replace(/\u2800/g, ' ').trim();
+        if (/^(?:world_sim:|chekhov:|arc:|ooc:|tracker_propose:|<vexa_tail>|<vexa_receipt>|<state:vent>)/i.test(txt)) {
+            p.classList.add('vse-hidden-tail');
+        }
+    }
+
+    // Strip escaped or unparsed <vexa_tail>...</vexa_tail> inside leaf text nodes only
+    const ownerDoc = rootEl.ownerDocument || (typeof document !== 'undefined' ? document : null);
+    const filter = typeof NodeFilter !== 'undefined' ? NodeFilter.SHOW_TEXT : 4;
+    if (ownerDoc && typeof ownerDoc.createTreeWalker === 'function') {
+        const walker = ownerDoc.createTreeWalker(rootEl, filter);
+        let textNode = walker.nextNode();
+        while (textNode) {
+            const val = textNode.nodeValue;
+            if (val && /<vexa_tail\b/i.test(val) && !isProtected(textNode.parentElement)) {
+                const cleaned = val
+                    .replace(/<vexa_tail\b[^>]*>[\s\S]*?<\/vexa_tail\s*>\s*(?:<!--[\s\u2800]*GFX_END[\s\u2800]*-->)?/gi, '')
+                    .replace(/<vexa_tail\b[^>]*>[\s\S]*$/i, '');
+                if (cleaned !== val) textNode.nodeValue = cleaned;
+            }
+            textNode = walker.nextNode();
+        }
+    }
 }
 
 /**
@@ -506,6 +546,7 @@ function refreshSingleHudCard($mes, ctx) {
         v.cutaway ? '1' : '0',
         v.showLabels ? '1' : '0',
         v.receiptOpen ? '1' : '0',
+        v.receiptRaw ? '1' : '0',
         v.diffOpen ? '1' : '0',
         v.diffFilter || 'all',
         v.diffShowAll ? '1' : '0',
@@ -598,10 +639,10 @@ function refreshSingleHudCard($mes, ctx) {
                 <span class="vse-pill">ct:${esc(state.world?.ct ?? 0)}</span>
                 <span class="vse-hud-loc">${esc(state.world?.loc || 'No location')}</span>
                 <span class="vse-hud-time">${esc(state.world?.time || '')}</span>
-                ${changeHeaderBadge}
-                ${proposalCount ? `<span class="vse-pill warn" title="Pending custom tracker proposal"><i class="fa-solid fa-sparkles"></i> ${proposalCount} Proposal</span>` : ''}
             </button>
             <div class="vse-hud-actions">
+                ${changeHeaderBadge}
+                ${proposalCount ? `<span class="vse-pill warn" title="Pending custom tracker proposal"><i class="fa-solid fa-sparkles"></i> ${proposalCount} Proposal</span>` : ''}
                 ${healthPillHtml}
                 ${statusBadge}
                 <button type="button" class="vse-icon-btn vse-reread-btn" title="Re-run worker on this reply"><i class="fa-solid fa-rotate"></i></button>
@@ -630,6 +671,14 @@ function refreshSingleHudCard($mes, ctx) {
         refreshSingleHudCard($mes, { ...live.ctx, chat: freshChat, tl: freshTl, latestState: freshLatest });
         observePolyViewports($card[0]);
     };
+
+    if (!view.collapsed) {
+        const tabsEl = $card.find('.vse-tabs')[0];
+        const activeBtn = tabsEl?.querySelector('.vse-tab-btn.active');
+        if (tabsEl && activeBtn && tabsEl.scrollWidth > tabsEl.clientWidth) {
+            tabsEl.scrollLeft = Math.max(0, activeBtn.offsetLeft - (tabsEl.clientWidth - activeBtn.offsetWidth) / 2);
+        }
+    }
 
     if (!view.collapsed && view.tab === 'locations') {
         if (effectiveAtlasMode === '3d') {
@@ -805,6 +854,13 @@ function refreshSingleHudCard($mes, ctx) {
             const live = $card.data('vseLiveCtx');
             if (!live) return;
             live.view.receiptOpen = !live.view.receiptOpen;
+            triggerLocalRefresh();
+        });
+        $card.on('click', '.vse-receipt-raw-btn', (e) => {
+            e.stopPropagation();
+            const live = $card.data('vseLiveCtx');
+            if (!live) return;
+            live.view.receiptRaw = !live.view.receiptRaw;
             triggerLocalRefresh();
         });
         $card.on('click', '.vse-diff-head-btn', (e) => {

@@ -133,7 +133,7 @@ export const VEXA_THEMES = Object.freeze({
     },
     'Catppuccin Latte': {
         base: '#eff1f5', mantle: '#e6e9ef', crust: '#dce0e8', surface: '#ccd0da',
-        border: '#acb0be', muted: '#8c8fa1', subtext: '#6c6f85', text: '#4c4f69', title: '#4c4f69',
+        border: '#9ca0b0', muted: '#666980', subtext: '#555870', text: '#4c4f69', title: '#4c4f69',
         blue: '#1e66f5', cyan: '#04a5e5', teal: '#179299', green: '#40a02b', yellow: '#df8e1d',
         orange: '#fe640b', red: '#d20f39', purple: '#8839ef', pink: '#ea76cb', lavender: '#7287fd',
         scheme: 'light',

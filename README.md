@@ -46,22 +46,24 @@ Vanilla Vexa emits all 16 `<internal_states>` XML sections at the end of every r
 7. **Anatomical Body-Part Health System (Nice Health Tab–Inspired)**:
    - Replaces plain status text with an interactive 27-part anatomical SVG paper doll (`src/healthDoll.js`) supporting 4 silhouettes (`Male`, `Female`, `Athletic`, `Heavy`), 4 inspection layers (`Body`, `Organs`, `Bones`, `X-Ray`), and visual injury indicators (bleeding droplets, bandaged wraps, scars, sharp slashes, burns, frostbite, fractures, toxins/infections, missing parts, and prosthetics).
    - Computes vital gauges (`Overall HP`, `Pain`, `Blood Loss`) and 7 RimWorld-style physiological capacities (`Consciousness`, `Moving`, `Manipulation`, `Breathing`, `Blood Pumping`, `Sight`, `Metabolism`), updated via delta-only `health_delta` worker patches or directly edited in the **Health & Body** Control Center tab (with automatic non-destructive fallback preview from legacy `<state:inv><status>` text).
+8. **Clean-Room Scoped EJS Templating & Guarded Blob-URL Card Renderer (Optional / Auto-Yielding)**:
+   - **Scoped EJS Engine (`src/ejsEngine.js`)**: Evaluates `<% ... %>` dynamic logic, RPG dice pools (`roll('1d100')`, `chance()`, `pick()`), `getvar`/`setvar` on scoped `card_vars`, `[InitVar]` seeding, and read-only Vexa state bindings (`getvexa('health.bloodLoss')`, `vexa.world.loc`, etc.) inside World Info and prompts — isolated from `window`/`document`/secrets and protected by a 5,000-step loop budget. Automatically yields when `ST-Prompt-Template` (`window.EjsTemplate`) is installed.
+   - **Guarded Blob-URL Renderer & Sandboxed `postMessage` Bridge (`src/cardRenderer.js` + `src/cardBridge.js`)**: Renders card HTML code blocks in strictly sandboxed (`sandbox="allow-scripts"`, no `allow-same-origin`, `allow-forms`, or `allow-popups`) Blob URL iframes with CSP isolation, per-frame token/source verification, Render Depth throttling, >2 MB size guard, code folding, and `highlight.js` bypass for frontend blocks. Interactive screens use the safe `window.VexaCard` bridge and queue replies through a 1-click confirmation bar instead of accessing `window.parent` or API keys. Automatically yields when `JS-Slash-Runner` (`window.TavernHelper`) is active.
 
 ## Preset Setup
 
-Ryah's Vexa preset JSON files are **not redistributed** in this repository. To generate an External-State preset locally:
+The modified External-State preset ([`ST.+.Tavo.Vexa.v1.0 (Dynamic World - External State).json`](Presets/ST.+.Tavo.Vexa.v1.0%20(Dynamic%20World%20-%20External%20State).json)) is **included directly in this repository with Ryah's permission**:
 
-1. Obtain your copy of Vexa directly from Ryah's project (`https://ryah.github.io/vexa/`).
-2. Run the local conversion helper:
+1. Import [`Presets/ST.+.Tavo.Vexa.v1.0 (Dynamic World - External State).json`](Presets/ST.+.Tavo.Vexa.v1.0%20(Dynamic%20World%20-%20External%20State).json) under SillyTavern's **AI Response Configuration** (or turn on **Force Active on Non-Vexa Presets** to inject external state on other presets).
+2. If you want to convert your own customized Vexa preset from [`https://ryah.github.io/vexa/`](https://ryah.github.io/vexa/), run the local conversion helper:
    ```bash
    node scripts/build-preset.mjs /path/to/your-vexa-preset.json /path/to/output-external-state-preset.json
    ```
-3. Import the generated `- External State.json` file into SillyTavern (even without converting first, turning on **Force Active on Non-Vexa Presets** or using Vexa auto-detection activates prompt stripping & snapshot injection).
 
 ## Credits & Acknowledgements
 
 - **Vexa Preset** by **Ryah** — https://ryah.github.io/vexa
-  - Created the TeleWire TRP-AO world-simulation preset, 16-section `<internal_states>` architecture, Aether Matrix/Dam, Atlas, Chekhov, ARC, and HUD theme palettes that this engine externalizes and builds upon.
+  - Created the TeleWire TRP-AO world-simulation preset, 16-section `<internal_states>` architecture, Aether Matrix/Dam, Atlas, Chekhov, ARC, and HUD theme palettes that this engine externalizes and builds upon. The modified External-State preset included under [`Presets/`](Presets/) is derived from Ryah's Vexa preset and redistributed with Ryah's explicit permission.
 - **Megumin Suite** by **Arif-salah (`KazumaONIISAN`)** — https://github.com/Arif-salah/Megumin-Suite
   - Inspired the Chomusuke secondary worker API workflow, swipe-safe journaled state store, send-guard flow, and the floating launcher + frosted-glass Control Center UI (`src/appPopup.js` & `style.css`).
 - **PolyCSS** & **css.graphics** by **alowpoly (Agustin Capeletto / LayoutIt)** — https://github.com/layoutit/polycss · https://github.com/layoutit/css.graphics
@@ -70,6 +72,10 @@ Ryah's Vexa preset JSON files are **not redistributed** in this repository. To g
   - Inspired the isometric CSS 3D diorama room plinths, soft ground contact shadows, and ambient radial floor lighting aesthetics in `src/atlas3d.js` and `src/polyAssets.js` (original implementation).
 - **Nice Health Tab (RimWorld Mod)** by **Andromeda** — https://steamcommunity.com/sharedfiles/filedetails/?id=3328729902
   - Inspired the anatomical paper-doll health display, body-part injury/bandage/scar visualization, organ/bone layers, and physiological capacity breakdown in `src/healthDoll.js`. All SVG vectors, patterns, and UI code in this extension are original implementations.
+- **JS-Slash-Runner** by **N0VI028** — https://github.com/N0VI028/JS-Slash-Runner
+  - Inspired the Blob-URL frontend iframe rendering concept, Render Depth throttling, code-block folding, and `highlight.js` bypass for frontend screens in `src/cardRenderer.js`. All renderer, CSP, and sandboxed `postMessage` bridge code (`src/cardRenderer.js`, `src/cardBridge.js`) is an original clean-room implementation under CC BY-NC 4.0 with zero upstream code copied.
+- **ST-Prompt-Template** by **zonde306** — https://github.com/zonde306/ST-Prompt-Template
+  - Inspired the Embedded JavaScript (EJS) prompt/World Info evaluation, `[InitVar]` seeding, `getvar` helpers, and dynamic card-variable concepts in `src/ejsEngine.js`. All compiler, safety-scanner, loop-budget, and runtime evaluation code in `src/ejsEngine.js` is an original clean-room implementation under CC BY-NC 4.0 with zero upstream code copied.
 - **Three.js** (`0.187.0`) by **Three.js Authors** — https://threejs.org/
   - Vendored ES modules under [`lib/three/`](lib/three/LICENSE) (MIT License) powering the Hybrid WebGL Atlas renderer (`src/atlasWebgl.js`).
 - **PSX Industrial Pack** (`assets/models/psx-industrial.glb`) by **Tomitos** (https://sketchfab.com/Tomitos_) — https://sketchfab.com/3d-models/psx-industrial-pack-12cb749961974f94a4063e67dafb2d76
@@ -80,5 +86,6 @@ Ryah's Vexa preset JSON files are **not redistributed** in this repository. To g
 ## License
 
 - **Extension Code & Procedural 3D Geometry:** All original JavaScript, CSS, HTML, procedural Three.js/PolyCSS builders, and tooling scripts in this repository are licensed under **[Creative Commons Attribution-NonCommercial 4.0 International (CC BY-NC 4.0)](LICENSE)**.
+- **External-State Modified Vexa Preset (`Presets/`):** Derived from Ryah's Vexa preset (`https://ryah.github.io/vexa`) and included with Ryah's permission for SillyTavern Vexa users.
 - **Vendored Three.js (`lib/three/`):** Licensed separately under the **[MIT License](lib/three/LICENSE)**.
 - **Bundled 3D Model Assets (`assets/models/*.glb`):** Licensed under **[Creative Commons Attribution 4.0 International (CC BY 4.0)](https://creativecommons.org/licenses/by/4.0/)** as detailed in [`assets/models/ATTRIBUTION.md`](assets/models/ATTRIBUTION.md). No endorsement by original model authors is implied.
