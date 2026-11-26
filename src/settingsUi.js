@@ -33,7 +33,7 @@ export function syncSettingsUI(s) {
     $('#vse_worker_temp').val(s.workerTemperature ?? 0.25);
     $('#vse_hud_theme').val(s.hudTheme || 'Sola');
     $('#vse_hud_style').val(s.hudStyle || 'Afterglow');
-    $('#vse_atlas_mode').val(s.atlasViewMode || '3d');
+    $('#vse_atlas_mode').val(s.atlasViewMode || 'webgl');
     $('#vse_body_type').val(s.defaultBodyType || 'male');
     $('#vse_show_launcher').prop('checked', s.showLauncherButton !== false);
     $('#vse_hud_collapsed').prop('checked', s.hudDefaultCollapsed !== false);
@@ -194,6 +194,7 @@ export function injectSettingsUI({
                         <div class="vse-field">
                             <label for="vse_atlas_mode">Default Atlas Renderer</label>
                             <select id="vse_atlas_mode" class="text_pole">
+                                <option value="webgl">3D WebGL (Hybrid + Textured Kits)</option>
                                 <option value="3d">3D CSS (PolyCSS)</option>
                                 <option value="2d">2D SVG Floorplan</option>
                             </select>
@@ -327,7 +328,7 @@ export function injectSettingsUI({
     $('#vse_worker_temp').val(s.workerTemperature ?? 0.25);
     $('#vse_hud_theme').val(s.hudTheme || 'Sola');
     $('#vse_hud_style').val(s.hudStyle || 'Afterglow');
-    $('#vse_atlas_mode').val(s.atlasViewMode || '3d');
+    $('#vse_atlas_mode').val(s.atlasViewMode || 'webgl');
     $('#vse_body_type').val(s.defaultBodyType || 'male');
     $('#vse_show_launcher').prop('checked', s.showLauncherButton !== false);
     $('#vse_hud_collapsed').prop('checked', s.hudDefaultCollapsed !== false);

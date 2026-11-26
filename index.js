@@ -68,7 +68,7 @@ const DEFAULT_SETTINGS = Object.freeze({
     workerTemperature: 0.25,
     hudTheme: 'Sola',
     hudStyle: 'Afterglow',
-    atlasViewMode: '3d',
+    atlasViewMode: 'webgl',
     defaultBodyType: 'male',
     showLauncherButton: true,
     hudDefaultCollapsed: true,

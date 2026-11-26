@@ -77,9 +77,12 @@ export function renderAtlasTab(
         cutaway = true,
         showLabels = true,
         camera = null,
+        allowWebgl = false,
     } = {},
 ) {
-    const mode = viewMode === '2d' ? '2d' : '3d';
+    const mode = (viewMode === 'webgl' && allowWebgl)
+        ? 'webgl'
+        : (viewMode === '2d' ? '2d' : (viewMode === 'webgl' ? '3d' : '3d'));
     const loc = state?.locations || { map_index: { active_map_id: '∅', active_level: '0', maps: [] }, rooms: [] };
     const maps = loc.map_index?.maps || [];
     const allRooms = loc.rooms || [];
@@ -110,7 +113,8 @@ export function renderAtlasTab(
         const box = computeBbox(r.grid, r.dim);
         return (box ? String(box.z) : '0') === activeFloor;
     });
-    const visibleRooms = mode === '3d' && allFloors ? mapRooms : floorRooms;
+    const is3dMode = mode === '3d' || mode === 'webgl';
+    const visibleRooms = is3dMode && allFloors ? mapRooms : floorRooms;
 
     const positioned = [];
     const unpositioned = [];
@@ -124,7 +128,31 @@ export function renderAtlasTab(
     const userLocalPos = parseLocalPoint(state?.world?.user_pos);
 
     let viewportHtml = '';
-    if (mode === '3d') {
+    if (mode === 'webgl') {
+        viewportHtml = `
+            <div class="vse-webgl-viewport" data-map-id="${escHtml(activeMapId)}" data-level="${escHtml(activeFloor)}">
+                <canvas class="vse-webgl-canvas"></canvas>
+                <div class="vse-webgl-labels"></div>
+                <div class="vse-webgl-hud-overlay">
+                    <span class="vse-webgl-chip">${escHtml(currentMap.name || activeMapId || 'Atlas')} · ${allFloors ? 'All Floors' : `Z=${escHtml(activeFloor)}`} · ${visibleRooms.length} room${visibleRooms.length === 1 ? '' : 's'}</span>
+                    <span class="vse-webgl-chip">Orbit: Drag · Pan: Shift+Drag · Zoom: Wheel</span>
+                </div>
+                <div class="vse-webgl-controls">
+                    <button type="button" class="vse-webgl-btn" data-webgl-act="iso" title="Isometric view">Iso</button>
+                    <button type="button" class="vse-webgl-btn" data-webgl-act="top" title="Top-down view">Top</button>
+                    <button type="button" class="vse-webgl-btn" data-webgl-act="in" title="Zoom in">+</button>
+                    <button type="button" class="vse-webgl-btn" data-webgl-act="out" title="Zoom out">−</button>
+                    <button type="button" class="vse-webgl-btn" data-webgl-act="reset" title="Reset camera">Reset</button>
+                    <button type="button" class="vse-webgl-btn vse-poly-cutaway-btn ${cutaway ? 'active' : ''}" title="Toggle cutaway walls">Cut</button>
+                    <button type="button" class="vse-webgl-btn vse-poly-labels-btn ${showLabels ? 'active' : ''}" title="Toggle 3D labels">Labels</button>
+                </div>
+            </div>
+            <div class="vse-webgl-footer-note">
+                <span>Hybrid Three.js WebGL Engine + Doorway Cutouts</span>
+                <span>Textured kits: PSX Industrial Pack (Tomitos) &amp; Sci-fi lab (Agata Wilczek) — CC BY 4.0</span>
+            </div>
+        `;
+    } else if (mode === '3d') {
         viewportHtml = renderAtlas3DViewport(state, {
             selectedMapId,
             selectedLevel,
@@ -293,15 +321,20 @@ export function renderAtlasTab(
     ).join('');
 
     const floorBtns = floors.map(([z, label]) =>
-        `<button type="button" class="vse-atlas-floor-btn ${z === activeFloor && !(mode === '3d' && allFloors) ? 'active' : ''}" data-level="${escHtml(z)}">Z=${escHtml(z)} · ${escHtml(label)}</button>`,
+        `<button type="button" class="vse-atlas-floor-btn ${z === activeFloor && !(is3dMode && allFloors) ? 'active' : ''}" data-level="${escHtml(z)}">Z=${escHtml(z)} · ${escHtml(label)}</button>`,
     ).join('');
 
-    const allFloorsBtn = mode === '3d' && floors.length > 1
+    const allFloorsBtn = is3dMode && floors.length > 1
         ? `<button type="button" class="vse-atlas-allfloors-btn ${allFloors ? 'active' : ''}" title="Stack all floors in 3D"><i class="fa-solid fa-layer-group"></i> All Floors</button>`
         : '';
 
+    const webglBtn = allowWebgl
+        ? `<button type="button" class="vse-atlas-mode-btn ${mode === 'webgl' ? 'active' : ''}" data-atlas-mode="webgl" title="Hybrid Three.js WebGL view"><i class="fa-solid fa-cube"></i> 3D WebGL</button>`
+        : `<button type="button" class="vse-atlas-mode-btn vse-atlas-open-webgl-btn" data-open-webgl="1" title="Open interactive 3D WebGL Atlas in Control Center"><i class="fa-solid fa-wand-magic-sparkles"></i> Open WebGL</button>`;
+
     const modeSwitcher = `
         <div class="vse-atlas-mode-seg">
+            ${webglBtn}
             <button type="button" class="vse-atlas-mode-btn ${mode === '3d' ? 'active' : ''}" data-atlas-mode="3d" title="3D CSS (PolyCSS) view"><i class="fa-solid fa-cubes"></i> 3D CSS</button>
             <button type="button" class="vse-atlas-mode-btn ${mode === '2d' ? 'active' : ''}" data-atlas-mode="2d" title="2D SVG floorplan view"><i class="fa-solid fa-vector-square"></i> 2D SVG</button>
         </div>

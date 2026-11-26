@@ -238,14 +238,14 @@ function derivePainFromHealth(parts, wholeBody) {
         for (const c of p.conditions || []) {
             if (!c || c.scar || c.kind === 'scar') continue;
             const mult = c.kind === 'burn' ? 1.25 : c.kind === 'fracture' ? 1.2 : 1.0;
-            const treatFactor = c.treated ? 0.35 : 0.65;
+            const treatFactor = c.treated ? 0.22 : 0.65;
             raw += (Number(c.severity) || 0) * treatFactor * mult;
         }
     }
     for (const wb of wholeBody || []) {
         if (!wb || wb.type === 'buff') continue;
-        if (['hypothermia', 'heatstroke', 'toxin', 'disease', 'malnutrition'].includes(wb.type)) {
-            raw += (Number(wb.severity) || 0) * (wb.treated ? 0.15 : 0.25);
+        if (['hypothermia', 'heatstroke', 'toxin', 'disease', 'malnutrition', 'bleeding'].includes(wb.type)) {
+            raw += (Number(wb.severity) || 0) * (wb.treated ? 0.10 : 0.25);
         }
     }
     return clamp(0, 100, Math.round(raw));
@@ -679,7 +679,8 @@ export function computeHealthMetrics(health) {
 
     const bleedingLevel = (bloodLoss >= 60 || bleedingCount >= 4) ? 'Critical'
         : (bloodLoss >= 35 || bleedingCount >= 2) ? 'Heavy'
-        : (bloodLoss >= 15 || bleedingCount === 1) ? 'Moderate'
+        : bloodLoss >= 15 ? 'Moderate'
+        : bleedingCount > 0 ? 'Active Bleed'
         : bloodLoss > 0 ? 'Light'
         : 'None';
 

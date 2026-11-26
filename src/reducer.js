@@ -19,6 +19,7 @@ import {
     slugifyTrackerId,
 } from './schema.js';
 import { applyHealthDelta, normalizeHealthState } from './healthDoll.js';
+import { POLY_PREFABS, PREFAB_DEFAULT_SIZES } from './polyAssets.js';
 
 export const MAX_CUSTOM_TRACKERS = 6;
 export const MAX_TRACKER_FIELDS = 8;
@@ -34,6 +35,7 @@ export const ATLAS_OBJECT_SHAPES = Object.freeze([
     'arch',
     'octahedron',
     'ring',
+    ...POLY_PREFABS,
 ]);
 
 export const ATLAS_ROOM_STYLES = Object.freeze([
@@ -49,10 +51,12 @@ export const MAX_ROOM_OBJECTS = 16;
 
 const MATRIX_EMOJIS = ['🌶️', '🎲', '🤝', '🛠️', '🏠', '🕊️', '😠', '🥊', '❄️', '🪨', '🌫️', '🐍'];
 
-/** Strip <think>...</think> blocks, code fences, and trailing commas to extract JSON object. */
+/** Strip <ds_safety>...</ds_safety>, <think>...</think> blocks, code fences, and trailing commas to extract JSON object. */
 export function extractJsonCandidate(rawText) {
     if (typeof rawText !== 'string') return '';
     let s = normalizeBraille(rawText);
+    // DeepSeek safety routers (e.g. Nano-GPT DS v4.1 Flash 1017) may inject <ds_safety>...</ds_safety> mid-token
+    s = s.replace(/<ds_safety\b[^>]*>[\s\S]*?(?:<\/ds_safety\s*>|$)/gi, '');
     s = s.replace(/<think\b[^>]*>[\s\S]*?(?:<\/think\s*>|$)/gi, '').trim();
     const fence = s.match(/```(?:json)?\s*([\s\S]*?)```/i);
     if (fence) s = fence[1].trim();
@@ -229,35 +233,80 @@ function aabbOverlaps(a, b) {
 const SHAPE_SYNONYMS = Object.freeze({
     cube: 'box',
     cuboid: 'box',
-    table: 'box',
-    bed: 'box',
-    crate: 'box',
-    chest: 'box',
     wall: 'box',
-    bench: 'box',
-    desk: 'box',
     barricade: 'box',
-    trestle: 'box',
-    counter: 'box',
-    altar: 'box',
-    trunk: 'box',
     cage: 'box',
+    table: 'table',
+    trestle: 'table',
+    counter: 'table',
+    altar: 'table',
+    chair: 'chair',
+    stool: 'chair',
+    throne: 'chair',
+    armchair: 'chair',
+    bench: 'couch',
+    couch: 'couch',
+    sofa: 'couch',
+    divan: 'couch',
+    settee: 'couch',
+    bed: 'bed',
+    cot: 'bed',
+    bunk: 'bed',
+    'four-poster': 'bed',
+    bookshelf: 'bookshelf',
+    bookcase: 'bookshelf',
+    shelf: 'bookshelf',
+    shelves: 'bookshelf',
+    wardrobe: 'bookshelf',
+    desk: 'desk',
+    lectern: 'desk',
+    workstation: 'desk',
+    hearth: 'hearth',
+    fireplace: 'hearth',
+    brazier: 'brazier',
+    campfire: 'brazier',
+    firepit: 'brazier',
+    bonfire: 'brazier',
+    stove: 'brazier',
+    lamp: 'lamp',
+    lantern: 'lamp',
+    torch: 'lamp',
+    sconce: 'lamp',
+    candelabra: 'lamp',
+    chest: 'chest',
+    trunk: 'chest',
+    coffer: 'chest',
+    strongbox: 'chest',
+    tree: 'tree',
+    pine: 'tree',
+    weirwood: 'tree',
+    crystal: 'crystal',
+    beacon: 'crystal',
+    obelisk: 'crystal',
     pillar: 'cylinder',
     column: 'cylinder',
-    barrel: 'cylinder',
     well: 'cylinder',
     wellhead: 'cylinder',
     cauldron: 'cylinder',
     tub: 'cylinder',
-    cask: 'cylinder',
+    cask: 'barrel',
+    keg: 'barrel',
+    cargo: 'container',
+    biovat: 'vat',
+    cryo: 'vat',
+    terminal: 'console',
+    monitor: 'screen',
+    viewscreen: 'screen',
+    bulkhead: 'airlock',
+    turbine: 'generator',
+    skip: 'dumpster',
+    footlocker: 'locker',
     post: 'cylinder',
     pyramid: 'cone',
     spire: 'cone',
     flame: 'cone',
     fire: 'cone',
     tent: 'cone',
-    tree: 'cone',
-    pine: 'cone',
     prism: 'wedge',
     ramp: 'wedge',
     slope: 'wedge',
@@ -265,7 +314,6 @@ const SHAPE_SYNONYMS = Object.freeze({
     stair: 'stairs',
     staircase: 'stairs',
     steps: 'stairs',
-    ladder: 'stairs',
     ball: 'sphere',
     orb: 'sphere',
     dome: 'sphere',
@@ -273,7 +321,6 @@ const SHAPE_SYNONYMS = Object.freeze({
     rock: 'sphere',
     bush: 'sphere',
     globe: 'sphere',
-    lantern: 'sphere',
     quad: 'plane',
     rug: 'plane',
     carpet: 'plane',
@@ -285,14 +332,10 @@ const SHAPE_SYNONYMS = Object.freeze({
     gate: 'arch',
     door: 'arch',
     doorway: 'arch',
-    hearth: 'arch',
-    fireplace: 'arch',
     portal: 'arch',
     archway: 'arch',
-    crystal: 'octahedron',
     diamond: 'octahedron',
     gem: 'octahedron',
-    beacon: 'octahedron',
     circle: 'ring',
     halo: 'ring',
     'fire-ring': 'ring',
@@ -310,6 +353,7 @@ const DEFAULT_SHAPE_SIZES = Object.freeze({
     arch: [2.0, 0.6, 2.2],
     octahedron: [1.0, 1.0, 1.4],
     ring: [1.6, 1.6, 0.25],
+    ...PREFAB_DEFAULT_SIZES,
 });
 
 function round2(n) {

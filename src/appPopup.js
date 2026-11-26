@@ -26,6 +26,7 @@ import {
 } from './reducer.js';
 import { renderAtlasTab } from './atlasSvg.js';
 import { bindPolyOrbitControls, POLY_SHAPES, POLY_MATERIALS } from './polyCss3d.js';
+import { POLY_PREFABS } from './polyAssets.js';
 import {
     renderHealthTab,
     BODY_TYPES,
@@ -226,7 +227,19 @@ export function createVexaAppPopup({
         cutaway: true,
         showLabels: true,
         camera: { rotX: 56, rotZ: 32, zoom: 1, panX: 0, panY: 0 },
+        webglCamera: null,
+        webglCameraKey: null,
     };
+    let activeWebglHandle = null;
+    let webglMountSeq = 0;
+
+    function disposeWebgl() {
+        webglMountSeq++;
+        if (activeWebglHandle) {
+            try { activeWebglHandle.dispose(); } catch { /* ignore */ }
+            activeWebglHandle = null;
+        }
+    }
     const healthView = {
         layer: 'body',
         selectedPart: null,
@@ -570,6 +583,7 @@ export function createVexaAppPopup({
     }
 
     function close() {
+        disposeWebgl();
         $('#vse_app_overlay').hide();
         saveSettings?.();
         syncChrome();
@@ -722,7 +736,14 @@ export function createVexaAppPopup({
         const roomOptsHtml = allRooms.length
             ? allRooms.map((r) => `<option value="${esc(r.id)}" ${r.id === activeObjRoomId ? 'selected' : ''}>${esc(r.name || r.id)} (${esc(r.id)})</option>`).join('')
             : '<option value="">-- No rooms yet --</option>';
-        const shapeOptsHtml = POLY_SHAPES.map((sh) => `<option value="${esc(sh)}">${esc(sh)}</option>`).join('');
+        const shapeOptsHtml = `
+            <optgroup label="Diorama &amp; Textured 3D Prefabs (${POLY_PREFABS.length})">
+                ${POLY_PREFABS.map((sh) => `<option value="${esc(sh)}">${esc(sh)}</option>`).join('')}
+            </optgroup>
+            <optgroup label="Geometric Primitives (${POLY_SHAPES.length})">
+                ${POLY_SHAPES.map((sh) => `<option value="${esc(sh)}">${esc(sh)}</option>`).join('')}
+            </optgroup>
+        `;
         const matDatalistHtml = Object.keys(POLY_MATERIALS).map((m) => `<option value="${esc(m)}">`).join('');
 
         $stage.html(`
@@ -806,7 +827,13 @@ export function createVexaAppPopup({
         }
 
         function drawAtlas() {
-            const effectiveMode = atlasView.mode || settings.atlasViewMode || '3d';
+            disposeWebgl();
+            const effectiveMode = atlasView.mode || settings.atlasViewMode || 'webgl';
+            const camKey = `${atlasView.mapId || state?.locations?.map_index?.active_map_id || ''}|${atlasView.allFloors ? 'all' : (atlasView.level ?? state?.locations?.map_index?.active_level ?? '0')}`;
+            if (atlasView.webglCameraKey !== camKey) {
+                atlasView.webglCamera = null;
+                atlasView.webglCameraKey = camKey;
+            }
             $mount.html(renderAtlasTab(state, {
                 selectedMapId: atlasView.mapId,
                 selectedLevel: atlasView.level,
@@ -816,8 +843,35 @@ export function createVexaAppPopup({
                 cutaway: atlasView.cutaway,
                 showLabels: atlasView.showLabels,
                 camera: atlasView.camera,
+                allowWebgl: true,
             }));
-            if (effectiveMode === '3d') {
+            if (effectiveMode === 'webgl') {
+                const vpEl = $mount.find('.vse-webgl-viewport')[0];
+                if (vpEl) {
+                    const mySeq = ++webglMountSeq;
+                    import('./atlasWebgl.js').then(({ mountAtlasWebGLViewport }) => {
+                        if (mySeq !== webglMountSeq || !isOpen() || activeTab !== 'atlas' || !vpEl.isConnected) return;
+                        activeWebglHandle = mountAtlasWebGLViewport(vpEl, state, {
+                            selectedMapId: atlasView.mapId,
+                            selectedLevel: atlasView.level,
+                            selectedRoomId: atlasView.roomId,
+                            allFloors: atlasView.allFloors,
+                            cutaway: atlasView.cutaway,
+                            showLabels: atlasView.showLabels,
+                            camera: atlasView.webglCamera,
+                            onCameraChange: (cam) => { atlasView.webglCamera = cam; },
+                            onSelectRoom: (roomId) => {
+                                atlasView.roomId = roomId;
+                                if ($stage.find(`#vse_pop_obj_room option[value="${roomId}"]`).length) {
+                                    $stage.find('#vse_pop_obj_room').val(roomId);
+                                    refreshObjList(roomId);
+                                }
+                                drawAtlas();
+                            },
+                        });
+                    }).catch(() => {});
+                }
+            } else if (effectiveMode === '3d') {
                 const vpEl = $mount.find('.vse-poly-viewport')[0];
                 if (vpEl) {
                     bindPolyOrbitControls(vpEl, atlasView.camera, {
@@ -840,6 +894,8 @@ export function createVexaAppPopup({
             atlasView.mapId = String($(this).val() || '');
             atlasView.level = null;
             atlasView.roomId = null;
+            atlasView.webglCamera = null;
+            atlasView.webglCameraKey = null;
             drawAtlas();
         });
         $mount.on('click', '.vse-atlas-floor-btn', function () {
@@ -853,7 +909,7 @@ export function createVexaAppPopup({
             drawAtlas();
         });
         $mount.on('click', '.vse-atlas-mode-btn', function () {
-            atlasView.mode = String($(this).data('atlas-mode') || '3d');
+            atlasView.mode = String($(this).data('atlas-mode') || 'webgl');
             drawAtlas();
         });
         $mount.on('click', '.vse-poly-cutaway-btn', function (e) {
@@ -2237,11 +2293,12 @@ export function createVexaAppPopup({
             </div>
 
             <div class="vse-glass-card">
-                <div class="vse-card-title">Default Atlas Renderer</div>
+                <div class="vse-card-title">Default Atlas Renderer (Control Center)</div>
                 ${renderTiles('atlasmode', [
-                    { id: '3d', label: '3D CSS (PolyCSS)', desc: 'Interactive CSS matrix3d rooms & 10 object primitives' },
-                    { id: '2d', label: '2D SVG Floorplan', desc: 'Classic flat schematic blueprint' },
-                ], settings.atlasViewMode || '3d')}
+                    { id: 'webgl', label: '3D WebGL (Hybrid + Textured Kits)', desc: 'Hardware Three.js rooms with doorway cutouts + CC BY 4.0 GLB kits' },
+                    { id: '3d', label: '3D CSS (PolyCSS)', desc: 'Software CSS matrix3d diorama rooms &amp; 28 prefabs' },
+                    { id: '2d', label: '2D SVG Floorplan', desc: 'Lightweight schematic blueprint (always used inline in chat)' },
+                ], settings.atlasViewMode || 'webgl')}
             </div>
 
             <div class="vse-glass-card">
@@ -2336,7 +2393,7 @@ export function createVexaAppPopup({
             notifySettingsChanged();
         });
         $stage.find('[data-tile-group="atlasmode"]').on('click', '.vse-tile', function () {
-            getSettings().atlasViewMode = String($(this).data('tile-val') || '3d');
+            getSettings().atlasViewMode = String($(this).data('tile-val') || 'webgl');
             atlasView.mode = null;
             $(this).siblings().removeClass('on');
             $(this).addClass('on');
@@ -2474,6 +2531,7 @@ export function createVexaAppPopup({
         const ws = getWorkerStatus?.() || { busy: false };
 
         $stage.off('click change input');
+        if (activeTab !== 'atlas') disposeWebgl();
 
         switch (activeTab) {
             case 'overview':

@@ -9,6 +9,8 @@
  * HTML-compiling functions are pure ES (zero DOM dependency) so Node tests run directly.
  */
 
+import { POLY_PREFABS, prefabToPolygons } from './polyAssets.js';
+
 export const POLY_SHAPES = Object.freeze([
     'box',
     'cylinder',
@@ -244,6 +246,10 @@ export function projectPolygonToCss(
         matrix3d,
         clipPath,
         bgColor,
+        background: poly.background || '',
+        borderRadius: poly.borderRadius || '',
+        noBorder: Boolean(poly.noBorder),
+        animGroup: poly.animGroup || '',
         opacity: poly.opacity ?? 1,
         doubleSided: Boolean(poly.doubleSided),
         normal: n,
@@ -278,6 +284,10 @@ function makePoly(vertices, meta = {}) {
     return {
         vertices,
         color: meta.color || 'stone',
+        background: meta.background || '',
+        borderRadius: meta.borderRadius || '',
+        noBorder: Boolean(meta.noBorder),
+        animGroup: meta.animGroup || '',
         opacity: meta.opacity ?? 1,
         doubleSided: Boolean(meta.doubleSided),
         unlit: Boolean(meta.unlit),
@@ -285,6 +295,45 @@ function makePoly(vertices, meta = {}) {
         dataAttrs: meta.dataAttrs || null,
         title: meta.title || '',
     };
+}
+
+/**
+ * Horizontal decal quad at `z = cz` for ground contact shadows, radial light pools,
+ * or textured floor overlays. Never shaded or bordered.
+ */
+export function decalPolygon({
+    cx = 0,
+    cy = 0,
+    cz = 0.015,
+    w = 2,
+    d = 2,
+    rotZ = 0,
+    background = '',
+    color = '#000000',
+    borderRadius = '',
+    opacity = 1,
+    className = '',
+    ...meta
+} = {}) {
+    const hw = w / 2;
+    const hd = d / 2;
+    const verts = rotateVerticesXY([
+        [cx - hw, cy - hd, cz],
+        [cx + hw, cy - hd, cz],
+        [cx + hw, cy + hd, cz],
+        [cx - hw, cy + hd, cz],
+    ], cx, cy, rotZ);
+    return [makePoly(verts, {
+        ...meta,
+        color,
+        background,
+        borderRadius,
+        opacity,
+        doubleSided: true,
+        unlit: true,
+        noBorder: true,
+        className,
+    })];
 }
 
 /**
@@ -743,6 +792,10 @@ export function shapeToPolygons(obj, worldOrigin = { x: 0, y: 0, z: 0 }, extraMe
         color,
     };
 
+    if (POLY_PREFABS.includes(shape)) {
+        return prefabToPolygons(obj, worldOrigin, extraMeta);
+    }
+
     switch (shape) {
         case 'plane':
             return planePolygons({ ...meta, cx, cy, cz: cz + 0.03, w, d, rotZ });
@@ -794,6 +847,7 @@ export function compilePolySceneHtml({
     const oz = Number(origin?.z) || 0;
 
     const faceHtmlParts = [];
+    const animGroups = new Map();
     let compiledFaceCount = 0;
 
     for (const poly of polygons) {
@@ -809,10 +863,12 @@ export function compilePolySceneHtml({
         const styles = [
             `width:${css.width}px`,
             `height:${css.height}px`,
-            `background:${css.bgColor}`,
+            `background:${css.background || css.bgColor}`,
             `transform:${css.matrix3d}`,
         ];
         if (css.clipPath) styles.push(`clip-path:${css.clipPath}`);
+        if (css.borderRadius) styles.push(`border-radius:${css.borderRadius}`);
+        if (css.noBorder) styles.push('border:none');
         if (css.opacity < 1) styles.push(`opacity:${round4(css.opacity)}`);
         if (css.doubleSided) styles.push('backface-visibility:visible');
 
@@ -826,7 +882,18 @@ export function compilePolySceneHtml({
         }
         const titleAttr = css.title ? ` title="${escAttr(css.title)}"` : '';
         const cls = css.className ? `vse-poly-face ${escAttr(css.className)}` : 'vse-poly-face';
-        faceHtmlParts.push(`<div class="${cls}" style="${styles.join(';')}"${attrStr}${titleAttr}></div>`);
+        const faceEl = `<div class="${cls}" style="${styles.join(';')}"${attrStr}${titleAttr}></div>`;
+        if (css.animGroup) {
+            if (!animGroups.has(css.animGroup)) animGroups.set(css.animGroup, []);
+            animGroups.get(css.animGroup).push(faceEl);
+        } else {
+            faceHtmlParts.push(faceEl);
+        }
+    }
+
+    for (const [grp, parts] of animGroups.entries()) {
+        const grpCls = grp.replace(/[^a-z0-9_-]/gi, '');
+        faceHtmlParts.push(`<div class="vse-poly-anim vse-anim-${escAttr(grpCls)}">${parts.join('')}</div>`);
     }
 
     const labelHtmlParts = [];
@@ -996,4 +1063,57 @@ export function bindPolyOrbitControls(viewportEl, cameraState, { onCameraChange,
             scheduleApply();
         });
     });
+}
+
+const POLY_VIEWPORT_OBSERVERS = new WeakMap();
+const DEFAULT_SCROLL_ROOT_KEY = Object.freeze({ defaultRoot: true });
+
+/**
+ * Pause off-screen `.vse-poly-viewport` CSS animations using IntersectionObserver
+ * so long chats with multiple inline 3D cards don't burn idle compositor frames.
+ */
+export function observePolyViewports(root = typeof document !== 'undefined' ? document : null, opts = {}) {
+    if (typeof IntersectionObserver !== 'function' || !root || typeof root.querySelectorAll !== 'function') {
+        return () => {};
+    }
+    const scrollRoot = opts.root || null;
+    const key = scrollRoot || DEFAULT_SCROLL_ROOT_KEY;
+    let entry = POLY_VIEWPORT_OBSERVERS.get(key);
+    if (!entry) {
+        const io = new IntersectionObserver((entries) => {
+            for (const item of entries) {
+                if (!item.target?.classList) continue;
+                item.target.classList.toggle('is-offscreen', !item.isIntersecting);
+            }
+        }, {
+            root: scrollRoot,
+            rootMargin: opts.rootMargin || '120px',
+            threshold: 0,
+        });
+        entry = { io, observed: new WeakSet() };
+        POLY_VIEWPORT_OBSERVERS.set(key, entry);
+    }
+
+    const targets = [];
+    if (typeof root.matches === 'function' && root.matches('.vse-poly-viewport')) {
+        targets.push(root);
+    }
+    for (const el of root.querySelectorAll('.vse-poly-viewport')) {
+        targets.push(el);
+    }
+
+    const added = [];
+    for (const el of targets) {
+        if (entry.observed.has(el)) continue;
+        entry.observed.add(el);
+        entry.io.observe(el);
+        added.push(el);
+    }
+
+    return () => {
+        for (const el of added) {
+            entry.io.unobserve(el);
+            entry.observed.delete(el);
+        }
+    };
 }

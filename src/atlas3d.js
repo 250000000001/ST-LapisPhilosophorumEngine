@@ -20,11 +20,13 @@ import {
     archPolygons,
     octahedronPolygons,
     ringPolygons,
+    decalPolygon,
     shapeToPolygons,
     compilePolySceneHtml,
+    shadeHex,
 } from './polyCss3d.js';
 
-export const MAX_SCENE_FACES = 1400;
+export const MAX_SCENE_FACES = 1800;
 
 const ROOM_STYLE_PALETTE = Object.freeze({
     indoor: { floor: '#3e3532', wall: '#5c5350', accent: '#756862', curbOnly: false },
@@ -158,26 +160,60 @@ export function inferObjectsFromFeatures(room, box = null) {
         const low = cleanLabel.toLowerCase();
 
         if (/hearth|fireplace/i.test(low)) {
-            inferred.push({ shape: 'arch', pos: [lx, ly, 0], size: [2.2, 0.9, 2.2], color: 'stone', label: cleanLabel });
-            if (!/cold|doused|dead|ash/i.test(low)) {
-                inferred.push({ shape: 'cone', pos: [lx, ly, 0.15], size: [0.9, 0.9, 1.3], color: 'fire', label: `${cleanLabel} Flame` });
-            }
+            inferred.push({ shape: 'hearth', pos: [lx, ly, 0], size: [2.2, 0.95, 2.3], color: 'stone', label: cleanLabel });
         } else if (/fire-ring|campfire|watchfire|brazier|stove/i.test(low)) {
-            inferred.push({ shape: 'ring', pos: [lx, ly, 0], size: [1.5, 1.5, 0.2], color: 'dark_stone', label: cleanLabel });
-            if (!/cold|doused|ash/i.test(low)) {
-                inferred.push({ shape: 'cone', pos: [lx, ly, 0.1], size: [0.9, 0.9, 1.2], color: 'fire', label: `${cleanLabel} Flame` });
-            }
+            inferred.push({ shape: 'brazier', pos: [lx, ly, 0], size: [1.3, 1.3, 1.3], color: 'iron', label: cleanLabel });
         } else if (/wellhead|\bwell\b/i.test(low)) {
             inferred.push({ shape: 'cylinder', pos: [lx, ly, 0], size: [1.5, 1.5, 1.1], color: 'stone', label: cleanLabel });
-        } else if (/stair|steps|risers|landing|ladder/i.test(low)) {
+        } else if (/ladder/i.test(low)) {
+            inferred.push({ shape: 'ladder', pos: [lx, ly, 0], size: [0.65, 0.25, 2.6], color: 'wood', label: cleanLabel });
+        } else if (/stair|steps|risers|landing/i.test(low)) {
             inferred.push({ shape: 'stairs', pos: [lx, ly, 0], size: [2.0, 2.6, 2.2], color: /timber|wood|oak/i.test(low) ? 'wood' : 'stone', label: cleanLabel });
-        } else if (/table|bench|desk|barricade|trestle|counter|altar/i.test(low)) {
-            inferred.push({ shape: 'box', pos: [lx, ly, 0], size: [2.4, 1.2, 0.9], color: /stone|marble|slate/i.test(low) ? 'stone' : 'wood', label: cleanLabel });
+        } else if (/hourglass|sandglass/i.test(low)) {
+            inferred.push({ shape: 'hourglass', pos: [lx, ly, 0], size: [0.55, 0.55, 1.2], color: 'gold', label: cleanLabel });
+        } else if (/\bvat\b|biovat|cryo(?:pod|chamber)?/i.test(low)) {
+            inferred.push({ shape: 'vat', pos: [lx, ly, 0], size: [1.35, 1.35, 2.6], color: 'magic', label: cleanLabel });
+        } else if (/\b(console|terminal|control panel|computer)\b/i.test(low)) {
+            inferred.push({ shape: 'console', pos: [lx, ly, 0], size: [2.1, 0.88, 1.38], color: 'steel', label: cleanLabel });
+        } else if (/\b(holoscreen|viewscreen|monitor|screen)\b/i.test(low)) {
+            inferred.push({ shape: 'screen', pos: [lx, ly, 0], size: [1.95, 0.24, 1.35], color: 'magic', label: cleanLabel });
+        } else if (/airlock|bulkhead/i.test(low)) {
+            inferred.push({ shape: 'airlock', pos: [lx, ly, 0], size: [2.3, 0.65, 2.45], color: 'iron', label: cleanLabel });
+        } else if (/cabinet/i.test(low)) {
+            inferred.push({ shape: 'cabinet', pos: [lx, ly, 0], size: [1.05, 0.58, 2.05], color: 'slate', label: cleanLabel });
+        } else if (/bookshelf|bookcase|shelf|shelves|wardrobe/i.test(low)) {
+            inferred.push({ shape: 'bookshelf', pos: [lx, ly, 0], size: [1.8, 0.55, 2.2], color: 'dark_wood', label: cleanLabel });
+        } else if (/desk|lectern|workstation/i.test(low)) {
+            inferred.push({ shape: 'desk', pos: [lx, ly, 0], size: [1.8, 0.95, 0.95], color: 'dark_wood', label: cleanLabel });
+        } else if (/couch|sofa|settee|divan/i.test(low)) {
+            inferred.push({ shape: 'couch', pos: [lx, ly, 0], size: [2.4, 1.05, 0.95], color: 'cloth', label: cleanLabel });
+        } else if (/chair|throne|armchair|stool/i.test(low)) {
+            inferred.push({ shape: 'chair', pos: [lx, ly, 0], size: [0.85, 0.85, 1.15], color: 'wood', label: cleanLabel });
+        } else if (/table|bench|barricade|trestle|counter|altar/i.test(low)) {
+            inferred.push({ shape: 'table', pos: [lx, ly, 0], size: [2.2, 1.2, 0.9], color: /stone|marble|slate/i.test(low) ? 'stone' : 'wood', label: cleanLabel });
         } else if (/bed|four-poster|bunk|cot/i.test(low)) {
-            inferred.push({ shape: 'box', pos: [lx, ly, 0], size: [2.2, 1.7, 0.9], color: 'cloth', label: cleanLabel });
+            inferred.push({ shape: 'bed', pos: [lx, ly, 0], size: [2.2, 1.6, 0.95], color: 'cloth', label: cleanLabel });
         } else if (/wagon|cart|carriage/i.test(low)) {
             inferred.push({ shape: 'box', pos: [lx, ly, 0], size: [3.5, 2.0, 1.8], color: 'wood', label: cleanLabel });
-        } else if (/tub|barrel|cask|cauldron|pillar|column|post|spur/i.test(low)) {
+        } else if (/cargo container|shipping container|\bcontainer\b/i.test(low)) {
+            inferred.push({ shape: 'container', pos: [lx, ly, 0], size: [5.2, 2.2, 2.45], color: 'steel', label: cleanLabel });
+        } else if (/dumpster/i.test(low)) {
+            inferred.push({ shape: 'dumpster', pos: [lx, ly, 0], size: [2.1, 1.3, 1.25], color: 'green', label: cleanLabel });
+        } else if (/generator|turbine/i.test(low)) {
+            inferred.push({ shape: 'generator', pos: [lx, ly, 0], size: [1.7, 1.15, 1.45], color: 'amber', label: cleanLabel });
+        } else if (/pallet/i.test(low)) {
+            inferred.push({ shape: 'pallet', pos: [lx, ly, 0], size: [1.3, 1.05, 0.2], color: 'wood', label: cleanLabel });
+        } else if (/propane|gas tank/i.test(low)) {
+            inferred.push({ shape: 'propane', pos: [lx, ly, 0], size: [0.48, 0.48, 1.12], color: 'red', label: cleanLabel });
+        } else if (/conduit|\bpipes?\b/i.test(low)) {
+            inferred.push({ shape: 'pipes', pos: [lx, ly, 0], size: [2.1, 0.6, 1.85], color: 'steel', label: cleanLabel });
+        } else if (/locker/i.test(low)) {
+            inferred.push({ shape: 'locker', pos: [lx, ly, 0], size: [0.9, 0.52, 2.0], color: 'steel', label: cleanLabel });
+        } else if (/barrel|cask|keg/i.test(low)) {
+            inferred.push({ shape: 'barrel', pos: [lx, ly, 0], size: [0.7, 0.7, 1.02], color: 'wood', label: cleanLabel });
+        } else if (/crate/i.test(low)) {
+            inferred.push({ shape: 'crate', pos: [lx, ly, 0], size: [0.95, 0.95, 0.95], color: 'wood', label: cleanLabel });
+        } else if (/tub|cauldron|pillar|column|post|spur/i.test(low)) {
             const col = /copper/i.test(low) ? 'copper'
                 : /iron|cauldron/i.test(low) ? 'iron'
                     : /stone|basalt|column/i.test(low) ? 'stone'
@@ -187,15 +223,20 @@ export function inferObjectsFromFeatures(room, box = null) {
             inferred.push({ shape: 'box', pos: [lx, ly, 0], size: [Math.min(roomW * 0.7, 8), 1.8, 6.5], color: 'ice', label: cleanLabel });
         } else if (/gate|arch|door|tunnel/i.test(low)) {
             inferred.push({ shape: 'arch', pos: [lx, ly, 0], size: [2.0, 0.7, 2.2], color: /iron/i.test(low) ? 'iron' : 'dark_wood', label: cleanLabel });
-        } else if (/\btree\b|pine/i.test(low) && !/table|door|bed|trestle|bench|fire-ring/i.test(low)) {
-            inferred.push({ shape: 'cylinder', pos: [lx, ly, 0], size: [0.55, 0.55, 1.6], color: 'dark_wood', label: `${cleanLabel} Trunk` });
-            inferred.push({ shape: 'cone', pos: [lx, ly, 1.4], size: [1.8, 1.8, 2.4], color: 'pine', label: cleanLabel });
+        } else if (/\btree\b|pine|weirwood/i.test(low) && !/table|door|bed|trestle|bench|fire-ring/i.test(low)) {
+            inferred.push({ shape: 'tree', pos: [lx, ly, 0], size: [2.1, 2.1, 3.4], color: 'pine', label: cleanLabel });
         } else if (/\btent\b|pavilion/i.test(low)) {
             inferred.push({ shape: 'cone', pos: [lx, ly, 0], size: [2.4, 2.4, 2.0], color: 'cloth', label: cleanLabel });
-        } else if (/chest|trunk|crate|cage|hoist|rail/i.test(low)) {
+        } else if (/chest|trunk|coffer|strongbox/i.test(low)) {
+            inferred.push({ shape: 'chest', pos: [lx, ly, 0], size: [1.3, 0.85, 0.85], color: 'dark_wood', label: cleanLabel });
+        } else if (/cage|hoist|rail/i.test(low)) {
             inferred.push({ shape: 'box', pos: [lx, ly, 0], size: [1.4, 1.0, 1.1], color: /iron|cage|rail/i.test(low) ? 'iron' : 'dark_wood', label: cleanLabel });
-        } else if (/boulder|rock|bush|lantern|orb|globe/i.test(low)) {
-            const col = /lantern|orb/i.test(low) ? 'gold' : /bush/i.test(low) ? 'pine' : 'stone';
+        } else if (/crystal|beacon|focus/i.test(low)) {
+            inferred.push({ shape: 'crystal', pos: [lx, ly, 0], size: [1.1, 1.1, 2.2], color: 'magic', label: cleanLabel });
+        } else if (/lantern|lamp|torch|sconce|candelabra/i.test(low)) {
+            inferred.push({ shape: 'lamp', pos: [lx, ly, 0], size: [0.7, 0.7, 1.8], color: 'gold', label: cleanLabel });
+        } else if (/boulder|rock|bush|orb|globe/i.test(low)) {
+            const col = /orb|globe/i.test(low) ? 'gold' : /bush/i.test(low) ? 'pine' : 'stone';
             inferred.push({ shape: 'sphere', pos: [lx, ly, 0], size: [1.1, 1.1, 1.1], color: col, label: cleanLabel });
         } else if (/grate|drain|pool|rug|carpet|blood|coracle/i.test(low)) {
             const col = /blood/i.test(low) ? 'blood' : /pool|water/i.test(low) ? 'water' : /rug|carpet/i.test(low) ? 'cloth' : 'iron';
@@ -211,6 +252,18 @@ function buildPawnPolygons({ x, y, z, color, isUser = false, title = '' }) {
     const faces = [];
     const bodyCol = color || '#89b4fa';
     const meta = { title, className: isUser ? 'vse-poly-user-pawn' : 'vse-poly-npc-pawn' };
+
+    faces.push(...decalPolygon({
+        cx: x,
+        cy: y,
+        cz: z + 0.015,
+        w: 1.4,
+        d: 1.4,
+        borderRadius: '50%',
+        background: 'radial-gradient(circle, rgba(0,0,0,0.55) 0%, rgba(0,0,0,0) 75%)',
+        className: 'vse-poly-shadow',
+        title,
+    }));
 
     if (isUser) {
         faces.push(...ringPolygons({
@@ -368,14 +421,35 @@ export function buildAtlas3DScene(
     polygons.push(...planePolygons({
         cx: (minX + maxX) / 2,
         cy: (minY + maxY) / 2,
-        cz: -0.06,
-        w: spanX + 6,
-        d: spanY + 6,
-        color: '#1b1d26',
+        cz: -0.48,
+        w: spanX + 8,
+        d: spanY + 8,
+        color: '#14161f',
         opacity: 0.72,
         unlit: true,
         className: 'vse-poly-deck',
     }));
+
+    function floorBackgroundFor(styleName, baseHex) {
+        if (styleName === 'indoor' || styleName === 'wagon') {
+            return `repeating-linear-gradient(90deg, rgba(255,255,255,0.03) 0 1px, transparent 1px 14px), ${baseHex}`;
+        }
+        if (styleName === 'tower' || styleName === 'cave') {
+            return `repeating-linear-gradient(0deg, rgba(255,255,255,0.035) 0 1px, transparent 1px 16px), repeating-linear-gradient(90deg, rgba(255,255,255,0.035) 0 1px, transparent 1px 16px), ${baseHex}`;
+        }
+        if (styleName === 'water') {
+            return `repeating-linear-gradient(135deg, rgba(147,197,253,0.09) 0 4px, transparent 4px 14px), ${baseHex}`;
+        }
+        return `radial-gradient(circle at 35% 35%, rgba(255,255,255,0.04), transparent 70%), ${baseHex}`;
+    }
+
+    const entityColorMap = new Map();
+    for (const e of state?.entity_state || []) {
+        const key = (e?.name || '').trim().toLowerCase();
+        if (key && !entityColorMap.has(key)) {
+            entityColorMap.set(key, colorForEntity(e.name, state?.entity_state));
+        }
+    }
 
     for (const { room, box, dim } of positioned) {
         const w = box.x2 - box.x1;
@@ -398,7 +472,34 @@ export function buildAtlas3DScene(
             title: `${room.name || room.id} (${room.dim || ''})`,
         };
 
-        // 1. Room floor slab
+        // 0. Diorama plinth shadow & solid slab skirt
+        if (zOff === 0) {
+            polygons.push(...decalPolygon({
+                cx: cx + 0.6,
+                cy: cy + 0.6,
+                cz: -0.45,
+                w: w + 1.8,
+                d: d + 1.8,
+                background: 'radial-gradient(closest-side, rgba(0,0,0,0.58), rgba(0,0,0,0))',
+                className: 'vse-poly-shadow',
+            }));
+        }
+        polygons.push(...boxPolygons({
+            ...roomMeta,
+            cx,
+            cy,
+            cz: zOff - 0.42,
+            w,
+            d,
+            h: 0.42,
+            color: shadeHex(floorColor, 0.56),
+            opacity: roomOpacity,
+            skipTop: true,
+            skipBottom: true,
+            className: 'vse-poly-plinth',
+        }));
+
+        // 1. Room floor slab with CSS style grain
         polygons.push(...planePolygons({
             ...roomMeta,
             cx,
@@ -407,6 +508,7 @@ export function buildAtlas3DScene(
             w,
             d,
             color: floorColor,
+            background: floorBackgroundFor(styleName, floorColor),
             opacity: roomOpacity,
             className: `vse-poly-floor ${isSelected ? 'is-selected' : ''} ${isUserHere ? 'is-user-room' : ''}`,
         }));
@@ -534,12 +636,13 @@ export function buildAtlas3DScene(
 
         // 5. Occupants as colored 3D pawns + billboard initials
         const occs = parseOccupantsList(room.occupants);
-        occs.forEach((occ, idx) => {
-            if (polygons.length > MAX_SCENE_FACES - 40) return;
+        for (let idx = 0; idx < occs.length; idx++) {
+            if (polygons.length > MAX_SCENE_FACES - 40) break;
+            const occ = occs[idx];
             const pt = parseLocalPoint(occ.pos);
             const ox = pt ? clamp(box.x1 + pt.x, box.x1 + 0.7, box.x2 - 0.7) : (box.x1 + 1.6 + (idx % 3) * 2.2);
             const oy = pt ? clamp(box.y1 + pt.y, box.y1 + 0.7, box.y2 - 0.7) : (box.y2 - 1.8 - Math.floor(idx / 3) * 1.6);
-            const col = colorForEntity(occ.name, state?.entity_state);
+            const col = entityColorMap.get(String(occ.name || '').trim().toLowerCase()) || '#89b4fa';
             const initials = occ.name.split(/\s+/).map((w2) => w2[0]).join('').slice(0, 2).toUpperCase();
 
             polygons.push(...buildPawnPolygons({
@@ -560,7 +663,7 @@ export function buildAtlas3DScene(
                     html: `<span class="vse-poly-chip" style="--chip-col:${escHtml(col)}">${escHtml(initials)}</span>`,
                 });
             }
-        });
+        }
 
         // 6. User pawn + diamond marker
         if (isUserHere && polygons.length < MAX_SCENE_FACES - 30) {

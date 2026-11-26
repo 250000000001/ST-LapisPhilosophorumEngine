@@ -1,6 +1,21 @@
 # ST-VexaStateEngine
 
-External state engine, swipe-safe journaled store, secondary API worker ("Vexa Clerk"), interactive SVG Atlas map, inline editor, and native themed HUD for SillyTavern Vexa presets.
+External state engine, swipe-safe journaled store, secondary API worker ("Vexa Clerk"), Hybrid Three.js WebGL + PolyCSS 3D Atlas map, anatomical health doll, inline editor, and native themed HUD for SillyTavern Vexa presets.
+
+## Screenshots
+
+<p align="center">
+  <img src="Screenshots/control-center-atlas3d.png" alt="Vexa Control Center — Hybrid WebGL Atlas Map (Castle Black Z=0 with Cutout Doorways)" width="49%">
+  <img src="Screenshots/webgl-textured-kits.png" alt="Hybrid Three.js WebGL Atlas — Medieval Procedural + CC BY 4.0 PSX Industrial & Sci-Fi Lab Textured Kits" width="49%">
+</p>
+<p align="center">
+  <img src="Screenshots/control-center-health.png" alt="Vexa Control Center — Nice Health Tab Body Doll (X-Ray)" width="49%">
+  <img src="Screenshots/inline-hud.png" alt="Per-Message Inline Vexa HUD Card in SillyTavern" width="49%">
+</p>
+<p align="center">
+  <img src="Screenshots/polycss-3d-assets.png" alt="PolyCSS 3D Library — Diorama Prefabs & Geometric Primitives" width="49%">
+  <img src="Screenshots/health-doll-layers.png" alt="Anatomical Body Health Doll — Body, Organs, Bones & X-Ray Layers" width="49%">
+</p>
 
 ## What It Does
 
@@ -18,10 +33,12 @@ Vanilla Vexa emits all 16 `<internal_states>` XML sections at the end of every r
    - Emits compact JSON deltas (omitting unchanged rooms, dormant NPCs, and unchanged pairs).
 4. **Integrated Refusal Auto-Retry & Non-Stream Continue (Toggleable)**:
    - Built directly into **Extensions → Vexa State Engine** (`Enable built-in Refusal Auto-Retry & End-Marker Guard`), with **Continue (No Stream)** send-bar/options controls, surgical safety-refusal cleanup, end-marker validation (`auto` / `external` / `classic` / `marker`), and custom refusal regex patterns. Standalone `ST-VexaRefusalAutoRetry` is no longer required when this toggle is enabled.
-5. **Native JS Tabbed HUD, PolyCSS 3D Atlas Map & Megumin-Style Control Center**:
-   - Never mutates `msg.mes`; renders a collapsible 16-tab themed card under each message with diff dots and an interactive **PolyCSS 3D CSS** Atlas map (`src/polyCss3d.js` + `src/atlas3d.js`, with a 1-click toggle to classic **2D SVG** floorplans).
-   - Pure CSS `matrix3d(...)` polygon engine supports 10 3D primitives (`box`, `cylinder`, `cone`, `wedge`, `stairs`, `sphere`, `plane`, `arch`, `octahedron`, `ring`), multi-floor vertical stacking (`All Floors`), cutaway walls, pointer orbit/pan + wheel zoom, auto-inferred props from room `features`, and worker-supplied JSON `objects` / `add_objects` / `remove_objects` deltas.
-   - Includes a draggable floating compass launcher (`#vse_fab_btn`) and frosted-glass **Vexa Control Center** popup (`#vse_app_overlay`) featuring character banner artwork, left glass dock (collapsible floating pill bar on mobile), live token readout, interactive 3D/2D Atlas & object builder, state inspection/editing across all tabs, worker & refusal-retry configuration, visual theme swatches, and raw snapshot/JSON tools.
+5. **Native JS Tabbed HUD, Hybrid Three.js WebGL + PolyCSS 3D Atlas & Control Center**:
+   - Never mutates `msg.mes`; renders a collapsible themed card under each message with diff dots and a fast **2D SVG** inline floorplan default (`Open WebGL` jumps directly into the Control Center, while **3D CSS** keeps `IntersectionObserver` animation pausing for long chats).
+   - **Hybrid Three.js WebGL Atlas** (`src/atlasWebgl.js` + vendored `lib/three/`) pairs render-on-demand Three.js rooms and **physical doorway wall cutouts** (`splitWallWithDoorways`, hinged/sliding doors, archways, and low-curb outdoor courtyards) with normalized **CC BY 4.0** textured `.glb` packs (`assets/models/psx-industrial.glb` & `assets/models/scifi-lab-props.glb`) and MIT procedural medieval/tavern furniture — plus optional gitignored `assets/models/custom/` local prop overrides.
+   - **PolyCSS 3D CSS fallback engine** (`src/polyCss3d.js` + `src/polyAssets.js` + `src/atlas3d.js`) renders **10 geometric primitives** and **28 diorama/kit prefabs** (`table`, `chair`, `couch`, `bed`, `bookshelf`, `desk`, `hearth`, `brazier`, `lamp`, `chest`, `tree`, `crystal`, `ladder`, `hourglass`, `container`, `barrel`, `crate`, `dumpster`, `generator`, `pallet`, `propane`, `pipes`, `locker`, `vat`, `console`, `cabinet`, `airlock`, `screen`) with extruded plinths, contact shadows, radial light pools, multi-floor stacking (`All Floors`), cutaway walls, orbit/pan/zoom, and JSON `objects` / `add_objects` / `remove_objects` deltas.
+   - Scaled for long multi-hundred-turn chats via indexed `store.js` timeline/swipe lookups (`O(1)`/`O(log N)`), local single-card HUD refreshes without global version cache-busting, `content-visibility: auto`, and a single lazily loaded WebGL context torn down cleanly on close/tab switch.
+   - Includes a draggable floating compass launcher (`#vse_fab_btn`) and frosted-glass **Vexa Control Center** popup (`#vse_app_overlay`) featuring character banner artwork, left glass dock (collapsible floating pill bar on mobile), live token readout, interactive WebGL/3D/2D Atlas & object builder, state inspection/editing across all tabs, worker & refusal-retry configuration, visual theme swatches, and raw snapshot/JSON tools.
 6. **Main-Model-Proposed Custom Trackers (Toggleable)**:
    - When enabled, the main story model can optionally propose recurring multi-field trackers (e.g. a business, estate, ship, or debt ledger) via `tracker_propose:` inside `<vexa_receipt>`.
    - Proposals can be approved/edited/dismissed in 1 click from the HUD or Control Center (or auto-accepted via toggle). Once active, the background worker can only update values of those locked field keys — zero key drift and 0 prompt tokens when no custom trackers exist.
@@ -31,10 +48,24 @@ Vanilla Vexa emits all 16 `<internal_states>` XML sections at the end of every r
 
 ## Credits & Acknowledgements
 
+- **Vexa Preset** by **Ryah** — https://ryah.github.io/vexa
+  - Created the TeleWire TRP-AO world-simulation preset, 16-section `<internal_states>` architecture, Aether Matrix/Dam, Atlas, Chekhov, ARC, and HUD theme palettes that this engine externalizes and builds upon.
+- **Megumin Suite** by **Arif-salah (`KazumaONIISAN`)** — https://github.com/Arif-salah/Megumin-Suite
+  - Inspired the Chomusuke secondary worker API workflow, swipe-safe journaled state store, send-guard flow, and the floating launcher + frosted-glass Control Center UI (`src/appPopup.js` & `style.css`).
+- **PolyCSS** & **css.graphics** by **alowpoly (Agustin Capeletto / LayoutIt)** — https://github.com/layoutit/polycss · https://github.com/layoutit/css.graphics
+  - Inspired the pure CSS `matrix3d(...)` 3D polygon projection, solid-quad optimization, and modular DOM 3D asset packaging in `src/polyCss3d.js` and `src/polyAssets.js`.
+- **3D-Room** by **BhaskarAcharjee** — https://github.com/BhaskarAcharjee/3D-Room
+  - Inspired the isometric CSS 3D diorama room plinths, soft ground contact shadows, and ambient radial floor lighting aesthetics in `src/atlas3d.js` and `src/polyAssets.js` (original implementation).
 - **Nice Health Tab (RimWorld Mod)** by **Andromeda** — https://steamcommunity.com/sharedfiles/filedetails/?id=3328729902
-  - The anatomical paper-doll health display, body-part injury/bandage/scar visualization, organ/bone layers, and physiological capacity breakdown in `src/healthDoll.js` are directly inspired by Andromeda's **Nice Health Tab** mod. All SVG vectors, patterns, and UI code in this extension are original implementations.
-
+  - Inspired the anatomical paper-doll health display, body-part injury/bandage/scar visualization, organ/bone layers, and physiological capacity breakdown in `src/healthDoll.js`. All SVG vectors, patterns, and UI code in this extension are original implementations.
+- **Three.js** (`0.187.0`) by **Three.js Authors** — https://threejs.org/
+  - Vendored ES modules under [`lib/three/`](lib/three/LICENSE) (MIT License) powering the Hybrid WebGL Atlas renderer (`src/atlasWebgl.js`).
+- **PSX Industrial Pack** (`assets/models/psx-industrial.glb`) by **Tomitos** (https://sketchfab.com/Tomitos_) — https://sketchfab.com/3d-models/psx-industrial-pack-12cb749961974f94a4063e67dafb2d76
+  - Licensed under [Creative Commons Attribution 4.0 International (CC BY 4.0)](https://creativecommons.org/licenses/by/4.0/). Changes made: extracted individual prop meshes from source `industrial.fbx`, baked transforms, normalized bounds and pivots to `(0, 0, 0)`, converted embedded `512×512` `T_Industrial` / `T_Industrial2` diffuse textures to WebP, and packaged as `assets/models/psx-industrial.glb` (see [`assets/models/ATTRIBUTION.md`](assets/models/ATTRIBUTION.md)).
+- **Sci-fi lab** (`assets/models/scifi-lab-props.glb`) by **Agata Wilczek** (https://sketchfab.com/a_wilczek) — https://sketchfab.com/3d-models/sci-fi-lab-a676e149e343403bb5e57686f3d31da5
+  - Licensed under [Creative Commons Attribution 4.0 International (CC BY 4.0)](https://creativecommons.org/licenses/by/4.0/). Changes made: isolated 8 modular interior props (`sci_vat`, `sci_console`, `sci_table`, `sci_jar`, `sci_cabinet`, `sci_airlock`, `sci_screen`, `sci_pipe`) from `enviro_lab.obj`, decimated geometry via UV-preserving vertex clustering, added glowing cyan/emissive containment glass styling, converted/downscaled textures to WebP, normalized pivots, and packaged as `assets/models/scifi-lab-props.glb` (see [`assets/models/ATTRIBUTION.md`](assets/models/ATTRIBUTION.md)).
 
 ## License
 
-Licensed under the [MIT License](LICENSE).
+- **Extension Code & Procedural 3D Geometry:** All JavaScript, CSS, HTML, procedural Three.js/PolyCSS builders, and vendored `lib/three/` modules are licensed under the **[MIT License](LICENSE)**.
+- **Bundled 3D Model Assets (`assets/models/*.glb`):** Licensed under **[Creative Commons Attribution 4.0 International (CC BY 4.0)](https://creativecommons.org/licenses/by/4.0/)** as detailed in [`assets/models/ATTRIBUTION.md`](assets/models/ATTRIBUTION.md). No endorsement by original model authors is implied.

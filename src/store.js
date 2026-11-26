@@ -53,6 +53,17 @@ function emptyRoot() {
 export function createVexaStateStore({ adapter, journalDepth = 200, rootKey = 'vexa_state' }) {
     let version = 0;
     let memo = null; // { key, timeline }
+    let entryMemo = null; // { journal, version, len, map }
+
+    function buildEntryMap(r) {
+        const map = new Map();
+        for (const e of r.journal) {
+            if (!e || !e.uid || e.source === 'user') continue;
+            const k = `${e.uid}\0${e.swipe}`;
+            if (!map.has(k)) map.set(k, e);
+        }
+        return map;
+    }
 
     function root() {
         const meta = adapter.getMeta();
@@ -170,21 +181,26 @@ export function createVexaStateStore({ adapter, journalDepth = 200, rootKey = 'v
 
     function timeline() {
         const r = root();
-        if (!r) return { base: emptyState(), baseSeq: 0, steps: [] };
+        if (!r) return { base: emptyState(), baseSeq: 0, steps: [], stepByUid: new Map() };
         const extra = adapter.applyContext ? adapter.applyContext() : {};
         const key = version + '|' + swipeSignature() + '|' + JSON.stringify(extra);
-        if (memo && memo.key === key) return memo.timeline;
+        if (memo && memo.root === r && memo.key === key) return memo.timeline;
 
         const base = cloneState(r.checkpoint.state || emptyState());
         let state = base;
         const steps = [];
+        const stepByUid = new Map();
         for (const e of activeEntries()) {
             const res = applyEntry(state, e);
             state = res.state;
-            steps.push({ seq: e.seq, entry: e, state, diff: res.diff, warnings: res.warnings });
+            const step = { seq: e.seq, entry: e, state, diff: res.diff, warnings: res.warnings };
+            steps.push(step);
+            if (e.uid && e.source !== 'user' && !stepByUid.has(e.uid)) {
+                stepByUid.set(e.uid, step);
+            }
         }
-        const tl = { base, baseSeq: r.checkpoint.seq, steps };
-        memo = { key, timeline: tl };
+        const tl = { base, baseSeq: r.checkpoint.seq, steps, stepByUid };
+        memo = { root: r, key, timeline: tl };
         return tl;
     }
 
@@ -193,24 +209,37 @@ export function createVexaStateStore({ adapter, journalDepth = 200, rootKey = 'v
         return tl.steps.length ? tl.steps[tl.steps.length - 1].state : tl.base;
     }
 
-    function getStateAt(seq) {
-        const tl = timeline();
-        let state = tl.base;
-        for (const s of tl.steps) {
-            if (s.seq > seq) break;
-            state = s.state;
+    function getStateAt(seq, tlOpt = null) {
+        const tl = tlOpt || timeline();
+        const steps = tl.steps;
+        let lo = 0;
+        let hi = steps.length - 1;
+        let hit = -1;
+        while (lo <= hi) {
+            const mid = (lo + hi) >>> 1;
+            if (steps[mid].seq <= seq) {
+                hit = mid;
+                lo = mid + 1;
+            } else {
+                hi = mid - 1;
+            }
         }
-        return state;
+        return hit >= 0 ? steps[hit].state : tl.base;
     }
 
-    function getStep(uid) {
-        return timeline().steps.find((s) => s.entry.uid === uid && s.entry.source !== 'user') || null;
+    function getStep(uid, tlOpt = null) {
+        if (!uid) return null;
+        const tl = tlOpt || timeline();
+        return tl.stepByUid?.get(uid) || null;
     }
 
     function getEntryFor(uid, swipe) {
         const r = root();
         if (!r || !uid) return null;
-        return r.journal.find((e) => e.uid === uid && e.swipe === swipe && e.source !== 'user') || null;
+        if (!entryMemo || entryMemo.root !== r || entryMemo.journal !== r.journal || entryMemo.version !== version || entryMemo.len !== r.journal.length) {
+            entryMemo = { root: r, journal: r.journal, version, len: r.journal.length, map: buildEntryMap(r) };
+        }
+        return entryMemo.map.get(`${uid}\0${swipe}`) || null;
     }
 
     function hasState() {

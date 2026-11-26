@@ -1,5 +1,6 @@
 test/
 node_modules/
+assets/models/custom/
 .DS_Store
 *.log
 .env

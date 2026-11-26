@@ -27,8 +27,12 @@ export function normalizeBaseUrl(url) {
     return s;
 }
 
+export function stripWorkerMetaTags(text) {
+    return String(text || '').replace(/<ds_safety\b[^>]*>[\s\S]*?(?:<\/ds_safety\s*>|$)/gi, '');
+}
+
 export function isWorkerRefusal(text) {
-    const clean = normalizeBraille(String(text || '')).trim();
+    const clean = normalizeBraille(stripWorkerMetaTags(text)).trim();
     if (!clean) return false;
     return REFUSAL_PATTERNS.some((re) => re.test(clean));
 }
@@ -86,10 +90,11 @@ export async function fetchOpenAICompatible({ baseUrl, apiKey, model, messages, 
     }
 
     const choice = json?.choices?.[0];
-    const content = choice?.message?.content ?? choice?.text ?? '';
+    const rawContent = choice?.message?.content ?? choice?.text ?? '';
+    const content = typeof rawContent === 'string' ? stripWorkerMetaTags(rawContent) : '';
     const reasoning = choice?.message?.reasoning_content ?? choice?.message?.reasoning ?? '';
     return {
-        content: typeof content === 'string' ? content : '',
+        content,
         reasoning: typeof reasoning === 'string' ? reasoning : '',
         finishReason: String(choice?.finish_reason || ''),
         usage: json?.usage || null,
@@ -200,9 +205,9 @@ export function createWorkerClient({ getSettings, getContextSafe, onStatusChange
             if (typeof res === 'function') {
                 let last = null;
                 for await (const chunk of res()) last = chunk;
-                return { content: last ? String(last.text || '') : '', reasoning: '' };
+                return { content: last ? stripWorkerMetaTags(last.text) : '', reasoning: '' };
             }
-            return { content: String(res?.content || ''), reasoning: String(res?.reasoning || '') };
+            return { content: stripWorkerMetaTags(res?.content), reasoning: String(res?.reasoning || '') };
         }
 
         const baseUrl = normalizeBaseUrl(settings.workerBaseUrl);
@@ -224,7 +229,7 @@ export function createWorkerClient({ getSettings, getContextSafe, onStatusChange
                 proxy_password: apiKey,
             }, {}, true, signal);
             return {
-                content: String(res?.content || ''),
+                content: stripWorkerMetaTags(res?.content),
                 reasoning: String(res?.reasoning || ''),
             };
         }
