@@ -1063,11 +1063,15 @@ function stripMetaKeysDeep(val, depth = 0) {
  * so `getvar('stat_data.x')` and `getvar('x')` both resolve cleanly.
  */
 export function tryParseInitVarsFromEntries(entries) {
-    if (!Array.isArray(entries)) return null;
-    for (const e of entries) {
+    const list = Array.isArray(entries)
+        ? entries
+        : (entries && typeof entries === 'object' ? Object.values(entries) : null);
+    if (!list) return null;
+    for (const e of list) {
         if (!e || typeof e.content !== 'string') continue;
         const label = String(e.comment || '').trim();
-        const keyStr = Array.isArray(e.key) ? e.key.join(' ') : String(e.key || '');
+        const rawKey = e.key ?? e.keys;
+        const keyStr = Array.isArray(rawKey) ? rawKey.join(' ') : String(rawKey || '');
         const isInit = /^\[(?:InitVar|VexaInitVars?)\]$/i.test(label)
             || /\[(?:InitVar|VexaInitVars?)\]/i.test(keyStr);
         if (!isInit) continue;

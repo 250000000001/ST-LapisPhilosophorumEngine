@@ -846,6 +846,19 @@ jQuery(() => {
         },
     });
 
+    function seedEmbeddedCharacterInitVars() {
+        const ctxNow = getContextSafe();
+        if (!ctxNow?.chatId) return false;
+        const chId = Number(ctxNow.characterId);
+        const activeChar = Number.isFinite(chId) && Array.isArray(ctxNow.characters) ? ctxNow.characters[chId] : null;
+        const embeddedEntries = activeChar?.data?.character_book?.entries;
+        if (!embeddedEntries) return false;
+        const initVars = tryParseInitVarsFromEntries(embeddedEntries);
+        if (!initVars || !store.seedCardVarsIfEmpty(initVars)) return false;
+        cardBridgeHost.broadcastVars(store.getCardVars());
+        return true;
+    }
+
     eventSource.on(event_types.CHAT_CHANGED, () => {
         const myEpoch = ++chatEpoch;
         cancelPendingAccept();
@@ -861,6 +874,7 @@ jQuery(() => {
         setTimeout(() => {
             if (myEpoch !== chatEpoch || getContextSafe().chatId !== chatAtEvent) return;
             store.reconcile();
+            seedEmbeddedCharacterInitVars();
             // Auto-import once when opening an existing vanilla Vexa chat
             const chat = getContextSafe().chat || [];
             if (!store.hasState() && chat.some((m) => /<internal_states>/i.test(String(m?.mes || '')))) {
@@ -880,6 +894,7 @@ jQuery(() => {
         event_types.MORE_MESSAGES_LOADED,
     ]) {
         if (evt) eventSource.on(evt, () => {
+            seedEmbeddedCharacterInitVars();
             scheduleHudRefresh(90);
             scheduleRendererRefresh(95);
         });

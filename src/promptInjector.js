@@ -117,8 +117,8 @@ export function transformPromptMessages(messages, {
         ? `${SPATIAL_GROUNDING_BLOCK}\n\n${snapshotXml}`
         : snapshotXml;
 
-    // First pass: strip historical states/tails ONLY from messages that are not system template messages
-    // containing SNAPSHOT_PLACEHOLDER or <internal_states_spec>.
+    // First pass: strip historical states/tails strictly from assistant messages so
+    // system/user instructions and World Info referencing <internal_states> or <vexa_tail> are never truncated.
     for (const msg of messages) {
         if (!msg || typeof msg.content !== 'string') continue;
         if (msg.content.includes(SNAPSHOT_PLACEHOLDER)) {
@@ -128,7 +128,7 @@ export function transformPromptMessages(messages, {
         if (msg.content.includes('<internal_states_spec>')) {
             continue;
         }
-        if (msg.role === 'assistant' || /<(?:internal_states|vexa_tail)\b/i.test(msg.content)) {
+        if (msg.role === 'assistant') {
             const cleaned = stripStateAndTailFromMessage(msg.content);
             if (cleaned !== msg.content) {
                 msg.content = cleaned;
