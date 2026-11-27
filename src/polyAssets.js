@@ -22,8 +22,11 @@ import {
     resolveMaterialColor,
     shadeHex,
 } from './polyCss3d.js';
+import { SKETCHFAB_ASSETS } from './sketchfabAssets.js';
 
-export const POLY_PREFABS = Object.freeze([
+const sketchfabIds = Object.keys(SKETCHFAB_ASSETS);
+
+export const POLY_PREFABS = Object.freeze([...new Set([
     'table',
     'chair',
     'couch',
@@ -53,7 +56,8 @@ export const POLY_PREFABS = Object.freeze([
     'airlock',
     'screen',
     'platform',
-]);
+    ...sketchfabIds,
+])]);
 
 export const PREFAB_DEFAULT_SIZES = Object.freeze({
     table: [2.0, 1.3, 0.9],
@@ -85,6 +89,7 @@ export const PREFAB_DEFAULT_SIZES = Object.freeze({
     airlock: [2.4, 0.65, 2.7],
     screen: [2.0, 0.22, 1.4],
     platform: [3.2, 2.2, 0.25],
+    ...Object.fromEntries(sketchfabIds.map((id) => [id, SKETCHFAB_ASSETS[id].size])),
 });
 
 function contactShadow(cx, cy, cz, w, d, rotZ, meta) {
@@ -755,6 +760,9 @@ function buildPlatform({ cx, cy, cz, localZ = 0, w, d, h, rotZ, color, meta }) {
 }
 
 const PREFAB_BUILDERS = Object.freeze({
+    rug: (props) => buildSketchfabFallback({ ...props, h: Math.min(props.h, 0.05), color: props.color || 'cloth' }),
+    globe: ({ cx, cy, cz, w, d, h, color, meta }) =>
+        spherePolygons({ ...meta, cx, cy, cz, radius: Math.min(w, d, h) / 2, color: color || 'stone' }),
     table: buildTable,
     chair: buildChair,
     couch: buildCouch,
@@ -786,6 +794,13 @@ const PREFAB_BUILDERS = Object.freeze({
     platform: buildPlatform,
 });
 
+function buildSketchfabFallback({ cx, cy, cz, w, d, h, rotZ, color, meta }) {
+    return [
+        ...contactShadow(cx, cy, cz, w, d, rotZ, meta),
+        ...boxPolygons({ ...meta, cx, cy, cz, w, d, h, rotZ, color: color || 'wood', skipBottom: false }),
+    ];
+}
+
 /**
  * Compile any composite diorama prefab object `{ shape, pos, size, rot, color, label }`
  * into world-space polygons anchored at `worldOrigin = { x, y, z }`.
@@ -793,7 +808,7 @@ const PREFAB_BUILDERS = Object.freeze({
 export function prefabToPolygons(obj, worldOrigin = { x: 0, y: 0, z: 0 }, extraMeta = {}) {
     if (!obj || typeof obj !== 'object') return [];
     const shape = String(obj.shape || '').toLowerCase();
-    const builder = PREFAB_BUILDERS[shape];
+    const builder = PREFAB_BUILDERS[shape] || (Object.hasOwn(SKETCHFAB_ASSETS, shape) ? buildSketchfabFallback : null);
     if (!builder) return [];
 
     const defSize = PREFAB_DEFAULT_SIZES[shape] || [1.6, 1.2, 1.2];

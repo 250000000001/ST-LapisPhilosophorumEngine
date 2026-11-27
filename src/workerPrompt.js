@@ -7,6 +7,12 @@
 
 import { normalizeBraille, stripGfxBlocks, extractStoryProse } from './schema.js';
 import { serializeCompactForWorker } from './parser.js';
+import { SKETCHFAB_ASSETS } from './sketchfabAssets.js';
+
+const sketchfabShapes = Object.keys(SKETCHFAB_ASSETS);
+const sketchfabPrompt = sketchfabShapes.length
+    ? `\n   - Additional WebGL props: ${sketchfabShapes.map((id) => JSON.stringify(id)).join(', ')}.`
+    : '';
 
 const SYSTEM_BASE = `You are LPE Clerk, a precise background simulation state-tracker for a gritty, uncensored fictional RPG.
 Your ONLY job is to inspect the latest story exchange and emit a minimal JSON DELTA updating the world simulation state.
@@ -26,9 +32,9 @@ CRITICAL OUTPUT RULES:
      * NEVER add outer room perimeter walls as "box" objects (e.g. "North Tank Wall", "South Wall") and NEVER add extra "airlock" or "arch" objects on doorways already listed in "exits" — the engine renders room walls and ONE unified doorway cutout per exit connection automatically. Use "platform" with pos:[x,y,z] (z>0) for mezzanines, catwalks, balconies, raised stages, or sunken walkways.
    - Give repeated props unique labels (e.g. "Oak Chair 1", "Oak Chair 2").
    - Diorama & Textured 3D Prefabs (29 — rendered with bundled WebGL GLB kits + composite PolyCSS models):
-     "table", "chair", "couch", "bed", "bookshelf", "desk", "hearth", "brazier", "lamp", "chest", "tree", "crystal", "ladder", "hourglass", "container", "barrel", "crate", "dumpster", "generator", "pallet", "propane", "pipes", "locker", "vat", "console", "cabinet", "airlock", "screen", "platform".
+     "table", "chair", "couch", "bed", "bookshelf", "desk", "hearth", "brazier", "lamp", "chest", "tree", "crystal", "ladder", "hourglass", "container", "barrel", "crate", "dumpster", "generator", "pallet", "propane", "pipes", "locker", "vat", "console", "cabinet", "airlock", "screen", "platform".${sketchfabPrompt}
    - Geometric Primitives (10 — for custom architectural props & furniture):
-     "box" (interior divider, barricade, pedestal — NOT outer room perimeter walls!), "cylinder" (pillar, well, cauldron, tub), "cone" (flame, tent, spire), "wedge" (ramp, sloped roof), "stairs" (staircase), "sphere" (boulder, bush, globe), "plane" (rug, pond, grate, blood), "arch" (standalone ruined archway NOT on an exit), "octahedron" (floating shard/beacon), "ring" (fire-ring, stone circle).
+     "box" (interior divider, barricade, pedestal — NOT outer room perimeter walls!), "cylinder" (pillar, well, cauldron, tub), "cone" (flame, tent, spire), "wedge" (ramp, sloped roof), "stairs" (staircase), "sphere" (boulder, bush), "plane" (pond, grate, blood), "arch" (standalone ruined archway NOT on an exit), "octahedron" (floating shard/beacon), "ring" (fire-ring, stone circle).
    - "size" is [width, depth, height] in meters.
    - Material colors: "wood", "dark_wood", "stone", "dark_stone", "ice", "snow", "water", "iron", "gold", "copper", "fire", "cloth", "leather", "grass", "pine", "earth", "bone", "blood", "magic", "glass" (or #RRGGBB).
    - Example: [{"shape":"platform","pos":[10,2,3.5],"size":[16,2.5,0.25],"color":"iron","label":"Upper Catwalk"},{"shape":"stairs","pos":[3,4,0],"size":[1.6,4.5,3.5],"color":"iron","label":"Catwalk Stairs"},{"shape":"table","pos":[8,8,0],"size":[2.2,1.3,0.9],"color":"wood","label":"Council Table"}]
