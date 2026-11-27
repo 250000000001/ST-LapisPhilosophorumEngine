@@ -361,16 +361,17 @@ export const SHOWCASE_PROPS = [
     file: 'scifi-lab-props.glb',
     node: 'sci_jar',
     size: [0.38, 0.38, 0.56],
-    pos: [-1.15, 1.12, -1.95],
+    pos: [-3.0, 0, -0.4],
     rotY: 0,
     preRotY: 0,
+    floorBound: true,
     faceCount: 312,
     bytes: 312400,
     author: 'Agata Wilczek',
     license: 'CC BY 4.0',
     licenseUrl: 'https://creativecommons.org/licenses/by/4.0/',
     viewerUrl: 'https://sketchfab.com/3d-models/sci-fi-lab-a676e149e343403bb5e57686f3d31da5',
-    desc: 'Modular sci_jar cluster extracted from scifi-lab-props.glb with emissive glass.',
+    desc: 'Floor-bound sci_jar cluster from scifi-lab-props.glb, grounded flush at y = 0 with emissive glass.',
   },
 
   // --- ZONE 3: COBBLESTONE COURTYARD (Outdoor Connected Plaza) ---
@@ -903,6 +904,15 @@ function initShowcase() {
     })
   ).then(() => {
     selectProp(selectedPropId, false);
+    const floorChecks = {};
+    const worldBox = new THREE.Box3();
+    for (const [id, entry] of propAnchors) {
+      if (!entry.prop.floorBound) continue;
+      worldBox.setFromObject(entry.anchor, true);
+      const minY = Number(worldBox.min.y.toFixed(4));
+      floorChecks[id] = { minY, onFloor: Math.abs(minY) <= 0.01 };
+    }
+    state.floorBoundProps = floorChecks;
     requestRender();
   });
 
