@@ -18,6 +18,7 @@ import {
     isEmptySentinel,
     slugifyTrackerId,
     isPlayerPersonaName,
+    normalizeNameKey,
 } from './schema.js';
 import { applyHealthDelta, normalizeHealthState } from './healthDoll.js';
 import { POLY_PREFABS, PREFAB_DEFAULT_SIZES } from './polyAssets.js';
@@ -53,7 +54,7 @@ export const ATLAS_ROOM_STYLES = Object.freeze([
 
 export const MAX_ROOM_OBJECTS = 16;
 
-const MATRIX_EMOJIS = ['🌶️', '🎲', '🤝', '🛠️', '🏠', '🕊️', '😠', '🥊', '❄️', '🪨', '🌫️', '🐍'];
+export const MATRIX_EMOJIS = ['🌶️', '🎲', '🤝', '🛠️', '🏠', '🕊️', '😠', '🥊', '❄️', '🪨', '🌫️', '🐍'];
 
 /** Strip <ds_safety>...</ds_safety>, <think>...</think> blocks, code fences, and trailing commas to extract JSON object. */
 export function extractJsonCandidate(rawText) {
@@ -93,6 +94,9 @@ const KNOWN_DELTA_KEYS = new Set([
     'story_notes',
     'notebook_append',
     'custom_trackers_patch',
+    'character_batch_upsert',
+    'character_upsert',
+    'character_remove',
 ]);
 
 /**
@@ -738,17 +742,22 @@ export function applyDelta(prevState, delta = {}, ctx = {}) {
         if (list) {
             next.onscreen = list
                 .filter((e) => e && !isEmptySentinel(e.name) && !isUserEntity(e.name))
-                .map((e) => ({
-                    name: String(e.name).trim(),
-                    parrott: String(e.parrott || ''),
-                    residualMood: String(e.residualMood || ''),
-                    tfdy: clampTfdyString(String(e.tfdy || '')),
-                    salience: String(e.salience || 'sal:5'),
-                    agenda: String(e.agenda || ''),
-                    why: String(e.why || ''),
-                    end: String(e.end || ''),
-                    move: String(e.move || ''),
-                }));
+                .map((e) => {
+                    const prevOn = next.onscreen.find((x) => normalizeNameKey(x.name) === normalizeNameKey(e.name));
+                    const statusVal = e.status !== undefined ? String(e.status || '').trim() : (prevOn?.status || '');
+                    return {
+                        name: String(e.name).trim(),
+                        parrott: String(e.parrott || ''),
+                        residualMood: String(e.residualMood || ''),
+                        tfdy: clampTfdyString(String(e.tfdy || '')),
+                        salience: String(e.salience || 'sal:5'),
+                        agenda: String(e.agenda || ''),
+                        why: String(e.why || ''),
+                        end: String(e.end || ''),
+                        move: String(e.move || ''),
+                        ...(statusVal && !isEmptySentinel(statusVal) ? { status: statusVal } : {}),
+                    };
+                });
             changedSections.add('onscreen');
         } else if (delta.onscreen && typeof delta.onscreen === 'object') {
             if (Array.isArray(delta.onscreen.remove)) {
@@ -1141,6 +1150,12 @@ export function applyDelta(prevState, delta = {}, ctx = {}) {
         for (const item of list) {
             if (!item || isEmptySentinel(item.name) || isUserEntity(item.name)) continue;
             const existing = next.entity_state.find((x) => x.name.toLowerCase() === item.name.toLowerCase());
+            const preserveManual = Boolean(existing?.manual || existing?.pinned);
+            const pickField = (incoming, prev) => {
+                const incStr = incoming !== undefined && incoming !== null ? String(incoming) : '';
+                if (incStr && !isEmptySentinel(incStr)) return incStr;
+                return preserveManual && prev ? String(prev) : String(incoming ?? prev ?? '');
+            };
             // Immutable fontColor rule: preserve already-locked hex if established!
             let fontColor = existing?.fontColor && !isEmptySentinel(existing.fontColor)
                 ? existing.fontColor
@@ -1148,19 +1163,37 @@ export function applyDelta(prevState, delta = {}, ctx = {}) {
             if (!fontColor) {
                 fontColor = findNextUnusedColor(next.entity_state);
             }
+            const nextStatus = item.status !== undefined
+                ? String(item.status || '').trim()
+                : String(existing?.status || '').trim();
+            const isStaged = item.preGameStaged !== undefined ? Boolean(item.preGameStaged) : Boolean(existing?.preGameStaged);
+            const isManual = item.manual !== undefined ? Boolean(item.manual) : Boolean(existing?.manual);
+            const isPinned = item.pinned !== undefined ? Boolean(item.pinned) : Boolean(existing?.pinned);
             upsertByName(next.entity_state, {
                 name: String(item.name).trim(),
                 fontColor,
-                look: String(item.look ?? existing?.look ?? ''),
-                voice: String(item.voice ?? existing?.voice ?? ''),
-                persona: String(item.persona ?? existing?.persona ?? ''),
-                private: String(item.private ?? existing?.private ?? ''),
+                look: pickField(item.look, existing?.look),
+                voice: pickField(item.voice, existing?.voice),
+                persona: pickField(item.persona, existing?.persona),
+                private: pickField(item.private, existing?.private),
+                ...(nextStatus && !isEmptySentinel(nextStatus) ? { status: nextStatus } : {}),
+                ...(isStaged ? { preGameStaged: true } : {}),
+                ...(isManual ? { manual: true } : {}),
+                ...(isPinned ? { pinned: true } : {}),
             }, (x) => x.name.toLowerCase() === item.name.toLowerCase());
         }
         changedSections.add('entity_state');
     }
     if (userName) {
         next.entity_state = next.entity_state.filter((x) => !isUserEntity(x.name));
+    }
+    if (changedSections.has('onscreen') && next.onscreen.length > 0) {
+        const onKeys = new Set(next.onscreen.map((e) => normalizeNameKey(e?.name)));
+        for (const es of next.entity_state) {
+            if (es?.preGameStaged && onKeys.has(normalizeNameKey(es.name))) {
+                delete es.preGameStaged;
+            }
+        }
     }
 
     // Deterministic color audit from prose dialogue tags: if a known entity has no fontColor yet
@@ -1256,6 +1289,275 @@ export function applyDelta(prevState, delta = {}, ctx = {}) {
             }, (x) => normPair(x.names) === pKey);
         }
         changedSections.add('pair');
+    }
+
+    // 9b. Batch/Single Character Removal & Unified Pre-Game/Editor Upsert
+    if (Array.isArray(delta.character_remove) && delta.character_remove.length > 0) {
+        const rmKeys = new Set(delta.character_remove.map((n) => normalizeNameKey(n)).filter(Boolean));
+        if (rmKeys.size > 0) {
+            next.onscreen = next.onscreen.filter((e) => !rmKeys.has(normalizeNameKey(e?.name)));
+            next.offscreen_agendas = next.offscreen_agendas.filter((e) => !rmKeys.has(normalizeNameKey(e?.name)));
+            next.entity_state = next.entity_state.filter((e) => !rmKeys.has(normalizeNameKey(e?.name)));
+            next.entityMem = next.entityMem.filter((e) => !rmKeys.has(normalizeNameKey(e?.name)));
+            next.thoughts = next.thoughts.filter((e) => !rmKeys.has(normalizeNameKey(e?.name)));
+            for (const room of next.locations.rooms) {
+                const occs = parseOccupantsList(room?.occupants);
+                const kept = occs.filter((o) => !rmKeys.has(normalizeNameKey(o.name)));
+                if (kept.length !== occs.length) room.occupants = formatOccupantsList(kept);
+            }
+            next.pair = next.pair.filter((p) => {
+                const sides = String(p?.names || '').split('↔').map((x) => normalizeNameKey(x));
+                return !sides.some((s) => rmKeys.has(s));
+            });
+            next.dam = next.dam.filter((d) => {
+                const sides = String(d?.pair || '').split('->').map((x) => normalizeNameKey(x));
+                return !sides.some((s) => rmKeys.has(s));
+            });
+            changedSections.add('onscreen');
+            changedSections.add('offscreen_agendas');
+            changedSections.add('entity_state');
+            changedSections.add('locations');
+            changedSections.add('pair');
+            changedSections.add('dam');
+        }
+    }
+
+    const charUpserts = [
+        ...(Array.isArray(delta.character_batch_upsert) ? delta.character_batch_upsert : []),
+        ...(Array.isArray(delta.character_upsert)
+            ? delta.character_upsert
+            : (delta.character_upsert && typeof delta.character_upsert === 'object' ? [delta.character_upsert] : [])),
+    ];
+    if (charUpserts.length > 0) {
+        const normPairSides = (s) => String(s || '').split('↔').map((x) => normalizeNameKey(x)).sort().join('↔');
+        const resolveTargetAlias = (rawT) => {
+            const rawStr = String(rawT || '').trim();
+            if (!rawStr) return '';
+            if (/^(?:you|player|pc|\{\{user\}\}|user)$/i.test(rawStr) || isUserEntity(rawStr)) {
+                return String(userName || '').trim() || '{{user}}';
+            }
+            return rawStr;
+        };
+
+        for (const c of charUpserts) {
+            if (!c || typeof c !== 'object') continue;
+            const cleanName = String(c.name || '').trim();
+            if (!cleanName || isEmptySentinel(cleanName)) continue;
+            if (isUserEntity(cleanName)) {
+                warnings.push(`Skipped character import/edit "${cleanName}" (matches active {{user}} persona).`);
+                continue;
+            }
+
+            const prevName = String(c.prevName || cleanName).trim();
+            const prevKey = normalizeNameKey(prevName);
+            const nextKey = normalizeNameKey(cleanName);
+            const isRename = Boolean(prevKey && prevKey !== nextKey);
+
+            if (isRename) {
+                for (const arr of [next.entity_state, next.onscreen, next.offscreen_agendas, next.entityMem, next.thoughts]) {
+                    for (const rec of arr) {
+                        if (rec && normalizeNameKey(rec.name) === prevKey) rec.name = cleanName;
+                    }
+                }
+                for (const room of next.locations.rooms) {
+                    const occs = parseOccupantsList(room?.occupants);
+                    let touched = false;
+                    for (const occ of occs) {
+                        if (normalizeNameKey(occ.name) === prevKey) {
+                            occ.name = cleanName;
+                            touched = true;
+                        }
+                    }
+                    if (touched) room.occupants = formatOccupantsList(occs);
+                }
+                for (const p of next.pair) {
+                    const sides = String(p?.names || '').split('↔').map((x) => x.trim());
+                    if (sides.some((x) => normalizeNameKey(x) === prevKey)) {
+                        p.names = sides.map((x) => (normalizeNameKey(x) === prevKey ? cleanName : x)).join('↔');
+                    }
+                }
+                for (const d of next.dam) {
+                    const sides = String(d?.pair || '').split('->').map((x) => x.trim());
+                    if (sides.some((x) => normalizeNameKey(x) === prevKey)) {
+                        d.pair = sides.map((x) => (normalizeNameKey(x) === prevKey ? cleanName : x)).join('->');
+                    }
+                }
+            }
+
+            const existingEs = next.entity_state.find((x) => normalizeNameKey(x.name) === nextKey);
+            let fontColor = existingEs?.fontColor && !isEmptySentinel(existingEs.fontColor)
+                ? existingEs.fontColor
+                : '';
+            if (c.fontColor !== undefined && String(c.fontColor).trim() && (!isTurnAdvance || !fontColor)) {
+                fontColor = normalizeColorName(c.fontColor) || String(c.fontColor).trim();
+            } else if (c.fontColor === '' && !isTurnAdvance) {
+                fontColor = '';
+            }
+            if (!fontColor) {
+                fontColor = findNextUnusedColor(next.entity_state);
+            }
+
+            const presence = ['onscreen', 'offscreen', 'staged'].includes(c.presence)
+                ? c.presence
+                : (c.preGameStaged ? 'staged' : 'offscreen');
+            const statusStr = String(c.status !== undefined ? c.status : (existingEs?.status || '')).trim();
+            const isStaged = presence === 'staged' || Boolean(c.preGameStaged && presence !== 'onscreen');
+            const isManual = c.manual !== undefined ? Boolean(c.manual) : true;
+            const isPinned = c.pinned !== undefined ? Boolean(c.pinned) : true;
+
+            upsertByName(next.entity_state, {
+                name: cleanName,
+                fontColor,
+                look: String(c.look ?? existingEs?.look ?? ''),
+                voice: String(c.voice ?? existingEs?.voice ?? ''),
+                persona: String(c.persona ?? existingEs?.persona ?? ''),
+                private: String(c.private ?? existingEs?.private ?? ''),
+                ...(statusStr && !isEmptySentinel(statusStr) ? { status: statusStr } : {}),
+                ...(isStaged ? { preGameStaged: true } : {}),
+                ...(isManual ? { manual: true } : {}),
+                ...(isPinned ? { pinned: true } : {}),
+            }, (x) => normalizeNameKey(x.name) === nextKey);
+            changedSections.add('entity_state');
+
+            const prevOn = next.onscreen.find((x) => normalizeNameKey(x.name) === nextKey);
+            const prevOff = next.offscreen_agendas.find((x) => normalizeNameKey(x.name) === nextKey);
+            next.onscreen = next.onscreen.filter((x) => normalizeNameKey(x.name) !== nextKey);
+            next.offscreen_agendas = next.offscreen_agendas.filter((x) => normalizeNameKey(x.name) !== nextKey);
+
+            const resolvedRoom = c.roomId
+                ? next.locations.rooms.find((r) => r.id === c.roomId || normalizeNameKey(r.name) === normalizeNameKey(c.roomId))
+                : null;
+
+            if (presence === 'onscreen') {
+                next.onscreen.push({
+                    name: cleanName,
+                    parrott: String(c.mood ?? prevOn?.parrott ?? prevOff?.mood ?? ''),
+                    residualMood: String(c.residualMood ?? prevOn?.residualMood ?? ''),
+                    tfdy: clampTfdyString(String(c.tfdy || prevOn?.tfdy || prevOff?.tfdy || 'T2 F2 D2 Y2')),
+                    salience: String(c.salience || prevOn?.salience || prevOff?.salience || 'sal:5'),
+                    agenda: String(c.agenda ?? prevOn?.agenda ?? prevOff?.agenda ?? ''),
+                    why: String(c.why ?? prevOn?.why ?? prevOff?.why ?? ''),
+                    end: String(c.end ?? prevOn?.end ?? prevOff?.end ?? ''),
+                    move: String(c.move ?? prevOn?.move ?? ''),
+                    ...(statusStr && !isEmptySentinel(statusStr) ? { status: statusStr } : {}),
+                });
+            } else {
+                const locLabel = String(
+                    c.loc
+                    || resolvedRoom?.name
+                    || prevOff?.loc
+                    || (isStaged ? 'Staged (Pre-Game)' : 'Off-screen'),
+                ).trim();
+                next.offscreen_agendas.push({
+                    name: cleanName,
+                    loc: locLabel,
+                    agenda: String(c.agenda ?? prevOff?.agenda ?? prevOn?.agenda ?? ''),
+                    why: String(c.why ?? prevOff?.why ?? prevOn?.why ?? ''),
+                    goal: String(c.goal ?? prevOff?.goal ?? ''),
+                    end: String(c.end ?? prevOff?.end ?? prevOn?.end ?? ''),
+                    mood: String(c.mood ?? prevOff?.mood ?? prevOn?.parrott ?? ''),
+                    tfdy: clampTfdyString(String(c.tfdy || prevOff?.tfdy || prevOn?.tfdy || 'T2 F2 D2 Y2')),
+                    salience: String(c.salience || prevOff?.salience || prevOn?.salience || 'sal:5'),
+                    ...(statusStr && !isEmptySentinel(statusStr) ? { status: statusStr } : {}),
+                    ...(isStaged ? { preGameStaged: true } : {}),
+                    ...(isManual ? { manual: true } : {}),
+                    ...(isPinned ? { pinned: true } : {}),
+                });
+            }
+            changedSections.add('onscreen');
+            changedSections.add('offscreen_agendas');
+
+            // Sync room occupancy cleanly without creating duplicate player markers
+            let locChanged = false;
+            for (const room of next.locations.rooms) {
+                const occs = parseOccupantsList(room?.occupants);
+                const kept = occs.filter((o) => {
+                    const k = normalizeNameKey(o.name);
+                    return k !== nextKey && k !== prevKey && !isUserEntity(o.name);
+                });
+                if (kept.length !== occs.length) {
+                    room.occupants = formatOccupantsList(kept);
+                    locChanged = true;
+                }
+            }
+            if (resolvedRoom && !isStaged) {
+                const occs = parseOccupantsList(resolvedRoom.occupants);
+                occs.push({ name: cleanName, pos: c.pos ? String(c.pos).trim() : '' });
+                resolvedRoom.occupants = formatOccupantsList(occs);
+                locChanged = true;
+            }
+            if (locChanged) changedSections.add('locations');
+
+            if (Array.isArray(c.removedBondTargets) && c.removedBondTargets.length > 0) {
+                const rmTargetKeys = new Set(c.removedBondTargets.map((t) => normalizeNameKey(resolveTargetAlias(t))).filter(Boolean));
+                if (userName && [...c.removedBondTargets].some((t) => isUserEntity(t) || /^(?:you|player|pc|\{\{user\}\}|user)$/i.test(String(t || '').trim()))) {
+                    rmTargetKeys.add('{{user}}');
+                    rmTargetKeys.add(normalizeNameKey(userName));
+                }
+                const pBefore = next.pair.length;
+                next.pair = next.pair.filter((p) => {
+                    const sides = String(p?.names || '').split('↔').map((x) => normalizeNameKey(x));
+                    if (sides.length !== 2) return true;
+                    const matchChar = sides[0] === nextKey || sides[1] === nextKey;
+                    const other = sides[0] === nextKey ? sides[1] : sides[0];
+                    return !(matchChar && rmTargetKeys.has(other));
+                });
+                const dBefore = next.dam.length;
+                next.dam = next.dam.filter((d) => {
+                    const sides = String(d?.pair || '').split('->').map((x) => normalizeNameKey(x));
+                    if (sides.length !== 2) return true;
+                    return !(sides[0] === nextKey && rmTargetKeys.has(sides[1]));
+                });
+                if (next.pair.length !== pBefore) changedSections.add('pair');
+                if (next.dam.length !== dBefore) changedSections.add('dam');
+            }
+
+            if (Array.isArray(c.bonds) && c.bonds.length > 0) {
+                for (const b of c.bonds) {
+                    const target = resolveTargetAlias(b?.target);
+                    if (!target || normalizeNameKey(target) === nextKey) continue;
+                    const pairNames = `${cleanName}↔${target}`;
+                    const pKey = normPairSides(pairNames);
+                    const altUserKey = userName && isUserEntity(target) ? normPairSides(`${cleanName}↔{{user}}`) : '';
+                    const prevRec = next.pair.find((x) => {
+                        const k = normPairSides(x.names);
+                        return k === pKey || (altUserKey && k === altUserKey);
+                    });
+                    const nextMatrix = clampMatrixString(
+                        b.matrix || prevRec?.matrix || '',
+                        prevRec?.matrix || '',
+                        isTurnAdvance ? enforceMatrixStepCap : false,
+                    );
+                    upsertByName(next.pair, {
+                        names: pairNames,
+                        mode: String(b.mode ?? prevRec?.mode ?? 'mode:stranger'),
+                        dam: String(b.dam ?? prevRec?.dam ?? 'E:s L:s Gate:dormant'),
+                        matrix: nextMatrix,
+                        wall: String(b.wall ?? prevRec?.wall ?? 'wall:∅'),
+                    }, (x) => {
+                        const k = normPairSides(x.names);
+                        return k === pKey || (altUserKey && k === altUserKey);
+                    });
+                    changedSections.add('pair');
+
+                    if (b.sluice || b.filters || b.intent || b.misc) {
+                        const damPair = `${cleanName}->${target}`;
+                        const damAlt = userName && isUserEntity(target) ? `${cleanName}->{{user}}`.toLowerCase() : '';
+                        upsertByName(next.dam, {
+                            pair: damPair,
+                            sluice: String(b.sluice || 'E:sealed L:sealed'),
+                            filters: String(b.filters || ''),
+                            misc: String(b.misc || 'clash:— | T:no'),
+                            intent: String(b.intent || ''),
+                        }, (x) => {
+                            const k = String(x.pair || '').trim().toLowerCase();
+                            return k === damPair.toLowerCase() || (damAlt && k === damAlt);
+                        });
+                        changedSections.add('dam');
+                    }
+                }
+            }
+        }
     }
 
     // 10. Tracks

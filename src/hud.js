@@ -129,7 +129,9 @@ function renderTabBody(tabId, state, view, settings, prevState = null) {
                         <strong>${esc(e.name)}</strong>
                         <span class="lpe-pill">${esc(e.salience)}</span>
                         <span class="lpe-pill">${esc(e.tfdy)}</span>
+                        <button type="button" class="lpe-mini-btn lpe-hud-edit-char-btn" data-char-name="${esc(e.name)}" title="Edit character State, Personality, Bonds &amp; Location"><i class="fa-solid fa-user-pen"></i></button>
                     </div>
+                    ${(e.status || es?.status) ? `<div class="lpe-line"><span>State:</span> ${esc(e.status || es?.status)}</div>` : ''}
                     <div class="lpe-line"><span>Emotion:</span> ${esc(e.parrott)}</div>
                     <div class="lpe-line"><span>Residual:</span> ${esc(e.residualMood)}</div>
                     <div class="lpe-line"><span>Agenda:</span> ${esc(e.agenda)}</div>
@@ -150,7 +152,10 @@ function renderTabBody(tabId, state, view, settings, prevState = null) {
                         <strong>${esc(e.name)}</strong>
                         <span class="lpe-pill">${esc(e.salience)}</span>
                         <span class="lpe-pill">${esc(e.tfdy)}</span>
+                        ${(e.preGameStaged || es?.preGameStaged) ? '<span class="lpe-pill warn">Staged</span>' : ''}
+                        <button type="button" class="lpe-mini-btn lpe-hud-edit-char-btn" data-char-name="${esc(e.name)}" title="Edit character State, Personality, Bonds &amp; Location"><i class="fa-solid fa-user-pen"></i></button>
                     </div>
+                    ${(e.status || es?.status) ? `<div class="lpe-line"><span>State:</span> ${esc(e.status || es?.status)}</div>` : ''}
                     <div class="lpe-line"><span>Location:</span> ${esc(e.loc)}</div>
                     <div class="lpe-line"><span>Mood:</span> ${esc(e.mood)}</div>
                     <div class="lpe-line"><span>Agenda:</span> ${esc(e.agenda)}</div>
@@ -192,7 +197,10 @@ function renderTabBody(tabId, state, view, settings, prevState = null) {
                         <i class="lpe-dot" style="background:${col}"></i>
                         <strong>${esc(es.name)}</strong>
                         <span class="lpe-pill" style="border-color:${col};color:${col}">${esc(es.fontColor || 'unassigned')}</span>
+                        ${es.preGameStaged ? '<span class="lpe-pill warn">Staged</span>' : ''}
+                        <button type="button" class="lpe-mini-btn lpe-hud-edit-char-btn" data-char-name="${esc(es.name)}" title="Edit character State, Personality, Bonds &amp; Location"><i class="fa-solid fa-user-pen"></i></button>
                     </div>
+                    ${es.status ? `<div class="lpe-line"><span>State:</span> ${esc(es.status)}</div>` : ''}
                     <div class="lpe-line"><span>Look:</span> ${esc(es.look)}</div>
                     <div class="lpe-line"><span>Voice:</span> ${esc(es.voice)}</div>
                     <div class="lpe-line"><span>Persona:</span> ${esc(es.persona)}</div>
@@ -875,6 +883,12 @@ export function ensureChatHudDelegation() {
         e.stopPropagation();
         const { live, mesId } = resolveLiveFromEl(this);
         live?.ctx?.onOpenEditor?.(mesId, live.view.tab);
+    });
+    $root.on('click.lpeHud', '.lpe-hud-card .lpe-hud-edit-char-btn', function (e) {
+        e.stopPropagation();
+        const { $el, live, mesId } = resolveLiveFromEl(this);
+        const charName = String($el.data('char-name') || '').trim();
+        live?.ctx?.onOpenEditor?.(mesId, live.view.tab, charName || null);
     });
     $root.on('click.lpeHud', '.lpe-hud-card .lpe-copy-btn', function (e) {
         e.stopPropagation();

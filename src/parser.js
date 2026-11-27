@@ -61,32 +61,46 @@ function parseWorld(raw) {
 
 function parseOnscreen(raw) {
     if (!raw) return [];
-    return getAllBlocks(raw, 'ent_on').map((blk) => ({
-        name: getField(blk, 'name'),
-        parrott: getField(blk, 'parrott'),
-        residualMood: getField(blk, 'residualMood'),
-        tfdy: getField(blk, 'tfdy'),
-        salience: getField(blk, 'salience'),
-        agenda: getField(blk, 'agenda'),
-        why: getField(blk, 'why'),
-        end: getField(blk, 'end'),
-        move: getField(blk, 'move'),
-    })).filter((e) => !isEmptySentinel(e.name));
+    return getAllBlocks(raw, 'ent_on').map((blk) => {
+        const status = getField(blk, 'status');
+        return {
+            name: getField(blk, 'name'),
+            parrott: getField(blk, 'parrott'),
+            residualMood: getField(blk, 'residualMood'),
+            tfdy: getField(blk, 'tfdy'),
+            salience: getField(blk, 'salience'),
+            agenda: getField(blk, 'agenda'),
+            why: getField(blk, 'why'),
+            end: getField(blk, 'end'),
+            move: getField(blk, 'move'),
+            ...(status ? { status } : {}),
+        };
+    }).filter((e) => !isEmptySentinel(e.name));
 }
 
 function parseOffscreen(raw) {
     if (!raw) return [];
-    return getAllBlocks(raw, 'ent_off').map((blk) => ({
-        name: getField(blk, 'name'),
-        loc: getField(blk, 'loc'),
-        agenda: getField(blk, 'agenda'),
-        why: getField(blk, 'why'),
-        goal: getField(blk, 'goal'),
-        end: getField(blk, 'end'),
-        mood: getField(blk, 'mood'),
-        tfdy: getField(blk, 'tfdy'),
-        salience: getField(blk, 'salience'),
-    })).filter((e) => !isEmptySentinel(e.name));
+    return getAllBlocks(raw, 'ent_off').map((blk) => {
+        const status = getField(blk, 'status');
+        const staged = /^true$/i.test(getField(blk, 'staged'));
+        const manual = /^true$/i.test(getField(blk, 'manual'));
+        const pinned = /^true$/i.test(getField(blk, 'pinned'));
+        return {
+            name: getField(blk, 'name'),
+            loc: getField(blk, 'loc'),
+            agenda: getField(blk, 'agenda'),
+            why: getField(blk, 'why'),
+            goal: getField(blk, 'goal'),
+            end: getField(blk, 'end'),
+            mood: getField(blk, 'mood'),
+            tfdy: getField(blk, 'tfdy'),
+            salience: getField(blk, 'salience'),
+            ...(status ? { status } : {}),
+            ...(staged ? { preGameStaged: true } : {}),
+            ...(manual ? { manual: true } : {}),
+            ...(pinned ? { pinned: true } : {}),
+        };
+    }).filter((e) => !isEmptySentinel(e.name));
 }
 
 function parseLocations(raw) {
@@ -167,14 +181,24 @@ function parseEntityMem(raw) {
 
 function parseEntityState(raw) {
     if (!raw) return [];
-    return getAllBlocks(raw, 'ent_col').map((blk) => ({
-        name: getField(blk, 'name'),
-        fontColor: getField(blk, 'fontColor'),
-        look: getField(blk, 'look'),
-        voice: getField(blk, 'voice'),
-        persona: getField(blk, 'persona'),
-        private: getField(blk, 'private'),
-    })).filter((e) => !isEmptySentinel(e.name));
+    return getAllBlocks(raw, 'ent_col').map((blk) => {
+        const status = getField(blk, 'status');
+        const staged = /^true$/i.test(getField(blk, 'staged'));
+        const manual = /^true$/i.test(getField(blk, 'manual'));
+        const pinned = /^true$/i.test(getField(blk, 'pinned'));
+        return {
+            name: getField(blk, 'name'),
+            fontColor: getField(blk, 'fontColor'),
+            look: getField(blk, 'look'),
+            voice: getField(blk, 'voice'),
+            persona: getField(blk, 'persona'),
+            private: getField(blk, 'private'),
+            ...(status ? { status } : {}),
+            ...(staged ? { preGameStaged: true } : {}),
+            ...(manual ? { manual: true } : {}),
+            ...(pinned ? { pinned: true } : {}),
+        };
+    }).filter((e) => !isEmptySentinel(e.name));
 }
 
 function parseThoughts(raw) {
@@ -470,12 +494,23 @@ export function computeScope(state, recentText = '') {
         if (!e.name) continue;
         const sal = parseSalienceNumber(e.salience);
         const isDormant = /\bDormant\b/i.test(e.loc || '');
-        if ((!isDormant && sal > 2) || (recentLower && recentLower.includes(e.name.toLowerCase()))) {
+        if (
+            e.preGameStaged
+            || e.pinned
+            || (!isDormant && sal > 2)
+            || (recentLower && recentLower.includes(e.name.toLowerCase()))
+        ) {
             activeEntities.add(e.name.toLowerCase());
         }
     }
     for (const es of state?.entity_state || []) {
-        if (es.name && recentLower.includes(es.name.toLowerCase())) {
+        if (!es.name) continue;
+        if (
+            es.preGameStaged
+            || es.pinned
+            || (es.manual && Number(state?.world?.ct || 0) === 0)
+            || recentLower.includes(es.name.toLowerCase())
+        ) {
             activeEntities.add(es.name.toLowerCase());
         }
     }
@@ -519,6 +554,9 @@ export function serializeInternalStates(state, { scoped = false, recentText = ''
         for (const k of ['name', 'parrott', 'residualMood', 'tfdy', 'salience', 'agenda', 'why', 'end', 'move']) {
             lines.push(`    <${k}>${encodeXmlText(e[k])}</${k}>`);
         }
+        if (e.status && !isEmptySentinel(e.status)) {
+            lines.push(`    <status>${encodeXmlText(e.status)}</status>`);
+        }
         lines.push('  </ent_on>');
     }
     lines.push('</state:onscreen>', '');
@@ -535,6 +573,10 @@ export function serializeInternalStates(state, { scoped = false, recentText = ''
         for (const k of ['name', 'loc', 'agenda', 'why', 'goal', 'end', 'mood', 'tfdy', 'salience']) {
             lines.push(`    <${k}>${encodeXmlText(e[k])}</${k}>`);
         }
+        if (e.status && !isEmptySentinel(e.status)) lines.push(`    <status>${encodeXmlText(e.status)}</status>`);
+        if (e.preGameStaged) lines.push('    <staged>true</staged>');
+        if (e.manual) lines.push('    <manual>true</manual>');
+        if (e.pinned) lines.push('    <pinned>true</pinned>');
         lines.push('  </ent_off>');
     }
     if (omittedOffscreen.length) {
@@ -613,6 +655,10 @@ export function serializeInternalStates(state, { scoped = false, recentText = ''
         for (const k of ['name', 'fontColor', 'look', 'voice', 'persona', 'private']) {
             lines.push(`    <${k}>${encodeXmlText(es[k])}</${k}>`);
         }
+        if (es.status && !isEmptySentinel(es.status)) lines.push(`    <status>${encodeXmlText(es.status)}</status>`);
+        if (es.preGameStaged) lines.push('    <staged>true</staged>');
+        if (es.manual) lines.push('    <manual>true</manual>');
+        if (es.pinned) lines.push('    <pinned>true</pinned>');
         lines.push('  </ent_col>');
     }
     if (dormantColors.length) {
@@ -834,8 +880,14 @@ export function serializeCompactForWorker(state) {
         entity_state: (s.entity_state || []).map((es) => ({
             name: es.name,
             fontColor: es.fontColor,
+            ...(es.look ? { look: es.look } : {}),
+            ...(es.voice ? { voice: es.voice } : {}),
             persona: es.persona,
             private: es.private,
+            ...(es.status ? { status: es.status } : {}),
+            ...(es.preGameStaged ? { preGameStaged: true } : {}),
+            ...(es.manual ? { manual: true } : {}),
+            ...(es.pinned ? { pinned: true } : {}),
             hasLookAndVoice: Boolean(es.look && es.voice),
         })),
         thoughts_prev: (s.thoughts || []).map((t) => ({ name: t.name, tQ1: t.tQ1 })),

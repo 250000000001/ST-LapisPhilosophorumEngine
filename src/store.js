@@ -593,7 +593,7 @@ export function createLpeStateStore({
         return true;
     }
 
-    function addUserEdit(deltaOrSnapshot, { kind = 'delta', targetSeq = null } = {}) {
+    function addUserEdit(deltaOrSnapshot, { kind = 'delta', targetSeq = null, ctx = {} } = {}) {
         const r = root();
         if (!r) return null;
         const entry = {
@@ -605,7 +605,7 @@ export function createLpeStateStore({
             source: 'user',
             kind,
             ...(kind === 'snapshot' ? { snapshot: cloneState(deltaOrSnapshot) } : { delta: deltaOrSnapshot }),
-            ctx: { isTurnAdvance: false },
+            ctx: { isTurnAdvance: false, ...(ctx && typeof ctx === 'object' ? ctx : {}) },
             status: 'synced',
             missing: false,
             orphan: false,

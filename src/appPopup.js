@@ -15,8 +15,22 @@ import {
     cloneState,
     emptyState,
     isEmptySentinel,
+    isPlayerPersonaName,
+    normalizeNameKey,
     slugifyTrackerId,
 } from './schema.js';
+import {
+    BOND_AXIS_SPEC,
+    BOND_PRESETS,
+    resolveBondPreset,
+    extractAxesFromMatrix,
+    buildMatrixStringFromAxes,
+    parseCharacterBatchInput,
+    parseCharacterFiles,
+    extractCharacterRecord,
+    buildCharacterUpsertDelta,
+    buildCharacterBatchDelta,
+} from './characterImport.js';
 import { serializeInternalStates } from './parser.js';
 import {
     computeBbox,
@@ -319,6 +333,17 @@ export function createLpeAppPopup({
     let previewScoped = true;
     let inspectSeq = null;
     let inspectMesId = null;
+    let castMode = 'list'; // 'list' | 'import' | 'edit'
+    let editingCharName = null;
+    let editorDraft = null;
+    let editorRemovedBondTargets = [];
+    let importState = {
+        rawText: '',
+        defaultPresence: 'staged',
+        defaultRoomId: '',
+        candidates: [],
+        warnings: [],
+    };
     let workerTestResult = null; // { ok, text }
     let fetchedModels = [];
     let apiKeyVisible = false;
@@ -513,6 +538,10 @@ export function createLpeAppPopup({
         syncChrome();
     }
 
+    function activeUserName() {
+        return String(getContextSafe?.()?.name1 || getActiveUserName() || '').trim();
+    }
+
     function commitEditedState(nextState, msg = 'Saved state changes.') {
         store.addUserEdit(cloneState(nextState), { kind: 'snapshot' });
         inspectSeq = null;
@@ -521,6 +550,18 @@ export function createLpeAppPopup({
         syncChrome();
         renderActiveTab();
         window.toastr?.success?.(msg, 'Lapis Philosophorum Engine (LPE)');
+    }
+
+    function commitDeltaEdit(delta, msg = 'Saved character changes.') {
+        if (!delta || !Object.keys(delta).length) return false;
+        store.addUserEdit(cloneState(delta), { kind: 'delta', ctx: { userName: activeUserName() } });
+        inspectSeq = null;
+        inspectMesId = null;
+        onStateSaved?.();
+        syncChrome();
+        renderActiveTab();
+        window.toastr?.success?.(msg, 'Lapis Philosophorum Engine (LPE)');
+        return true;
     }
 
     function initFabDrag() {
@@ -1094,7 +1135,7 @@ export function createLpeAppPopup({
         }
     }
 
-    function open({ tab = null, sub = null, seq = null, mesId = null } = {}) {
+    function open({ tab = null, sub = null, seq = null, mesId = null, charName = null, castMode: nextCastMode = null } = {}) {
         if (!$('#lpe_app_overlay').length) {
             mount({ restoreDrawer: false });
         }
@@ -1105,6 +1146,26 @@ export function createLpeAppPopup({
         }
         if (sub && activeTab in subTabs) {
             subTabs[activeTab] = sub;
+        }
+        if (typeof charName === 'string' && charName.trim()) {
+            activeTab = 'cast';
+            railState.activeRailTab = findRailTabForAppTab('cast');
+            subTabs.cast = 'entities';
+            castMode = 'edit';
+            editingCharName = charName.trim();
+            editorDraft = null;
+            editorRemovedBondTargets = [];
+        } else if (nextCastMode === 'import' || nextCastMode === 'edit' || nextCastMode === 'list') {
+            if (nextCastMode !== 'list') {
+                activeTab = 'cast';
+                railState.activeRailTab = findRailTabForAppTab('cast');
+            }
+            castMode = nextCastMode;
+            if (nextCastMode === 'edit') {
+                editingCharName = '';
+                editorDraft = null;
+                editorRemovedBondTargets = [];
+            }
         }
         inspectSeq = typeof seq === 'number' ? seq : null;
         inspectMesId = typeof mesId === 'number' ? mesId : null;
@@ -1182,6 +1243,18 @@ export function createLpeAppPopup({
             <div class="lpe-stat-grid">
                 ${stats.map(([k, v]) => `<div class="lpe-stat-chip"><span>${esc(k)}</span><b>${esc(v)}</b></div>`).join('')}
             </div>
+            <div class="lpe-glass-card lpe-pregame-callout">
+                <div class="lpe-card-head">
+                    <div>
+                        <div class="lpe-card-title"><span class="lpe-ornament" aria-hidden="true">✦</span> Pre-Game Cast &amp; Roster Setup</div>
+                        <div class="lpe-card-sub">Stage an established cast, bonds, and locations before Turn 1 — or tune any character anytime to prevent AI name slop.</div>
+                    </div>
+                    <div class="lpe-inline-actions">
+                        <button type="button" class="lpe-app-btn secondary" id="lpe_pop_overview_batch_import"><i class="fa-solid fa-file-import"></i> Batch Import Cast</button>
+                        <button type="button" class="lpe-app-btn secondary" id="lpe_pop_overview_open_cast"><i class="fa-solid fa-masks-theater"></i> Manage Cast</button>
+                    </div>
+                </div>
+            </div>
             <div class="lpe-glass-card">
                 <div class="lpe-card-head">
                     <div>
@@ -1246,6 +1319,18 @@ export function createLpeAppPopup({
             selectedPacing = String($(this).data('pacing') || 'FLOW');
             $(this).siblings().removeClass('on');
             $(this).addClass('on');
+        });
+        $stage.on('click', '#lpe_pop_overview_batch_import', () => {
+            activeTab = 'cast';
+            castMode = 'import';
+            updateDockActive();
+            renderActiveTab({ resetScroll: true });
+        });
+        $stage.on('click', '#lpe_pop_overview_open_cast', () => {
+            activeTab = 'cast';
+            castMode = 'list';
+            updateDockActive();
+            renderActiveTab({ resetScroll: true });
         });
         $stage.find('#lpe_pop_save_world').on('click', () => {
             const draft = cloneState(state);
@@ -1860,10 +1945,32 @@ export function createLpeAppPopup({
 
     function renderCastTab($stage, state) {
         const meta = tabMeta('cast');
+        const userName = activeUserName();
+        const rooms = state.locations?.rooms || [];
+
+        const toolbarHtml = `
+            <div class="lpe-cast-toolbar">
+                <div class="lpe-inline-actions">
+                    <button type="button" class="lpe-app-btn ${castMode === 'list' ? 'primary' : 'secondary'} lpe-btn-sm" id="lpe_pop_back_cast_list"><i class="fa-solid fa-users"></i> Cast Roster</button>
+                    <button type="button" class="lpe-app-btn ${castMode === 'import' ? 'primary' : 'secondary'} lpe-btn-sm" id="lpe_pop_open_batch_import"><i class="fa-solid fa-file-import"></i> Batch Import Characters</button>
+                    <button type="button" class="lpe-app-btn ${castMode === 'edit' && !editingCharName ? 'primary' : 'secondary'} lpe-btn-sm" id="lpe_pop_new_character"><i class="fa-solid fa-user-plus"></i> New Character</button>
+                </div>
+            </div>
+        `;
+
+        if (castMode === 'import') {
+            renderBatchImportView($stage, state, meta, toolbarHtml, userName, rooms);
+            return;
+        }
+        if (castMode === 'edit') {
+            renderCharacterEditorView($stage, state, meta, toolbarHtml, userName, rooms);
+            return;
+        }
+
         const sub = subTabs.cast || 'onscreen';
         const subList = [
             { id: 'onscreen', label: `On-Screen (${(state.onscreen || []).length})`, icon: 'fa-eye' },
-            { id: 'offscreen', label: `Off-Screen (${(state.offscreen_agendas || []).length})`, icon: 'fa-compass' },
+            { id: 'offscreen', label: `Off-Screen / Staged (${(state.offscreen_agendas || []).length})`, icon: 'fa-compass' },
             { id: 'entities', label: `Entity Profiles (${(state.entity_state || []).length})`, icon: 'fa-masks-theater' },
             { id: 'memories', label: `Memories (${(state.entityMem || []).length})`, icon: 'fa-brain' },
             { id: 'thoughts', label: `Thoughts (${(state.thoughts || []).length})`, icon: 'fa-comment-dots' },
@@ -1875,19 +1982,20 @@ export function createLpeAppPopup({
             </div>
         `;
 
+        const colorOptions = (selected) => {
+            const selLow = String(selected || '').toLowerCase();
+            return [
+                '<option value="">(Auto-assign)</option>',
+                ...PALETTE.map((p) => {
+                    const val = `${p.name} ${p.hex}`;
+                    const isSel = selLow.includes(p.name) || selLow.includes(p.hex.toLowerCase());
+                    return `<option value="${esc(val)}" ${isSel ? 'selected' : ''}>${esc(val)}</option>`;
+                }),
+            ].join('');
+        };
+
         let contentHtml = '';
         if (sub === 'entities') {
-            const colorOptions = (selected) => {
-                const selLow = String(selected || '').toLowerCase();
-                return [
-                    '<option value="">(Unassigned)</option>',
-                    ...PALETTE.map((p) => {
-                        const val = `${p.name} ${p.hex}`;
-                        const isSel = selLow.includes(p.name) || selLow.includes(p.hex.toLowerCase());
-                        return `<option value="${esc(val)}" ${isSel ? 'selected' : ''}>${esc(val)}</option>`;
-                    }),
-                ].join('');
-            };
             const rows = (state.entity_state || []).map((es) => {
                 const col = hexFromFontColor(es.fontColor);
                 return `
@@ -1896,9 +2004,13 @@ export function createLpeAppPopup({
                             <span class="lpe-dot" style="background:${esc(col)};"></span>
                             <input type="text" class="lpe-app-input" data-pop-es="name" value="${esc(es.name)}" placeholder="Character Name" />
                             <select class="lpe-app-input" data-pop-es="fontColor">${colorOptions(es.fontColor)}</select>
+                            ${es.preGameStaged ? '<span class="lpe-chip lpe-badge-staged">Staged</span>' : ''}
+                            ${es.pinned ? '<span class="lpe-chip">Pinned</span>' : ''}
+                            <button type="button" class="lpe-mini-btn lpe-pop-edit-char" data-edit-char="${esc(es.name)}" title="Open full State / Personality / Bonds / Location editor"><i class="fa-solid fa-user-pen"></i> Edit</button>
                             <button type="button" class="lpe-app-btn danger lpe-btn-sm lpe-pop-del-es" title="Remove entity"><i class="fa-solid fa-trash"></i></button>
                         </div>
                         <div class="lpe-form-grid">
+                            ${es.status ? `<div class="lpe-field-col wide"><label class="lpe-field-lbl">Status / Condition</label><input type="text" class="lpe-app-input" data-pop-es="status" value="${esc(es.status)}" /></div>` : ''}
                             <div class="lpe-field-col wide"><label class="lpe-field-lbl">Appearance / Look</label><input type="text" class="lpe-app-input" data-pop-es="look" value="${esc(es.look)}" /></div>
                             <div class="lpe-field-col wide"><label class="lpe-field-lbl">Voice &amp; Mannerisms</label><input type="text" class="lpe-app-input" data-pop-es="voice" value="${esc(es.voice)}" /></div>
                             <div class="lpe-field-col wide"><label class="lpe-field-lbl">Public Persona</label><input type="text" class="lpe-app-input" data-pop-es="persona" value="${esc(es.persona)}" /></div>
@@ -1916,7 +2028,7 @@ export function createLpeAppPopup({
                             <button type="button" class="lpe-app-btn primary" id="lpe_pop_save_es"><i class="fa-solid fa-floppy-disk"></i> Save Entities</button>
                         </div>
                     </div>
-                    <div class="lpe-stack" id="lpe_pop_es_list">${rows || '<div class="lpe-muted">No entity profiles yet.</div>'}</div>
+                    <div class="lpe-stack" id="lpe_pop_es_list">${rows || '<div class="lpe-muted">No entity profiles yet. Use Batch Import Characters or New Character to stage your cast before play begins.</div>'}</div>
                 </div>
             `;
         } else if (sub === 'onscreen' || sub === 'offscreen') {
@@ -1924,8 +2036,9 @@ export function createLpeAppPopup({
             const jsonKey = sub === 'onscreen' ? 'onscreen' : 'offscreen_agendas';
             const cardsHtml = arr.length
                 ? `<div class="lpe-cards-grid">${arr.map((e) => {
-                    const es = (state.entity_state || []).find((x) => x.name.toLowerCase() === e.name.toLowerCase());
+                    const es = (state.entity_state || []).find((x) => normalizeNameKey(x.name) === normalizeNameKey(e.name));
                     const col = hexFromFontColor(es?.fontColor);
+                    const effStatus = e.status || es?.status || '';
                     return `
                         <div class="lpe-glass-card lpe-compact-card">
                             <div class="lpe-npc-title-row">
@@ -1933,7 +2046,10 @@ export function createLpeAppPopup({
                                 <strong>${esc(e.name)}</strong>
                                 <span class="lpe-chip">${esc(e.salience || '')}</span>
                                 <span class="lpe-chip">${esc(e.tfdy || '')}</span>
+                                ${(e.preGameStaged || es?.preGameStaged) ? '<span class="lpe-chip lpe-badge-staged">Staged</span>' : ''}
+                                <button type="button" class="lpe-mini-btn lpe-pop-edit-char" data-edit-char="${esc(e.name)}" title="Edit State, Personality, Bonds &amp; Location"><i class="fa-solid fa-user-pen"></i> Edit</button>
                             </div>
+                            ${effStatus ? `<div class="lpe-kv-line"><span>State:</span> ${esc(effStatus)}</div>` : ''}
                             ${sub === 'onscreen'
                                 ? `<div class="lpe-kv-line"><span>Emotion:</span> ${esc(e.parrott)}</div>
                                    <div class="lpe-kv-line"><span>Residual:</span> ${esc(e.residualMood)}</div>
@@ -1947,7 +2063,7 @@ export function createLpeAppPopup({
                         </div>
                     `;
                 }).join('')}</div>`
-                : `<div class="lpe-glass-card lpe-muted">No ${sub === 'onscreen' ? 'on-screen' : 'off-screen'} NPCs recorded.</div>`;
+                : `<div class="lpe-glass-card lpe-muted">No ${sub === 'onscreen' ? 'on-screen' : 'off-screen / staged'} NPCs recorded.</div>`;
 
             contentHtml = `
                 ${cardsHtml}
@@ -2012,11 +2128,22 @@ export function createLpeAppPopup({
             `;
         }
 
-        $stage.html(`${renderPageHeader(meta)}${historyBannerHtml(state)}${subBar}${contentHtml}`);
+        $stage.html(`${renderPageHeader(meta)}${historyBannerHtml(state)}${toolbarHtml}${subBar}${contentHtml}`);
+
+        wireCastToolbar($stage);
 
         $stage.find('.lpe-subtabs').on('click', 'button', function () {
             subTabs.cast = String($(this).data('sub') || 'onscreen');
             renderActiveTab({ resetScroll: false });
+        });
+        $stage.on('click', '.lpe-pop-edit-char', function () {
+            const cname = String($(this).data('edit-char') || '').trim();
+            if (!cname) return;
+            editingCharName = cname;
+            editorDraft = null;
+            editorRemovedBondTargets = [];
+            castMode = 'edit';
+            renderActiveTab({ resetScroll: true });
         });
 
         const collectEntities = () => {
@@ -2024,13 +2151,19 @@ export function createLpeAppPopup({
             $stage.find('#lpe_pop_es_list .lpe-npc-card').each(function () {
                 const name = String($(this).find('[data-pop-es="name"]').val() ?? '').trim();
                 if (!name) return;
+                const prevEs = (state.entity_state || []).find((x) => normalizeNameKey(x.name) === normalizeNameKey(name));
+                const nextStatus = $(this).find('[data-pop-es="status"]').length
+                    ? String($(this).find('[data-pop-es="status"]').val() ?? '').trim()
+                    : (prevEs?.status || '');
                 rows.push({
+                    ...(prevEs || {}),
                     name,
                     fontColor: String($(this).find('[data-pop-es="fontColor"]').val() ?? ''),
                     look: String($(this).find('[data-pop-es="look"]').val() ?? ''),
                     voice: String($(this).find('[data-pop-es="voice"]').val() ?? ''),
                     persona: String($(this).find('[data-pop-es="persona"]').val() ?? ''),
                     private: String($(this).find('[data-pop-es="private"]').val() ?? ''),
+                    ...(nextStatus ? { status: nextStatus } : {}),
                 });
             });
             return rows;
@@ -2061,6 +2194,613 @@ export function createLpeAppPopup({
             } catch (err) {
                 $('#lpe_pop_cast_err').text(`Invalid JSON: ${err.message}`);
             }
+        });
+    }
+
+    function wireCastToolbar($stage) {
+        $stage.on('click', '#lpe_pop_back_cast_list', () => {
+            castMode = 'list';
+            renderActiveTab({ resetScroll: true });
+        });
+        $stage.on('click', '#lpe_pop_open_batch_import', () => {
+            castMode = 'import';
+            renderActiveTab({ resetScroll: true });
+        });
+        $stage.on('click', '#lpe_pop_new_character', () => {
+            editingCharName = '';
+            editorDraft = null;
+            editorRemovedBondTargets = [];
+            castMode = 'edit';
+            renderActiveTab({ resetScroll: true });
+        });
+    }
+
+    function renderBatchImportView($stage, state, meta, toolbarHtml, userName, rooms) {
+        const roomOptionsHtml = [
+            '<option value="">(None / Off-screen staged)</option>',
+            ...rooms.map((r) => `<option value="${esc(r.id)}" ${r.id === importState.defaultRoomId ? 'selected' : ''}>${esc(r.name || r.id)} (${esc(r.id)})</option>`),
+        ].join('');
+
+        const selectedCount = importState.candidates.filter((c) => c.selected && c.collision !== 'user').length;
+        const warningsHtml = importState.warnings.length
+            ? `<div class="lpe-banner warn" id="lpe_batch_warnings"><i class="fa-solid fa-triangle-exclamation"></i><span>${importState.warnings.map(esc).join(' · ')}</span></div>`
+            : '';
+
+        const previewHtml = importState.candidates.length
+            ? `
+                <div class="lpe-glass-card">
+                    <div class="lpe-card-head">
+                        <div>
+                            <div class="lpe-card-title">Import Preview (${selectedCount}/${importState.candidates.length} selected)</div>
+                            <div class="lpe-card-sub">Verify names, {{user}} exclusions, placement, and bonds before committing.</div>
+                        </div>
+                        <div class="lpe-inline-actions">
+                            <button type="button" class="lpe-app-btn secondary lpe-btn-sm" id="lpe_batch_select_all">Select Eligible</button>
+                            <button type="button" class="lpe-app-btn secondary lpe-btn-sm" id="lpe_batch_select_none">Clear</button>
+                            <button type="button" class="lpe-app-btn primary" id="lpe_batch_commit_btn" ${selectedCount === 0 ? 'disabled' : ''}>
+                                <i class="fa-solid fa-check"></i> Commit ${selectedCount} Character${selectedCount === 1 ? '' : 's'}
+                            </button>
+                        </div>
+                    </div>
+                    <div class="lpe-stack" id="lpe_batch_preview_list">
+                        ${importState.candidates.map((c, idx) => {
+                            const isUserBlocked = c.collision === 'user';
+                            const badgeCls = isUserBlocked
+                                ? 'lpe-badge-user-skip'
+                                : c.collision === 'existing'
+                                    ? 'lpe-badge-merge'
+                                    : 'lpe-badge-staged';
+                            const bondsText = (c.bonds || []).length
+                                ? c.bonds.map((b) => `${b.target} (${b.mode.replace(/^mode:/, '')})`).join(', ')
+                                : 'None';
+                            return `
+                                <div class="lpe-batch-row ${isUserBlocked ? 'is-blocked' : ''}" data-batch-idx="${idx}">
+                                    <div class="lpe-batch-row-top">
+                                        <label class="lpe-batch-check-wrap">
+                                            <input type="checkbox" class="lpe-batch-chk" data-idx="${idx}" ${c.selected && !isUserBlocked ? 'checked' : ''} ${isUserBlocked ? 'disabled' : ''} />
+                                            <strong>${esc(c.name)}</strong>
+                                        </label>
+                                        <span class="lpe-chip ${badgeCls}">${esc(c.collisionLabel)}</span>
+                                        <select class="lpe-app-input lpe-batch-row-presence" data-idx="${idx}" ${isUserBlocked ? 'disabled' : ''}>
+                                            <option value="staged" ${c.presence === 'staged' ? 'selected' : ''}>Staged (Off-screen)</option>
+                                            <option value="offscreen" ${c.presence === 'offscreen' ? 'selected' : ''}>Off-Screen Active</option>
+                                            <option value="onscreen" ${c.presence === 'onscreen' ? 'selected' : ''}>On-Screen Now</option>
+                                        </select>
+                                        ${rooms.length ? `
+                                            <select class="lpe-app-input lpe-batch-row-room" data-idx="${idx}" ${(isUserBlocked || c.presence === 'staged') ? 'disabled' : ''}>
+                                                <option value="">(No Atlas room)</option>
+                                                ${rooms.map((r) => `<option value="${esc(r.id)}" ${r.id === c.roomId ? 'selected' : ''}>${esc(r.name || r.id)}</option>`).join('')}
+                                            </select>
+                                        ` : ''}
+                                    </div>
+                                    <div class="lpe-batch-row-meta">
+                                        ${c.persona ? `<div><span>Personality:</span> ${esc(c.persona)}</div>` : ''}
+                                        ${c.status || c.agenda ? `<div><span>State / Agenda:</span> ${esc([c.status, c.agenda].filter(Boolean).join(' · '))}</div>` : ''}
+                                        <div><span>Location:</span> ${esc(c.roomId || c.loc || 'Staged')}</div>
+                                        <div><span>Bonds:</span> ${esc(bondsText)}</div>
+                                    </div>
+                                </div>
+                            `;
+                        }).join('')}
+                    </div>
+                </div>
+            `
+            : '';
+
+        $stage.html(`
+            ${renderPageHeader(meta)}
+            ${historyBannerHtml(state)}
+            ${toolbarHtml}
+            <div class="lpe-glass-card">
+                <div class="lpe-card-head">
+                    <div>
+                        <div class="lpe-card-title">Batch Import Characters (Pre-Game / Scenario Setup)</div>
+                        <div class="lpe-card-sub">Paste JSON arrays/objects, <code>---</code> or heading-delimited character sheets, or select V2/V3 <code>.png</code> / <code>.json</code> character cards.${userName ? ` Active player <b>${esc(userName)}</b> is protected from NPC duplication.` : ''}</div>
+                    </div>
+                    <button type="button" class="lpe-app-btn secondary lpe-btn-sm" id="lpe_batch_load_example"><i class="fa-solid fa-wand-magic-sparkles"></i> Load Template</button>
+                </div>
+                <div class="lpe-form-grid">
+                    <div class="lpe-field-col">
+                        <label class="lpe-field-lbl">Default Placement</label>
+                        <select id="lpe_batch_default_presence" class="lpe-app-input">
+                            <option value="staged" ${importState.defaultPresence === 'staged' ? 'selected' : ''}>Staged / Off-Screen (Recommended Pre-Game)</option>
+                            <option value="offscreen" ${importState.defaultPresence === 'offscreen' ? 'selected' : ''}>Off-Screen Active</option>
+                        </select>
+                    </div>
+                    <div class="lpe-field-col">
+                        <label class="lpe-field-lbl">Default Atlas Room (Optional)</label>
+                        <select id="lpe_batch_default_room" class="lpe-app-input">${roomOptionsHtml}</select>
+                    </div>
+                    <div class="lpe-field-col wide">
+                        <label class="lpe-field-lbl">Import V2/V3 Character Cards (.png, .json, .txt, .md)</label>
+                        <input type="file" id="lpe_batch_import_files" class="lpe-app-input" multiple accept=".png,.json,.txt,.md" />
+                    </div>
+                    <div class="lpe-field-col wide">
+                        <label class="lpe-field-lbl">Multi-Character Text / Markdown / JSON</label>
+                        <textarea id="lpe_batch_import_input" class="lpe-app-input lpe-mono" rows="9" placeholder="Name: Sera Vane&#10;Personality: Sharp-tongued fixer with dry humor&#10;State: Alert, nursing bruised ribs | Agenda: Watching the docks&#10;Location: Harbor Pier 4&#10;Bonds: {{user}}: guarded | owes him one favor&#10;---&#10;Name: Inspector Hale&#10;...">${esc(importState.rawText)}</textarea>
+                    </div>
+                </div>
+                <div class="lpe-inline-actions" style="margin-top:10px;">
+                    <button type="button" class="lpe-app-btn primary" id="lpe_batch_parse_btn"><i class="fa-solid fa-magnifying-glass"></i> Parse &amp; Preview</button>
+                    <button type="button" class="lpe-app-btn secondary" id="lpe_batch_clear_btn">Clear Input</button>
+                </div>
+            </div>
+            ${warningsHtml}
+            ${previewHtml}
+        `);
+
+        wireCastToolbar($stage);
+
+        const syncBatchHeaderInputs = () => {
+            const $ta = $stage.find('#lpe_batch_import_input');
+            if ($ta.length && typeof $ta.val === 'function') importState.rawText = String($ta.val() ?? '');
+            const $dp = $stage.find('#lpe_batch_default_presence');
+            if ($dp.length && typeof $dp.val === 'function') importState.defaultPresence = String($dp.val() || 'staged');
+            const $dr = $stage.find('#lpe_batch_default_room');
+            if ($dr.length && typeof $dr.val === 'function') importState.defaultRoomId = String($dr.val() || '');
+        };
+
+        $stage.on('click', '#lpe_batch_load_example', () => {
+            importState.rawText = [
+                'Name: Sera Vane',
+                'Role / Personality: Cynical dockside information broker; calm under pressure, loyal only when paid',
+                'Voice: Low, clipped sentences with wry understatement',
+                'Look: Charcoal wool greatcoat, silver scar above left eyebrow',
+                'State: Rested, wary | Agenda: Waiting near the freight gate',
+                'Location: Harbor Pier 4',
+                'Bonds: {{user}}: guarded, friendship 9, hostility 6 | uneasy past truce',
+                '---',
+                'Name: Captain Hale',
+                'Personality: Methodical precinct veteran; dry, uncompromising sense of duty',
+                'State: On patrol, fatigued',
+                'Location: Precinct Briefing Room',
+                'Bonds: {{user}}: rival | suspects his alibi',
+            ].join('\n');
+            const parsed = parseCharacterBatchInput(importState.rawText, {
+                existingState: state,
+                userName,
+                defaultPresence: importState.defaultPresence,
+                defaultRoomId: importState.defaultRoomId,
+            });
+            importState.candidates = parsed.candidates;
+            importState.warnings = parsed.warnings;
+            renderActiveTab({ resetScroll: false });
+        });
+
+        $stage.on('click', '#lpe_batch_parse_btn', () => {
+            syncBatchHeaderInputs();
+            const parsed = parseCharacterBatchInput(importState.rawText, {
+                existingState: state,
+                userName,
+                defaultPresence: importState.defaultPresence,
+                defaultRoomId: importState.defaultRoomId,
+            });
+            importState.candidates = parsed.candidates;
+            importState.warnings = parsed.warnings;
+            renderActiveTab({ resetScroll: false });
+        });
+
+        $stage.on('click', '#lpe_batch_clear_btn', () => {
+            importState = {
+                rawText: '',
+                defaultPresence: 'staged',
+                defaultRoomId: '',
+                candidates: [],
+                warnings: [],
+            };
+            renderActiveTab({ resetScroll: false });
+        });
+
+        $stage.on('change', '#lpe_batch_import_files', async function (e) {
+            const files = Array.from(e?.target?.files || this?.files || []);
+            if (!files.length) return;
+            syncBatchHeaderInputs();
+            const loaded = [];
+            for (const f of files) {
+                const low = String(f.name || '').toLowerCase();
+                if (low.endsWith('.png') && typeof f.arrayBuffer === 'function') {
+                    loaded.push({ name: f.name, bytes: new Uint8Array(await f.arrayBuffer()) });
+                } else if (typeof f.text === 'function') {
+                    loaded.push({ name: f.name, text: await f.text() });
+                }
+            }
+            const parsed = parseCharacterFiles(loaded, {
+                existingState: state,
+                userName,
+                defaultPresence: importState.defaultPresence,
+                defaultRoomId: importState.defaultRoomId,
+            });
+            importState.candidates = parsed.candidates;
+            importState.warnings = parsed.warnings;
+            renderActiveTab({ resetScroll: false });
+        });
+
+        $stage.on('change', '.lpe-batch-chk', function () {
+            const idx = Number($(this).data('idx'));
+            const cand = importState.candidates[idx];
+            if (!cand || cand.collision === 'user') return;
+            cand.selected = Boolean($(this).prop('checked'));
+            renderActiveTab({ resetScroll: false });
+        });
+        $stage.on('change', '.lpe-batch-row-presence', function () {
+            const idx = Number($(this).data('idx'));
+            const cand = importState.candidates[idx];
+            if (!cand || cand.collision === 'user') return;
+            cand.presence = String($(this).val() || 'staged');
+            cand.preGameStaged = cand.presence === 'staged';
+            if (cand.presence === 'staged') cand.roomId = '';
+            renderActiveTab({ resetScroll: false });
+        });
+        $stage.on('change', '.lpe-batch-row-room', function () {
+            const idx = Number($(this).data('idx'));
+            const cand = importState.candidates[idx];
+            if (!cand) return;
+            cand.roomId = String($(this).val() || '');
+        });
+        $stage.on('click', '#lpe_batch_select_all', () => {
+            for (const c of importState.candidates) if (c.collision !== 'user') c.selected = true;
+            renderActiveTab({ resetScroll: false });
+        });
+        $stage.on('click', '#lpe_batch_select_none', () => {
+            for (const c of importState.candidates) c.selected = false;
+            renderActiveTab({ resetScroll: false });
+        });
+        $stage.on('click', '#lpe_batch_commit_btn', () => {
+            const eligible = importState.candidates.filter((c) => c.selected && c.collision !== 'user');
+            if (!eligible.length) return;
+            const delta = buildCharacterBatchDelta(eligible, { userName });
+            importState = { rawText: '', defaultPresence: 'staged', defaultRoomId: '', candidates: [], warnings: [] };
+            castMode = 'list';
+            subTabs.cast = 'entities';
+            commitDeltaEdit(delta, `Imported ${eligible.length} character${eligible.length === 1 ? '' : 's'} into cast roster.`);
+        });
+    }
+
+    function renderCharacterEditorView($stage, state, meta, toolbarHtml, userName, rooms) {
+        if (!editorDraft) {
+            editorDraft = editingCharName
+                ? extractCharacterRecord(state, editingCharName, { userName })
+                : {
+                    prevName: '',
+                    name: '',
+                    fontColor: '',
+                    look: '',
+                    voice: '',
+                    persona: '',
+                    private: '',
+                    presence: 'staged',
+                    status: '',
+                    mood: '',
+                    residualMood: '',
+                    agenda: '',
+                    why: '',
+                    goal: '',
+                    end: '',
+                    move: '',
+                    tfdy: 'T2 F2 D2 Y2',
+                    salience: 'sal:5',
+                    loc: '',
+                    roomId: '',
+                    pos: '',
+                    preGameStaged: true,
+                    manual: true,
+                    pinned: true,
+                    bonds: [],
+                };
+        }
+        const d = editorDraft;
+        const isExisting = Boolean(editingCharName);
+        const userLabel = userName || '{{user}}';
+        const selfKey = normalizeNameKey(d.name || editingCharName);
+
+        const knownTargets = [
+            userLabel,
+            ...[
+                ...(state.entity_state || []).map((x) => x.name),
+                ...(state.onscreen || []).map((x) => x.name),
+                ...(state.offscreen_agendas || []).map((x) => x.name),
+            ].filter((n) => n && normalizeNameKey(n) !== selfKey && !isPlayerPersonaName(n, userName)),
+        ].filter((v, i, a) => v && a.findIndex((x) => normalizeNameKey(x) === normalizeNameKey(v)) === i);
+
+        const colorOptions = (() => {
+            const selLow = String(d.fontColor || '').toLowerCase();
+            return [
+                '<option value="">(Auto-assign palette color)</option>',
+                ...PALETTE.map((p) => {
+                    const val = `${p.name} ${p.hex}`;
+                    const isSel = selLow.includes(p.name) || selLow.includes(p.hex.toLowerCase());
+                    return `<option value="${esc(val)}" ${isSel ? 'selected' : ''}>${esc(val)}</option>`;
+                }),
+            ].join('');
+        })();
+
+        const axisPairRows = [
+            ['Desire', 'desire', 'Hate', 'hate'],
+            ['Playful', 'play', 'Conflict', 'conflict'],
+            ['Friend', 'friendship', 'Hostile', 'hostility'],
+            ['Commit', 'commitment', 'Stagnant', 'stagnation'],
+            ['Kinship', 'family', 'Indiff.', 'indifference'],
+            ['Selfless', 'selflessness', 'Envy', 'envy'],
+        ];
+
+        const bondsHtml = (d.bonds || []).length
+            ? d.bonds.map((b, bIdx) => {
+                const axes = b.axes || extractAxesFromMatrix(b.matrix || '');
+                return `
+                    <div class="lpe-bond-card" data-bond-idx="${bIdx}">
+                        <div class="lpe-bond-top">
+                            <input type="text" class="lpe-app-input lpe-bond-target" list="lpe_bond_target_list" value="${esc(b.target)}" placeholder="Target (${esc(userLabel)} or NPC)" />
+                            <select class="lpe-app-input lpe-bond-preset">
+                                <option value="">Apply Preset…</option>
+                                ${Object.values(BOND_PRESETS).map((p) => `<option value="${esc(p.id)}">${esc(p.label)}</option>`).join('')}
+                            </select>
+                            <button type="button" class="lpe-app-btn danger lpe-btn-sm lpe-bond-remove" data-bond-idx="${bIdx}" title="Remove bond"><i class="fa-solid fa-trash"></i></button>
+                        </div>
+                        <div class="lpe-form-grid">
+                            <div class="lpe-field-col"><label class="lpe-field-lbl">Mode Tag</label><input type="text" class="lpe-app-input lpe-bond-mode" value="${esc(b.mode)}" /></div>
+                            <div class="lpe-field-col"><label class="lpe-field-lbl">Dam / Gate</label><input type="text" class="lpe-app-input lpe-bond-dam" value="${esc(b.dam)}" /></div>
+                            <div class="lpe-field-col"><label class="lpe-field-lbl">Sluice (E/L)</label><input type="text" class="lpe-app-input lpe-bond-sluice" value="${esc(b.sluice)}" /></div>
+                            <div class="lpe-field-col"><label class="lpe-field-lbl">Permission Wall</label><input type="text" class="lpe-app-input lpe-bond-wall" value="${esc(b.wall)}" /></div>
+                            <div class="lpe-field-col wide"><label class="lpe-field-lbl">Dynamics / Grudge / Intent Note</label><input type="text" class="lpe-app-input lpe-bond-intent" value="${esc(b.intent)}" placeholder="intent:..." /></div>
+                        </div>
+                        <div class="lpe-axis-mini-grid">
+                            ${axisPairRows.map(([pLbl, pKey, nLbl, nKey]) => `
+                                <div class="lpe-axis-mini-pair">
+                                    <label>${esc(pLbl)} <input type="number" min="3" max="20" class="lpe-app-input lpe-axis-num" data-bond-axis="${esc(pKey)}" value="${esc(axes[pKey] ?? 3)}" /></label>
+                                    <label>${esc(nLbl)} <input type="number" min="3" max="20" class="lpe-app-input lpe-axis-num" data-bond-axis="${esc(nKey)}" value="${esc(axes[nKey] ?? 3)}" /></label>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
+                `;
+            }).join('')
+            : '<div class="lpe-muted">No bonds configured yet. Click "+ Bond with User" to define their relationship before play starts.</div>';
+
+        $stage.html(`
+            ${renderPageHeader(meta)}
+            ${historyBannerHtml(state)}
+            ${toolbarHtml}
+            <datalist id="lpe_bond_target_list">${knownTargets.map((n) => `<option value="${esc(n)}">`).join('')}</datalist>
+            <div class="lpe-char-editor">
+                <div class="lpe-glass-card">
+                    <div class="lpe-card-head">
+                        <div>
+                            <div class="lpe-card-title">${isExisting ? `Editing Character: ${esc(editingCharName)}` : 'Create Staged Character'}</div>
+                            <div class="lpe-card-sub">Edit state, personality, bonds, and Atlas/off-screen location directly in the store.</div>
+                        </div>
+                        <div class="lpe-inline-actions">
+                            <button type="button" class="lpe-app-btn secondary lpe-btn-sm" id="lpe_char_cancel_btn">Back</button>
+                            ${isExisting ? `<button type="button" class="lpe-app-btn danger lpe-btn-sm" id="lpe_char_delete_btn"><i class="fa-solid fa-trash"></i> Delete</button>` : ''}
+                            <button type="button" class="lpe-app-btn primary" id="lpe_char_save_btn"><i class="fa-solid fa-floppy-disk"></i> Save Character</button>
+                        </div>
+                    </div>
+                    <div id="lpe_char_err" class="lpe-err-text"></div>
+                </div>
+
+                <div class="lpe-glass-card">
+                    <div class="lpe-card-title">1. State &amp; Presence</div>
+                    <div class="lpe-form-grid">
+                        <div class="lpe-field-col"><label class="lpe-field-lbl">Name</label><input type="text" id="lpe_char_name" class="lpe-app-input" value="${esc(d.name)}" placeholder="Character Name" /></div>
+                        <div class="lpe-field-col">
+                            <label class="lpe-field-lbl">Stage / Presence</label>
+                            <select id="lpe_char_presence" class="lpe-app-input">
+                                <option value="staged" ${d.presence === 'staged' ? 'selected' : ''}>Staged (Pre-Game Off-Screen)</option>
+                                <option value="offscreen" ${d.presence === 'offscreen' ? 'selected' : ''}>Off-Screen Active</option>
+                                <option value="onscreen" ${d.presence === 'onscreen' ? 'selected' : ''}>On-Screen in Scene</option>
+                            </select>
+                        </div>
+                        <div class="lpe-field-col"><label class="lpe-field-lbl">Status / Health / Condition</label><input type="text" id="lpe_char_status" class="lpe-app-input" value="${esc(d.status)}" placeholder="Healthy, guarded, bruised ribs..." /></div>
+                        <div class="lpe-field-col"><label class="lpe-field-lbl">Mood / Emotion</label><input type="text" id="lpe_char_mood" class="lpe-app-input" value="${esc(d.mood)}" placeholder="Calm, suspicious..." /></div>
+                        <div class="lpe-field-col wide"><label class="lpe-field-lbl">Current Activity / Agenda</label><input type="text" id="lpe_char_agenda" class="lpe-app-input" value="${esc(d.agenda)}" placeholder="What they are currently doing or planning..." /></div>
+                        <div class="lpe-field-col"><label class="lpe-field-lbl">Motivation (Why)</label><input type="text" id="lpe_char_why" class="lpe-app-input" value="${esc(d.why)}" /></div>
+                        <div class="lpe-field-col"><label class="lpe-field-lbl">Goal (Off-screen)</label><input type="text" id="lpe_char_goal" class="lpe-app-input" value="${esc(d.goal)}" /></div>
+                        <div class="lpe-field-col"><label class="lpe-field-lbl">End / Move</label><input type="text" id="lpe_char_end" class="lpe-app-input" value="${esc(d.end)}" /></div>
+                        <div class="lpe-field-col"><label class="lpe-field-lbl">Salience / TFDY</label>
+                            <div class="lpe-inline-actions" style="flex-wrap:nowrap;">
+                                <input type="text" id="lpe_char_salience" class="lpe-app-input" value="${esc(d.salience)}" placeholder="sal:5" />
+                                <input type="text" id="lpe_char_tfdy" class="lpe-app-input" value="${esc(d.tfdy)}" placeholder="T2 F2 D2 Y2" />
+                            </div>
+                        </div>
+                        <div class="lpe-field-col wide">
+                            <div class="lpe-inline-actions">
+                                <label class="lpe-batch-check-wrap"><input type="checkbox" id="lpe_char_pinned" ${d.pinned !== false ? 'checked' : ''} /> <span>Pin against Smart-Scoping pruning</span></label>
+                                <label class="lpe-batch-check-wrap"><input type="checkbox" id="lpe_char_manual" ${d.manual !== false ? 'checked' : ''} /> <span>Protect profile details during worker turns</span></label>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="lpe-glass-card">
+                    <div class="lpe-card-title">2. Personality, Voice &amp; Boundaries</div>
+                    <div class="lpe-form-grid">
+                        <div class="lpe-field-col"><label class="lpe-field-lbl">Dialogue Color</label><select id="lpe_char_color" class="lpe-app-input">${colorOptions}</select></div>
+                        <div class="lpe-field-col"><label class="lpe-field-lbl">Residual / Move Cue</label><input type="text" id="lpe_char_move" class="lpe-app-input" value="${esc(d.move || d.residualMood)}" /></div>
+                        <div class="lpe-field-col wide"><label class="lpe-field-lbl">Personality Summary / Public Persona</label><textarea id="lpe_char_persona" class="lpe-app-input" rows="2">${esc(d.persona)}</textarea></div>
+                        <div class="lpe-field-col wide"><label class="lpe-field-lbl">Voice &amp; Demeanor Notes</label><input type="text" id="lpe_char_voice" class="lpe-app-input" value="${esc(d.voice)}" /></div>
+                        <div class="lpe-field-col wide"><label class="lpe-field-lbl">Appearance / Look</label><input type="text" id="lpe_char_look" class="lpe-app-input" value="${esc(d.look)}" /></div>
+                        <div class="lpe-field-col wide"><label class="lpe-field-lbl">Key Traits, Boundaries &amp; Private Secrets</label><textarea id="lpe_char_private" class="lpe-app-input" rows="2">${esc(d.private)}</textarea></div>
+                    </div>
+                </div>
+
+                <div class="lpe-glass-card">
+                    <div class="lpe-card-head">
+                        <div>
+                            <div class="lpe-card-title">3. Bonds (${esc(userLabel)} &amp; Cast)</div>
+                            <div class="lpe-card-sub">Synced with LPE Aether Pairs &amp; Dam channels.</div>
+                        </div>
+                        <div class="lpe-inline-actions">
+                            <button type="button" class="lpe-app-btn secondary lpe-btn-sm" id="lpe_char_add_user_bond"><i class="fa-solid fa-heart-pulse"></i> + Bond with ${esc(userLabel)}</button>
+                            <button type="button" class="lpe-app-btn secondary lpe-btn-sm" id="lpe_char_add_bond"><i class="fa-solid fa-plus"></i> + Add Bond</button>
+                        </div>
+                    </div>
+                    <div class="lpe-stack" id="lpe_char_bonds_list">${bondsHtml}</div>
+                </div>
+
+                <div class="lpe-glass-card">
+                    <div class="lpe-card-title">4. Location &amp; Atlas Placement</div>
+                    <div class="lpe-form-grid">
+                        <div class="lpe-field-col">
+                            <label class="lpe-field-lbl">Atlas Room</label>
+                            <select id="lpe_char_room" class="lpe-app-input" ${d.presence === 'staged' ? 'disabled' : ''}>
+                                <option value="">(None / Off-screen zone only)</option>
+                                ${rooms.map((r) => `<option value="${esc(r.id)}" ${r.id === d.roomId ? 'selected' : ''}>${esc(r.name || r.id)} (${esc(r.id)})</option>`).join('')}
+                            </select>
+                        </div>
+                        <div class="lpe-field-col"><label class="lpe-field-lbl">Local Coords [x,y] or [x,y,z]</label><input type="text" id="lpe_char_pos" class="lpe-app-input lpe-mono" value="${esc(d.pos)}" placeholder="[3,4]" ${d.presence === 'staged' ? 'disabled' : ''} /></div>
+                        <div class="lpe-field-col wide"><label class="lpe-field-lbl">Zone / Off-screen Location Label</label><input type="text" id="lpe_char_loc" class="lpe-app-input" value="${esc(d.loc)}" placeholder="Staged (Pre-Game), Harbor Pier 4..." /></div>
+                    </div>
+                </div>
+            </div>
+        `);
+
+        wireCastToolbar($stage);
+
+        const syncEditorDraftFromDom = () => {
+            const readStr = (id, fallback) => {
+                const $el = $stage.find(id);
+                return $el.length && typeof $el.val === 'function' ? String($el.val() ?? '') : String(fallback ?? '');
+            };
+            d.name = readStr('#lpe_char_name', d.name).trim();
+            d.presence = readStr('#lpe_char_presence', d.presence) || 'staged';
+            d.preGameStaged = d.presence === 'staged';
+            const $pin = $stage.find('#lpe_char_pinned');
+            if ($pin.length && typeof $pin.prop === 'function') d.pinned = Boolean($pin.prop('checked'));
+            const $man = $stage.find('#lpe_char_manual');
+            if ($man.length && typeof $man.prop === 'function') d.manual = Boolean($man.prop('checked'));
+            d.status = readStr('#lpe_char_status', d.status).trim();
+            d.mood = readStr('#lpe_char_mood', d.mood).trim();
+            d.agenda = readStr('#lpe_char_agenda', d.agenda).trim();
+            d.why = readStr('#lpe_char_why', d.why).trim();
+            d.goal = readStr('#lpe_char_goal', d.goal).trim();
+            d.end = readStr('#lpe_char_end', d.end).trim();
+            d.salience = readStr('#lpe_char_salience', d.salience).trim() || 'sal:5';
+            d.tfdy = readStr('#lpe_char_tfdy', d.tfdy).trim() || 'T2 F2 D2 Y2';
+            d.fontColor = readStr('#lpe_char_color', d.fontColor).trim();
+            d.move = readStr('#lpe_char_move', d.move).trim();
+            d.persona = readStr('#lpe_char_persona', d.persona).trim();
+            d.voice = readStr('#lpe_char_voice', d.voice).trim();
+            d.look = readStr('#lpe_char_look', d.look).trim();
+            d.private = readStr('#lpe_char_private', d.private).trim();
+            d.roomId = d.presence === 'staged' ? '' : readStr('#lpe_char_room', d.roomId).trim();
+            d.pos = d.presence === 'staged' ? '' : readStr('#lpe_char_pos', d.pos).trim();
+            d.loc = readStr('#lpe_char_loc', d.loc).trim();
+
+            if (typeof $stage.find('#lpe_char_bonds_list .lpe-bond-card').each === 'function') {
+                const rebuilt = [];
+                $stage.find('#lpe_char_bonds_list .lpe-bond-card').each(function () {
+                    const $row = $(this);
+                    const target = String($row.find('.lpe-bond-target').val() ?? '').trim();
+                    if (!target) return;
+                    const axes = {};
+                    $row.find('[data-bond-axis]').each(function () {
+                        const k = String($(this).data('bond-axis'));
+                        const n = parseInt($(this).val(), 10);
+                        axes[k] = Number.isFinite(n) ? Math.max(3, Math.min(20, n)) : 3;
+                    });
+                    rebuilt.push({
+                        target,
+                        mode: String($row.find('.lpe-bond-mode').val() ?? 'mode:stranger').trim(),
+                        dam: String($row.find('.lpe-bond-dam').val() ?? 'E:s L:s Gate:dormant').trim(),
+                        sluice: String($row.find('.lpe-bond-sluice').val() ?? 'E:sealed L:sealed').trim(),
+                        wall: String($row.find('.lpe-bond-wall').val() ?? 'wall:∅').trim(),
+                        intent: String($row.find('.lpe-bond-intent').val() ?? '').trim(),
+                        axes,
+                        matrix: buildMatrixStringFromAxes(axes),
+                    });
+                });
+                if ($stage.find('#lpe_char_bonds_list .lpe-bond-card').length > 0) {
+                    d.bonds = rebuilt;
+                }
+            }
+        };
+
+        $stage.on('change', '#lpe_char_presence', () => {
+            syncEditorDraftFromDom();
+            renderActiveTab({ resetScroll: false });
+        });
+        $stage.on('click', '#lpe_char_add_user_bond, #lpe_char_add_bond', function () {
+            syncEditorDraftFromDom();
+            const isUserBtn = this?.id === 'lpe_char_add_user_bond';
+            const preset = BOND_PRESETS.ally;
+            const target = isUserBtn ? userLabel : '';
+            if (isUserBtn && d.bonds.some((b) => isPlayerPersonaName(b.target, userName) || normalizeNameKey(b.target) === normalizeNameKey(userLabel))) {
+                return;
+            }
+            d.bonds.push({
+                target,
+                mode: preset.mode,
+                dam: preset.dam,
+                wall: preset.wall,
+                sluice: preset.sluice,
+                intent: '',
+                axes: { ...preset.axes },
+                matrix: buildMatrixStringFromAxes(preset.axes),
+            });
+            renderActiveTab({ resetScroll: false });
+        });
+        $stage.on('change', '.lpe-bond-preset', function () {
+            const presetKey = String($(this).val() || '');
+            if (!presetKey) return;
+            syncEditorDraftFromDom();
+            const $card = $(this).closest('.lpe-bond-card');
+            const idx = Number($card.data('bond-idx'));
+            const preset = resolveBondPreset(presetKey);
+            if (d.bonds[idx]) {
+                d.bonds[idx] = {
+                    ...d.bonds[idx],
+                    mode: preset.mode,
+                    dam: preset.dam,
+                    wall: preset.wall,
+                    sluice: preset.sluice,
+                    axes: { ...preset.axes },
+                    matrix: buildMatrixStringFromAxes(preset.axes),
+                };
+            }
+            renderActiveTab({ resetScroll: false });
+        });
+        $stage.on('click', '.lpe-bond-remove', function () {
+            syncEditorDraftFromDom();
+            const idx = Number($(this).data('bond-idx'));
+            const removed = d.bonds.splice(idx, 1)[0];
+            if (removed?.target) editorRemovedBondTargets.push(removed.target);
+            renderActiveTab({ resetScroll: false });
+        });
+        $stage.on('click', '#lpe_char_cancel_btn', () => {
+            castMode = 'list';
+            editorDraft = null;
+            editingCharName = null;
+            renderActiveTab({ resetScroll: true });
+        });
+        $stage.on('click', '#lpe_char_delete_btn', () => {
+            if (!editingCharName) return;
+            const rm = editingCharName;
+            castMode = 'list';
+            editorDraft = null;
+            editingCharName = null;
+            commitDeltaEdit({ character_remove: [rm] }, `Removed "${rm}" from cast.`);
+        });
+        $stage.on('click', '#lpe_char_save_btn', () => {
+            syncEditorDraftFromDom();
+            if (!d.name) {
+                $('#lpe_char_err').text('Character name is required.');
+                return;
+            }
+            if (isPlayerPersonaName(d.name, userName)) {
+                $('#lpe_char_err').text(`"${d.name}" matches the active human player persona (${userLabel}) and cannot be saved as an NPC.`);
+                return;
+            }
+            const delta = buildCharacterUpsertDelta(d, {
+                prevName: editingCharName || '',
+                userName,
+                removedBondTargets: editorRemovedBondTargets,
+            });
+            const savedName = d.name;
+            castMode = 'list';
+            subTabs.cast = 'entities';
+            editorDraft = null;
+            editingCharName = null;
+            editorRemovedBondTargets = [];
+            commitDeltaEdit(delta, `Saved character "${savedName}".`);
         });
     }
 

@@ -312,12 +312,12 @@ jQuery(() => {
                 store,
                 settings: getSettings(),
                 workerStatus,
-                onOpenEditor: (mesId, hudTab) => {
+                onOpenEditor: (mesId, hudTab, charName = null) => {
                     const msg = (getContextSafe().chat || [])[mesId];
                     const { seq } = getMessageStamp(msg);
                     if (appPopup) {
                         const target = mapHudTabToAppTab(hudTab);
-                        appPopup.open({ tab: target.tab, sub: target.sub, seq, mesId });
+                        appPopup.open({ tab: target.tab, sub: target.sub, seq, mesId, charName });
                     } else {
                         openStateEditorModal({ store, seq, onSaved: () => scheduleHudRefresh(10) });
                     }

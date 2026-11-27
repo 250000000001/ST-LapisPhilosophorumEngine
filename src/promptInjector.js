@@ -33,6 +33,19 @@ READ THE ATLAS MAP (<state:locations>) AS PHYSICAL 3D SPACE:
 - exits & adj: treat physical doors/bulkheads, wall seams, ceiling heights, glass containment, and elevated walkways as real line-of-sight and acoustic boundaries when narrating movement, cover, combat range, and who can see/hear what.
 </spatial_grounding>`;
 
+export const ESTABLISHED_CAST_GUIDANCE_BLOCK = `<established_cast_guidance>
+PRE-ESTABLISHED CAST ROSTER:
+- Characters marked staged/manual/pinned inside <internal_states> are canonical established cast pre-loaded by the player for this scenario.
+- Reuse their exact names, personalities, voices, bonds, and locations whenever they enter play rather than inventing duplicate or throwaway NPCs.
+- Never convert the human {{user}} persona into an AI NPC entry.
+</established_cast_guidance>`;
+
+export function hasStagedOrManualCast(state) {
+    if (!state || typeof state !== 'object') return false;
+    return (state.entity_state || []).some((e) => Boolean(e?.preGameStaged || e?.manual || e?.pinned))
+        || (state.offscreen_agendas || []).some((e) => Boolean(e?.preGameStaged || e?.manual || e?.pinned));
+}
+
 // Also used by the preset's display/history regexes. A second opener bounds a
 // damaged block. For a missing closer discard only recognizable receipt fields.
 export const COMPLETE_TAIL = /<(lpe|vexa)_tail\b[^<>\r\n]{0,128}>(?:(?!<(?:lpe|vexa)_tail\b)[\s\S]){0,32768}?<\/\1_tail[\s\u2800]*>(?:[\s\u2800]*<!--[\s\u2800]*GFX_END[\s\u2800]*-->)?/gi;
@@ -124,9 +137,11 @@ export function transformPromptMessages(messages, {
     const snapshotXml = hasState
         ? serializeInternalStates(state, { scoped, recentText, includeVent: false })
         : '<!-- Turn 1: No prior state yet. Initial state will be captured after your reply. -->';
-    const injectedPayload = (hasState && spatialGrounding)
-        ? `${SPATIAL_GROUNDING_BLOCK}\n\n${snapshotXml}`
-        : snapshotXml;
+    const payloadParts = [];
+    if (hasState && spatialGrounding) payloadParts.push(SPATIAL_GROUNDING_BLOCK);
+    if (hasState && hasStagedOrManualCast(state)) payloadParts.push(ESTABLISHED_CAST_GUIDANCE_BLOCK);
+    payloadParts.push(snapshotXml);
+    const injectedPayload = payloadParts.join('\n\n');
 
     // First pass: strip historical states/tails strictly from assistant messages so
     // system/user instructions and World Info referencing <internal_states>, <lpe_tail>, or <vexa_tail> are never truncated.
