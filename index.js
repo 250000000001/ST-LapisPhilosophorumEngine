@@ -288,7 +288,10 @@ jQuery(() => {
 
     function scheduleHudRefresh(delay = 60) {
         if (refreshTimer) clearTimeout(refreshTimer);
-        refreshTimer = setTimeout(() => {
+        if (delay === 0) refreshHud();
+        else refreshTimer = setTimeout(refreshHud, delay);
+
+        function refreshHud() {
             refreshTimer = null;
             refreshAllHudCards({
                 store,
@@ -345,7 +348,7 @@ jQuery(() => {
             cardBridgeHost.broadcastState(store.getState());
             scheduleRendererRefresh(15);
             appPopup?.refresh?.();
-        }, delay);
+        }
     }
 
     const workerClient = createWorkerClient({
@@ -830,6 +833,11 @@ jQuery(() => {
         getRecentStoryText: () => recentStoryText(getContextSafe().chat || []),
         onImportChat: handleImportChat,
         onRereadLast: handleRereadLast,
+        onManualUpdate: () => scheduleHudRefresh(0),
+        getInstalledExtensionVersion: () => {
+            const folder = decodeURIComponent(new URL('.', import.meta.url).pathname.split('/').at(-2));
+            return getContextSafe().getExtensionManifest?.(folder)?.version;
+        },
         onResetChat: handleResetChat,
         onCleanLastRefusal: () => retryRuntime.cleanLastMessageManually(),
         onRetryToggleChanged: handleRetryToggleChanged,

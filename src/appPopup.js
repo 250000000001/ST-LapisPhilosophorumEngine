@@ -272,6 +272,8 @@ export function createLpeAppPopup({
     getRecentStoryText = () => '',
     onImportChat,
     onRereadLast,
+    onManualUpdate,
+    getInstalledExtensionVersion,
     onResetChat,
     onCleanLastRefusal,
     onRetryToggleChanged,
@@ -322,18 +324,68 @@ export function createLpeAppPopup({
     let apiKeyVisible = false;
     let fabDragBound = false;
     let railDrawerRestoredOnce = false;
+    let manualUpdatePhase = 'idle';
+    let manualUpdateMessage = '';
+
+    function syncManualUpdate() {
+        for (const surface of ['drawer', 'app']) {
+            $(`#lpe_${surface}_manual_update`).prop('disabled', manualUpdatePhase === 'updating');
+            const $status = $(`#lpe_${surface}_update_status`);
+            if ($status.length && $status.text() !== manualUpdateMessage) {
+                $status.attr('data-phase', manualUpdatePhase).text(manualUpdateMessage);
+            }
+        }
+    }
+
+    async function runManualUpdate() {
+        if (manualUpdatePhase === 'updating') return;
+        manualUpdatePhase = 'updating';
+        manualUpdateMessage = 'Updating…';
+        syncManualUpdate();
+
+        // Yield before rebuilding the HUD so the pending status can paint.
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        try {
+            if (onManualUpdate) await onManualUpdate();
+            else refresh();
+        } catch {
+            manualUpdatePhase = 'error';
+            manualUpdateMessage = 'Update failed. Try again.';
+            syncManualUpdate();
+            return;
+        }
+
+        let version;
+        try {
+            version = await getInstalledExtensionVersion?.();
+        } catch { /* The state refresh succeeded even if the manifest could not be read. */ }
+        const extensionStatus = typeof version === 'string' && version.trim()
+            ? `LPE v${version.trim()} is loaded.`
+            : 'The loaded extension version is unavailable.';
+        manualUpdatePhase = 'updated';
+        manualUpdateMessage = `Updated at ${new Date().toLocaleTimeString()}. ${extensionStatus} For extension updates, use SillyTavern’s Extensions menu or git pull.`;
+        syncManualUpdate();
+    }
 
     function loadRailState() {
-        const defaults = { railCollapsed: false, drawerOpen: false, activeRailTab: 'overview', drawerSubTabs: {} };
+        const defaults = {
+            railCollapsed: false,
+            topBarCollapsed: false,
+            drawerOpen: false,
+            activeRailTab: 'overview',
+            drawerSubTabs: {},
+        };
         try {
             const raw = localStorage.getItem(RAIL_STATE_KEY);
             if (!raw) return defaults;
             const parsed = JSON.parse(raw);
             if (!parsed || typeof parsed !== 'object') return defaults;
             const validRailIds = new Set(RAIL_TABS.map((t) => t.id));
+            const railCollapsed = parsed.railCollapsed === true;
             return {
-                railCollapsed: Boolean(parsed.railCollapsed),
-                drawerOpen: Boolean(parsed.drawerOpen),
+                railCollapsed,
+                topBarCollapsed: parsed.topBarCollapsed === true,
+                drawerOpen: !railCollapsed && Boolean(parsed.drawerOpen),
                 activeRailTab: validRailIds.has(parsed.activeRailTab) ? parsed.activeRailTab : 'overview',
                 drawerSubTabs: parsed.drawerSubTabs && typeof parsed.drawerSubTabs === 'object' ? parsed.drawerSubTabs : {},
             };
@@ -515,12 +567,6 @@ export function createLpeAppPopup({
                 close();
                 return;
             }
-            const winW = $(window).width() || window.innerWidth || 1280;
-            if (winW >= 1000 && railState.railCollapsed) {
-                railState.railCollapsed = false;
-                openDrawer(railState.activeRailTab);
-                return;
-            }
             toggleDrawer();
         });
     }
@@ -544,7 +590,7 @@ export function createLpeAppPopup({
         }).join('');
 
         return `
-            <button type="button" id="lpe_rail_collapse" class="lpe-rail-btn lpe-rail-toggle" title="Collapse LPE Side-Rail" aria-label="Collapse LPE Side-Rail">
+            <button type="button" id="lpe_rail_collapse" class="lpe-rail-btn lpe-rail-toggle" title="Collapse LPE side rail" aria-label="Collapse LPE side rail" aria-controls="lpe_rail lpe_drawer" aria-expanded="true">
                 <i class="fa-solid fa-angles-right" aria-hidden="true"></i>
             </button>
             <div class="lpe-rail-divider"></div>
@@ -609,11 +655,23 @@ export function createLpeAppPopup({
         if (!$dr.length) return;
         disposeWebgl();
         $dr.removeClass('is-open').attr('aria-hidden', 'true');
-        $('body').removeClass('lpe-drawer-open');
         $('#lpe_drawer_stage').off('click change input').empty();
         railState.drawerOpen = false;
         if (persist) saveRailState();
         syncChrome();
+    }
+
+    function setRailCollapsed(collapsed) {
+        railState.railCollapsed = collapsed;
+        if (collapsed && isDrawerOpen()) {
+            closeDrawer({ persist: false });
+        } else {
+            syncChrome();
+        }
+        saveRailState();
+        const focusTarget = collapsed ? '#lpe_rail_expand_btn'
+            : ($('#lpe_rail').prop('hidden') ? '#lpe_fab_btn' : '#lpe_rail_collapse');
+        $(focusTarget)[0]?.focus({ preventScroll: true });
     }
 
     function toggleDrawer(railTabId = null) {
@@ -652,6 +710,18 @@ export function createLpeAppPopup({
     }
 
     function mount({ restoreDrawer = true } = {}) {
+        if (!$('#lpe_chrome_controls').length) {
+            $('body').append(`
+                <div id="lpe_chrome_controls" class="lpe-chrome-controls">
+                    <button type="button" id="lpe_topbar_toggle" class="lpe-chrome-btn" aria-controls="top-bar top-settings-holder" aria-expanded="true" aria-label="Collapse SillyTavern top bar" title="Collapse SillyTavern top bar" hidden>
+                        <i class="fa-solid fa-chevron-up" aria-hidden="true"></i>
+                    </button>
+                    <button type="button" id="lpe_rail_expand_btn" class="lpe-chrome-btn" aria-controls="lpe_rail" aria-expanded="false" aria-label="Restore LPE side rail" title="Restore LPE side rail" hidden>
+                        <i class="fa-solid fa-angles-left" aria-hidden="true"></i><span>LPE</span>
+                    </button>
+                </div>
+            `);
+        }
         if (!$('#lpe_fab_btn').length) {
             $('body').append(`
                 <button type="button" id="lpe_fab_btn" title="Lapis Philosophorum Engine (LPE) — Toggle Inspector" aria-label="Toggle LPE Inspector">
@@ -676,10 +746,12 @@ export function createLpeAppPopup({
                             <span id="lpe_drawer_ct_pill" class="lpe-pill lpe-tabular">ct:0</span>
                         </div>
                         <div class="lpe-drawer-head-actions">
+                            <button type="button" id="lpe_drawer_manual_update" class="lpe-mini-btn lpe-drawer-hdr-btn lpe-manual-update" title="Manual Update" aria-label="Manual Update" aria-describedby="lpe_drawer_update_status"><i class="fa-solid fa-rotate" aria-hidden="true"></i><span>Update</span></button>
                             <button type="button" id="lpe_drawer_expand" class="lpe-mini-btn lpe-drawer-hdr-btn" title="Expand into Full Control Center"><i class="fa-solid fa-expand"></i><span> Full</span></button>
                             <button type="button" id="lpe_drawer_close" class="lpe-mini-btn lpe-drawer-hdr-btn" title="Close Drawer" aria-label="Close Drawer"><i class="fa-solid fa-xmark"></i></button>
                         </div>
                     </header>
+                    <div id="lpe_drawer_update_status" class="lpe-manual-update-status" role="status"></div>
                     <div id="lpe_drawer_mobile_tabs" class="lpe-drawer-mobile-tabs" aria-label="Mobile Rail Tabs"></div>
                     <div id="lpe_drawer_subpills" class="lpe-drawer-subpills" style="display:none;"></div>
                     <div id="lpe_drawer_stage" class="lpe-drawer-stage"></div>
@@ -712,6 +784,9 @@ export function createLpeAppPopup({
                                         <button type="button" id="lpe_app_reread" class="lpe-app-btn secondary" title="Re-run LPE Clerk on latest AI reply">
                                             <i class="fa-solid fa-rotate"></i> <span>Re-read</span>
                                         </button>
+                                        <button type="button" id="lpe_app_manual_update" class="lpe-app-btn secondary lpe-manual-update" title="Manual Update" aria-label="Manual Update" aria-describedby="lpe_app_update_status">
+                                            <i class="fa-solid fa-rotate" aria-hidden="true"></i><span>Update</span>
+                                        </button>
                                         <button type="button" id="lpe_app_close" class="lpe-app-btn primary" title="Save &amp; Close">
                                             <i class="fa-solid fa-floppy-disk"></i> <span>Save &amp; Close</span>
                                         </button>
@@ -722,6 +797,7 @@ export function createLpeAppPopup({
                                     <h2 class="lpe-hero-name" id="lpe_hero_name">Lapis Philosophorum Engine (LPE)</h2>
                                 </div>
                             </header>
+                            <div id="lpe_app_update_status" class="lpe-manual-update-status" role="status"></div>
                             <div class="lpe-app-stage" id="lpe_app_stage"></div>
                         </div>
                     </div>
@@ -736,14 +812,14 @@ export function createLpeAppPopup({
         const $drawer = $('#lpe_drawer');
         buildDrawerHeaderMeta();
 
-        $rail.off('.lpeRail');
-        $rail.on('click.lpeRail', '#lpe_rail_collapse', () => {
-            railState.railCollapsed = true;
-            if (isDrawerOpen()) closeDrawer({ persist: false });
-            railState.drawerOpen = false;
+        $('#lpe_topbar_toggle').off('.lpeChrome').on('click.lpeChrome', () => {
+            railState.topBarCollapsed = !railState.topBarCollapsed;
             saveRailState();
             syncChrome();
         });
+        $('#lpe_rail_expand_btn').off('.lpeChrome').on('click.lpeChrome', () => setRailCollapsed(false));
+        $rail.off('.lpeRail');
+        $rail.on('click.lpeRail', '#lpe_rail_collapse', () => setRailCollapsed(true));
         $rail.on('click.lpeRail', '.lpe-rail-item', function () {
             const tabId = String($(this).data('rail-tab') || 'overview');
             toggleDrawer(tabId);
@@ -753,6 +829,7 @@ export function createLpeAppPopup({
         });
 
         $drawer.off('.lpeDrawer');
+        $drawer.on('click.lpeDrawer', '#lpe_drawer_manual_update', runManualUpdate);
         $drawer.on('click.lpeDrawer', '#lpe_drawer_close', () => closeDrawer());
         $drawer.on('click.lpeDrawer', '#lpe_drawer_expand', () => {
             const appTab = resolveRailSubAppTab(railState.activeRailTab);
@@ -773,6 +850,7 @@ export function createLpeAppPopup({
         });
 
         $overlay.off('.lpeApp');
+        $overlay.on('click.lpeApp', '#lpe_app_manual_update', runManualUpdate);
         $overlay.on('click.lpeApp', (e) => {
             if (e.target === $overlay[0]) close();
         });
@@ -808,6 +886,7 @@ export function createLpeAppPopup({
         });
 
         initFabDrag();
+        syncManualUpdate();
         syncChrome();
         if (restoreDrawer && !railDrawerRestoredOnce) {
             railDrawerRestoredOnce = true;
@@ -829,17 +908,31 @@ export function createLpeAppPopup({
         const showLauncher = s.showLauncherButton !== false;
         const winW = typeof window !== 'undefined' ? (window.innerWidth || 1280) : 1280;
         const isDesktop = winW >= 1000;
-        const railVisible = showLauncher && isDesktop && !railState.railCollapsed;
+        const { railCollapsed, topBarCollapsed } = railState;
+        const railVisible = showLauncher && isDesktop && !railCollapsed;
+        const drawerOpen = isDrawerOpen();
+
+        const $topbarToggle = $('#lpe_topbar_toggle');
+        const topbarLabel = topBarCollapsed ? 'Restore SillyTavern top bar' : 'Collapse SillyTavern top bar';
+        $topbarToggle.prop('hidden', !showLauncher && !topBarCollapsed)
+            .attr({ 'aria-expanded': String(!topBarCollapsed), 'aria-label': topbarLabel, title: topbarLabel });
+        const railLabel = isDesktop ? 'Restore LPE side rail' : 'Restore LPE launcher';
+        $('#lpe_rail_expand_btn').prop('hidden', !showLauncher || !railCollapsed)
+            .attr({ 'aria-label': railLabel, title: railLabel });
+
+        $('body')
+            .toggleClass('lpe-topbar-collapsed', Boolean($topbarToggle.length && topBarCollapsed))
+            .toggleClass('lpe-rail-collapsed', railCollapsed)
+            .toggleClass('lpe-drawer-open', showLauncher && isDesktop && !railCollapsed && drawerOpen);
 
         const $fab = $('#lpe_fab_btn');
         if ($fab.length) {
-            $fab.css('display', showLauncher ? '' : 'none');
+            $fab.css('display', showLauncher && !railCollapsed ? '' : 'none');
             $fab.toggleClass('lpe-fab-hidden-by-rail', railVisible);
             $fab.toggleClass('lpe-fab-off', !s.enabled);
             $fab.toggleClass('lpe-fab-busy', Boolean(ws.busy));
-            $fab.toggleClass('is-drawer-open', isDrawerOpen());
+            $fab.toggleClass('is-drawer-open', drawerOpen);
         }
-        $('body').toggleClass('lpe-drawer-open', isDrawerOpen() && isDesktop);
 
         const st = activeState();
         const ct = st?.world?.ct ?? 0;
@@ -856,13 +949,12 @@ export function createLpeAppPopup({
 
         const $rail = $('#lpe_rail');
         if ($rail.length) {
-            $rail.toggle(showLauncher);
-            $rail.toggleClass('is-collapsed', Boolean(railState.railCollapsed));
+            $rail.prop('hidden', !railVisible);
             $rail.toggleClass('is-off', !s.enabled);
             $rail.toggleClass('is-busy', Boolean(ws.busy));
             $rail.find('.lpe-rail-item').each(function () {
                 const tid = String($(this).data('rail-tab') || '');
-                $(this).toggleClass('active', tid === railState.activeRailTab && isDrawerOpen());
+                $(this).toggleClass('active', tid === railState.activeRailTab && drawerOpen);
             });
             const effH = hasExplicitHealthData(st?.health)
                 ? normalizeHealthState({ ...st.health, bodyType: st.health?.bodyType || s.defaultBodyType || 'male' })
@@ -878,7 +970,7 @@ export function createLpeAppPopup({
         const $drawer = $('#lpe_drawer');
         if ($drawer.length) {
             $('#lpe_drawer_ct_pill').html(`<span class="lpe-tabular">~${tok} tok · ct:${esc(ct)}</span>`);
-            if (!showLauncher && isDrawerOpen()) closeDrawer({ persist: false });
+            if (!showLauncher && drawerOpen) closeDrawer({ persist: false });
         }
 
         const $ov = $('#lpe_app_overlay');

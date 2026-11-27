@@ -709,6 +709,7 @@
 
 #lpe_fab_btn,
 #lpe_app_overlay,
+#lpe_chrome_controls,
 #lpe_rail,
 #lpe_drawer {
     --lpe-bg-main: var(--lpe-surface-deep, #171717);
@@ -807,14 +808,72 @@
     to { transform: rotate(360deg); }
 }
 
+/* SillyTavern uses the same top bar size for its chat, panels and overlays. */
+body.lpe-topbar-collapsed {
+    --topBarBlockSize: env(safe-area-inset-top, 0px);
+}
+
+body.lpe-topbar-collapsed #top-bar,
+body.lpe-topbar-collapsed #top-settings-holder {
+    display: none !important;
+}
+
+body.lpe-topbar-collapsed #sheld {
+    top: var(--topBarBlockSize);
+    height: calc(100vh - var(--topBarBlockSize) - 1px);
+    height: calc(100dvh - var(--topBarBlockSize) - 1px);
+    max-height: calc(100dvh - var(--topBarBlockSize) - 1px);
+}
+
+#lpe_chrome_controls {
+    position: fixed;
+    top: calc(max(var(--topBarBlockSize, 42px), env(safe-area-inset-top, 0px)) + 8px);
+    right: calc(12px + env(safe-area-inset-right, 0px));
+    z-index: 2511;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 6px;
+}
+
+.lpe-chrome-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    min-width: 36px;
+    height: 36px;
+    padding: 0 8px;
+    border: 1px solid var(--lpe-hairline-strong);
+    border-radius: 10px;
+    background: var(--lpe-bg);
+    backdrop-filter: blur(12px);
+    color: var(--lpe-accent-1);
+    box-shadow: var(--lpe-spec);
+    cursor: pointer;
+    font: 600 0.8rem var(--lpe-font-sans);
+}
+
+.lpe-chrome-btn:hover {
+    background: var(--lpe-bg-elevated);
+}
+
+.lpe-chrome-btn[hidden] {
+    display: none;
+}
+
+#lpe_topbar_toggle[aria-expanded="false"] i {
+    transform: rotate(180deg);
+}
+
 /* Persistent Slim Vertical Quick Rail (Desktop >= 1000px) */
 #lpe_rail {
     position: fixed;
-    top: calc(var(--topBarBlockSize, 42px) + 14px);
+    top: calc(max(var(--topBarBlockSize, 42px), env(safe-area-inset-top, 0px)) + 51px);
     right: 12px;
     z-index: 2500;
     width: 48px;
-    max-height: calc(100dvh - var(--topBarBlockSize, 42px) - 32px);
+    max-height: calc(100dvh - var(--topBarBlockSize, 42px) - 67px);
     padding: 7px 0;
     border-radius: 13px;
     background: var(--lpe-bg, rgba(29, 29, 32, 0.88));
@@ -830,7 +889,9 @@
     transition: opacity 0.2s var(--lpe-ease), transform 0.2s var(--lpe-ease);
 }
 
-#lpe_rail.is-collapsed {
+#lpe_rail[hidden],
+body.lpe-rail-collapsed #lpe_rail,
+body.lpe-rail-collapsed #lpe_drawer {
     display: none;
 }
 
@@ -992,7 +1053,7 @@
 }
 
 @media (min-width: 1120px) {
-    body.lpe-drawer-open:not(.movingUI) #sheld {
+    body.lpe-drawer-open:not(.lpe-rail-collapsed):not(.movingUI) #sheld {
         right: 500px;
         max-width: calc(100vw - 524px);
         transition: right 0.22s var(--lpe-ease), max-width 0.22s var(--lpe-ease);
@@ -1038,6 +1099,29 @@
     align-items: center;
     gap: 6px;
     flex-shrink: 0;
+}
+
+.lpe-manual-update:disabled {
+    cursor: wait;
+    opacity: 0.65;
+}
+
+.lpe-manual-update-status:not(:empty) {
+    flex-shrink: 0;
+    padding: 6px 14px;
+    border-bottom: 1px solid var(--lpe-hairline);
+    color: var(--lpe-text-muted);
+    background: var(--lpe-glass);
+    font-size: 0.75rem;
+    overflow-wrap: anywhere;
+}
+
+.lpe-manual-update-status[data-phase="error"] {
+    color: var(--lpe-danger);
+}
+
+#lpe_app_update_status:not(:empty) {
+    padding-inline-start: 96px;
 }
 
 .lpe-drawer-hdr-btn {
@@ -1527,6 +1611,10 @@
     }
     .lpe-app-stage {
         padding: 16px 32px 32px 244px;
+    }
+
+    #lpe_app_update_status:not(:empty) {
+        padding-inline-start: 244px;
     }
 }
 
@@ -2289,14 +2377,14 @@
     }
 
     #lpe_drawer {
-        top: calc(100dvh - min(76dvh, 620px) - 8px - env(safe-area-inset-bottom, 0px));
+        top: auto;
         left: calc(8px + env(safe-area-inset-left, 0px));
         right: calc(8px + env(safe-area-inset-right, 0px));
-        bottom: auto;
+        bottom: calc(8px + env(safe-area-inset-bottom, 0px));
         width: auto;
         max-width: none;
         height: min(76dvh, 620px);
-        max-height: calc(100dvh - 58px);
+        max-height: calc(100dvh - max(var(--topBarBlockSize, 42px), env(safe-area-inset-top, 0px)) - 60px - env(safe-area-inset-bottom, 0px));
         border-left-width: 1px;
         border-top: 2px solid color-mix(in srgb, var(--lpe-accent-1) 65%, transparent);
         border-radius: 16px;
@@ -2427,6 +2515,10 @@
     .lpe-app-stage {
         padding: 4px 14px 86px 14px;
         margin-top: -10px;
+    }
+
+    #lpe_app_update_status:not(:empty) {
+        padding-inline-start: 14px;
     }
 }
 
@@ -3964,6 +4056,7 @@
 #lpe_app_overlay input:focus-visible,
 #lpe_app_overlay select:focus-visible,
 #lpe_app_overlay .lpe-switch-row:focus-visible,
+.lpe-chrome-btn:focus-visible,
 #lpe_fab_btn:focus-visible {
     outline: 2px solid var(--lpe-accent-1, #9AD6CF);
     outline-offset: 2px;
