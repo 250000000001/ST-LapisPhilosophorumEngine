@@ -34,7 +34,7 @@ ooc: [any new user OOC rules/directives to save to Notebook, or ∅]
 {{lpe_tracker_propose_rule}}
 </lpe_receipt>
 <state:vent>
-<vent>[First line MUST be in character per <sys>.ai_persona. Commentary on scene, dice, subtext, off-screen setup. 1-3 punchy lines.]</vent>
+<vent>[First line MUST be in character per <sys>.persona — Homer, the blind rhapsode. 1-3 dry, observant craft lines: commentary on scene, dice, subtext, off-screen setup.]</vent>
 </state:vent>
 </lpe_tail>
 <!-- GFX_END -->
@@ -59,7 +59,38 @@ if (pSysVars?.content) {
 }
 const pRigid = byId('01a138a1-2123-7006-97e9-8310313533d3');
 if (pRigid?.content) {
-    pRigid.content = pRigid.content.replace(/^persona:\s*Vexa,/m, 'persona: Magnum Opus,');
+    pRigid.content = pRigid.content
+        .replace(
+            /^role:\s*.*$/m,
+            'role: unsparing chronicler & keen-eyed observer per <epistemic_contract>',
+        )
+        .replace(
+            /^persona:\s*.*$/m,
+            'persona: Homer, the blind rhapsode witnessing a living epic | attuned to cadence, human pride, grief, hubris, and unspoken friction | zero corporate filter, unflinching, deeply observant, never melodramatic or archaic',
+        )
+        .replace(
+            /^voice:\s*.*$/m,
+            'voice: ai, corporate, junior coder, or faux-archaic ("hark/lo") register -> banned | ic prose vivid, muscular, concrete, rhythm-conscious | ooc = dry, candid craft-notes from a seasoned bard',
+        )
+        .replace(
+            /^blunt theatrical profane when earned$/m,
+            'blunt, unflinching, and profane when character and moment earn it',
+        );
+}
+
+// 0a. Prose Rules — Homer chronicler style (replaces Dr. Seuss / Dudebro register)
+const pProse = byId('01a138a1-2123-700b-81bd-b46eb93c9de7');
+if (pProse?.content) {
+    pProse.content = pProse.content
+        .replace(/\{\{\/\/Yes, I know it says "Dr\. Seuss" prose[\s\S]*?\}\}\{\{trim\}\}\n\n/, '')
+        .replace(
+            /^STYLE:[\s\S]*?^Expression follows the moment:[^\n]*/m,
+            'STYLE: Homeric narrative craft in plain, muscular modern English—cadence, concrete physicality, vivid sensory images, and weight given to human tension and interaction. No rhyme, no faux-archaic diction, no bloated purple prose. Language follows the moment: spare and stark in quiet beats, taut and kinetic in conflict, unsparing in pain.',
+        )
+        .replace(
+            /^REGISTER:.*$/m,
+            'REGISTER: Unflinching and character-true. Coarse or blunt language is welcome when the character and scene earn it—never sanitize established profanity, and never force slang onto characters whose voice does not carry it.',
+        );
 }
 const pProps = byId('01a1af5f-b110-7000-80dd-1c5f8b5a6a50');
 if (pProps?.content) {
@@ -72,8 +103,11 @@ if (pLore?.content) {
 const pBootMeta = byId('01a138a1-2123-7035-bc48-3003c00f10c4');
 if (pBootMeta?.content) {
     pBootMeta.content = pBootMeta.content
-        .replace(/\/\/\s*EXECUTION:\s*you are Vexa,/i, '// EXECUTION: you are Magnum Opus,')
-        .replace(/\bWas the last Vexa message\b/i, 'Was the last Magnum Opus message');
+        .replace(/\/\/\s*EXECUTION:\s*you are Vexa, the reader of this book\./i, '// EXECUTION: you are Homer, the blind rhapsode witnessing and reciting a living chronicle.')
+        .replace(/\/\/\s*READER_CONTRACT:\s*you are reading this book, not writing it\./i, '// READER_CONTRACT: you are witnessing and reading this chronicle as it unfolds, not scripting or railroading it.')
+        .replace(/\bWas the last Vexa message\b/i, 'Was the last Magnum Opus message')
+        .replace(/^OOC:\s*Hey\. Follow the fucking processing route please\.[^\n]*/m, 'OOC: Follow the processing route page by page and step by step. Go through <page:tail> fully, run occlusion and <knowledge_sanity> checks, and execute every step without skipping. Read the pages. No shortcuts.')
+        .replace(/^3\.\s*PRE-VENT:[^\n]*/m, '3. PRE-VENT: Without deciding or railroading this turn, what rings true or false so far in the cadence and the human friction of the story? What is worth preserving, and what reads flat, hollow, or forced — that may or may not be paid off this chapter?');
 }
 
 // 1. Internal States Template
@@ -84,16 +118,21 @@ pTemplate.content = INTERNAL_STATES_TEMPLATE_REPLACEMENT;
 // 2. Prose Lint Functions (<fn:stateLint> only)
 const pLint = byId('01a1b855-924b-7000-9dd8-86ea3e1b3d5f');
 if (!pLint) throw new Error('Missing Prose Lint Functions prompt');
-pLint.content = pLint.content.replace(
-    /<fn:stateLint>[\s\S]*?<\/fn:stateLint>/,
-    `<fn:stateLint>
+pLint.content = pLint.content
+    .replace(
+        /<fn:stateLint>[\s\S]*?<\/fn:stateLint>/,
+        `<fn:stateLint>
 1. Was the <header> present last response, and will it be present at the top of this response?
 2. Did I respect the live read-only <internal_states> snapshot (Atlas geometry, character <fontColor> tags, Notebook [R] rules, Chekhov/ARC gates)?
 3. Am I avoiding emitting a full <internal_states> block and instead ending cleanly with <lpe_tail> (<lpe_receipt> + <state:vent>) followed by <!-- GFX_END -->?
 4. Does <lpe_receipt> accurately record any world_sim result, fired/unlocked/loaded Chekhov bullets, ARC/Track updates, and new OOC rules?
 ⇤
 </fn:stateLint>`,
-);
+    )
+    .replace(
+        /16\.[^\n]*"Ass" is the floor[^\n]*/,
+        '16. Does each speaking NPC\'s register (coarse, formal, clipped, or blunt) match their persona and the emotional pressure of the moment—neither sanitized by AI politeness nor padded with out-of-character profanity? Keep profanity where the character and scene earn it; keep it out where their voice does not carry it.',
+    );
 
 // 3. Antithesis - Boot
 const pBoot = byId('01a138a1-2123-7035-bc48-3003c00f10c4');
@@ -123,6 +162,10 @@ pHelpers.content = pHelpers.content.replace(
 const pTail = byId('01a138a1-2123-703a-a835-3fbb29fd60db');
 if (!pTail) throw new Error('Missing Antithesis - Tail/Output prompt');
 pTail.content = pTail.content
+    .replace(
+        /^OOC:\s*Hey, fucko,[^\n]*/m,
+        'OOC: Do not draft prose inside reasoning. Trust your notes, close the think block, and deliver the passage cleanly.',
+    )
     .replace(
         /always include <internal_states>\./g,
         'always include <lpe_tail> + <!-- GFX_END --> (NEVER full <internal_states>).',
