@@ -1,4 +1,5 @@
-test/
+test/*
+!test/magnum-opus.test.mjs
 node_modules/
 assets/models/custom/
 .DS_Store

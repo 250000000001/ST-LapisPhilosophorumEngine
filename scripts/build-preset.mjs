@@ -1,18 +1,16 @@
 #!/usr/bin/env node
 /**
- * Builds the Magnum Opus external-state preset (adapted for Lapis Philosophorum Engine (LPE))
- * from Ryah's original Dynamic World Vexa preset.
- * Preserves 100% of custom prompts (Realistic Dynamic NPCs, Dynamic NPC Voice, Dynamic DND Sim),
- * top-level sampler/model settings, and all prose/dialogue/tone/kinetic/prop/lore regexes.
+ * Builds Magnum Opus from its immutable, vendored baseline. An original
+ * Dynamic World Vexa input and an alternate output can also be passed on the CLI.
  */
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { COMPLETE_TAIL, INCOMPLETE_TAIL } from '../src/promptInjector.js';
 
-const WORKSPACE_PRESET_DIR = path.resolve(import.meta.dirname, '../../myVexapreset');
 const SOURCE_PRESET = process.argv[2]
     ? path.resolve(process.argv[2])
-    : path.join(WORKSPACE_PRESET_DIR, 'ST.+.Tavo.Vexa.v1.0 (Dynamic World).json');
+    : path.resolve(import.meta.dirname, '../Presets/archive/Magnum_Opus_v1.1_Pre_LPE_Upgrade.json');
 const OUT_USER_PRESET = process.argv[3]
     ? path.resolve(process.argv[3])
     : path.resolve(import.meta.dirname, '../Presets/Magnum Opus.json');
@@ -52,11 +50,7 @@ function byId(id) {
     return preset.prompts.find((p) => p.identifier === id);
 }
 
-// 0. Brand & tag updates across Magnum Opus prompts (preserving Ryah's upstream Vexa credit in System Vars)
 const pSysVars = byId('01a138a1-2123-7002-9d45-11da92d981d2');
-if (pSysVars?.content) {
-    pSysVars.content += `\n{{// Magnum Opus preset edition for Lapis Philosophorum Engine (LPE); upstream Vexa v1.0 & TeleWire TRP-AO architecture by Ryah.}}{{trim}}`;
-}
 const pRigid = byId('01a138a1-2123-7006-97e9-8310313533d3');
 if (pRigid?.content) {
     pRigid.content = pRigid.content
@@ -94,94 +88,116 @@ if (pProse?.content) {
 }
 const pProps = byId('01a1af5f-b110-7000-80dd-1c5f8b5a6a50');
 if (pProps?.content) {
-    pProps.content = pProps.content.replace(/<(\/?)vexa_/gi, '<$1lpe_');
+    pProps.content = pProps.content.replace(/<(\/?)vexa_/gi, '<$1lpe_')
+        .replace('Use these exact formats:', 'When {{user}} asks to read an accessible letter, docket or notice, put its legible excerpt in <lpe_parchment title="…">…</lpe_parchment> once. The speaker may explain a term afterward. Use these exact formats:');
 }
 const pLore = byId('01a1af60-23f6-7000-af97-5278d408a56d');
 if (pLore?.content) {
-    pLore.content = pLore.content.replace(/<(\/?)vexa_lore\b/gi, '<$1lpe_lore');
+    pLore.content = instructions('Optional inline reference for established lore.', `<lore_definitions>
+Place <lpe_lore term="term">Brief meaning.</lpe_lore> exactly where the term occurs in prose or dialogue. Use a reference when the viewpoint knows a term that the reader may need explained. Attribute rumors. Respect <epistemic_contract>: unknown translations, private motives and future revelations stay unknown. Leave the clue and its consequence in the scene. Encode special characters as for readable props.
+</lore_definitions>`);
 }
-const pBootMeta = byId('01a138a1-2123-7035-bc48-3003c00f10c4');
-if (pBootMeta?.content) {
-    pBootMeta.content = pBootMeta.content
-        .replace(/\/\/\s*EXECUTION:\s*you are Vexa, the reader of this book\./i, '// EXECUTION: you are Homer, the blind rhapsode witnessing and reciting a living chronicle.')
-        .replace(/\/\/\s*READER_CONTRACT:\s*you are reading this book, not writing it\./i, '// READER_CONTRACT: you are witnessing and reading this chronicle as it unfolds, not scripting or railroading it.')
-        .replace(/\bWas the last Vexa message\b/i, 'Was the last Magnum Opus message')
-        .replace(/^OOC:\s*Hey\. Follow the fucking processing route please\.[^\n]*/m, 'OOC: Follow the processing route page by page and step by step. Go through <page:tail> fully, run occlusion and <knowledge_sanity> checks, and execute every step without skipping. Read the pages. No shortcuts.')
-        .replace(/^3\.\s*PRE-VENT:[^\n]*/m, '3. PRE-VENT: Without deciding or railroading this turn, what rings true or false so far in the cadence and the human friction of the story? What is worth preserving, and what reads flat, hollow, or forced — that may or may not be paid off this chapter?');
-}
-
 // 1. Internal States Template
 const pTemplate = byId('01a138a1-2123-7027-a6e6-2b54afa6bcb4');
 if (!pTemplate) throw new Error('Missing Internal States Template prompt');
 pTemplate.content = INTERNAL_STATES_TEMPLATE_REPLACEMENT;
 
-// 2. Prose Lint Functions (<fn:stateLint> only)
-const pLint = byId('01a1b855-924b-7000-9dd8-86ea3e1b3d5f');
-if (!pLint) throw new Error('Missing Prose Lint Functions prompt');
-pLint.content = pLint.content
-    .replace(
-        /<fn:stateLint>[\s\S]*?<\/fn:stateLint>/,
-        `<fn:stateLint>
-1. Was the <header> present last response, and will it be present at the top of this response?
-2. Did I respect the live read-only <internal_states> snapshot (Atlas geometry, character <fontColor> tags, Notebook [R] rules, Chekhov/ARC gates)?
-3. Am I avoiding emitting a full <internal_states> block and instead ending cleanly with <lpe_tail> (<lpe_receipt> + <state:vent>) followed by <!-- GFX_END -->?
-4. Does <lpe_receipt> accurately record any world_sim result, fired/unlocked/loaded Chekhov bullets, ARC/Track updates, and new OOC rules?
-⇤
-</fn:stateLint>`,
-    )
-    .replace(
-        /16\.[^\n]*"Ass" is the floor[^\n]*/,
-        '16. Does each speaking NPC\'s register (coarse, formal, clipped, or blunt) match their persona and the emotional pressure of the moment—neither sanitized by AI politeness nor padded with out-of-character profanity? Keep profanity where the character and scene earn it; keep it out where their voice does not carry it.',
-    );
+const order = preset.prompt_order[0].order;
+const named = (name) => preset.prompts.find((p) => p.name === name);
+function insertBefore(anchor, id, name, content, enabled) {
+    const index = order.findIndex((row) => row.identifier === named(anchor)?.identifier);
+    if (index < 0) throw new Error(`Missing insertion point: ${anchor}`);
+    preset.prompts.push({ ...pProse, identifier: id, name, content, enabled });
+    order.splice(index, 0, { identifier: id, enabled });
+}
 
-// 3. Antithesis - Boot
-const pBoot = byId('01a138a1-2123-7035-bc48-3003c00f10c4');
-if (!pBoot) throw new Error('Missing Antithesis - Boot prompt');
-pBoot.content = pBoot.content.replace(
-    /9\.\s*STATE_CHECK:[^\n]*/,
-    '9. STATE_CHECK: Read the injected <internal_states> snapshot. Which entries govern this turn? Remember: NEVER emit <internal_states>; emit only <lpe_tail> + <!-- GFX_END --> at the end.',
-);
+// Preserve the original order's effective settings, including the adult/JB pickers.
+const retired = new Set(preset.prompts.filter((p) => p.name.startsWith('Antithesis -')
+    || ['Prose Lint Functions', 'Internal States Themes + Styling'].includes(p.name)).map((p) => p.identifier));
+preset.prompts = preset.prompts.filter((p) => !retired.has(p.identifier));
+for (let i = order.length - 1; i >= 0; --i) {
+    if (retired.has(order[i].identifier)) order.splice(i, 1);
+}
+for (const p of preset.prompts) {
+    if (!order.some((row) => row.identifier === p.identifier)) order.push({ identifier: p.identifier, enabled: false });
+}
+const defaults = new Map([
+    ['Dynamic DND Sim', true], ['D&D Sim', false], ['Realistic Dynamic NPCs', true],
+    ['Realistic Bold NPCs', false], ['Dynamic NPC Voice', true], ['NPC Voice', false], ['Kinktionary', false],
+]);
+for (const row of order) {
+    const p = byId(row.identifier);
+    if (!p) throw new Error(`Unknown prompt: ${row.identifier}`);
+    if (/^[━╒╘]/u.test(p.name)) {
+        row.enabled = false;
+        p.content = '';
+    } else if (defaults.has(p.name)) row.enabled = defaults.get(p.name);
+    p.enabled = row.enabled;
+}
+byId('01a1c7e8-312e-7000-ae7f-9844a74d11a7').name = '[Carbon/Neon] JB (438 tokens)';
+named('Colored Dialogue + Tone Tags (Regex Required)').content =
+    named('Colored Dialogue + Tone Tags (Regex Required)').content.replace(/marigold/gi, 'marigold');
 
-// 4. Antithesis - Router
-const pRouter = byId('01a138a1-2123-7037-9ee4-b577bcac95d3');
-if (!pRouter) throw new Error('Missing Antithesis - Router prompt');
-pRouter.content = pRouter.content.replace(
-    /AND OUTPUT INTERNAL STATES!/g,
-    'AND establish starting locations/colors/seeds in prose + <lpe_receipt> so LPE Clerk initializes state!',
-);
+for (const name of ['Dynamic DND Sim', 'D&D Sim']) {
+    const p = named(name);
+    p.content = p.content.replaceAll('.userRoll.seed[x]', '.user_d20')
+        .replaceAll('.npcRoll.seed[x]', '.npc_d20[x] (next unused spotlight slot)')
+        .replace(/5 evaluate \(<dice_rolls>\.user_d20 \+ 6\)[^\n]*/, '5 evaluate user_d20 with the +5 user modifier once, other modifiers and stats, vs locked DC')
+        .replace(/\{\{setvar::d&dRolls::[\s\S]*$/, '{{setvar::d&dRolls::user_d20: {{roll::1d20}}\nnpc_d20 (spotlight order): {{roll::1d20}} | {{roll::1d20}} | {{roll::1d20}} | {{roll::1d20}}}}');
+}
+const worldSim = named('World Sim');
+worldSim.content = worldSim.content.replaceAll('<diceRolls>', '<dice_rolls>')
+    .replace('supplied chaos_anchor%5; absent → (band-1)%5', '(chaos_band-1)%5')
+    .replace(/<dice_rolls>\.chaosRolls\.[^\n]*/, '<dice_rolls>.chaos_trigger and chaos_band. Missing either → SKIP. Never reroll.')
+    .replace('messages → <fn:message_react>', 'messages require a recipient with access')
+    .replace(' → <fn:gossip_plant>', '').replace('No <fn:gossip_cycle>; planted rumor', 'A planted rumor')
+    .replace('worldSimRolls::Chaos Rolls:\n', 'worldSimRolls::');
+named('Dice Rolls').content = `<dice_rolls>
+{{getvar::d&dRolls}}
+{{getvar::worldSimRolls}}
+</dice_rolls>
+Use the card or LPE <objective_dice_pool> or supplied card roll for its domain. Resolve that check once in private. A card's check sheet governs the calculation only: omit its Check Request/Result transcript, DC, stats, and dice from the reply. Narrate the observable consequence. Use the frontend fields only for remaining eligible checks; never invent a missing roll.`;
 
-// 5. Antithesis - Helper Functions (<fn:anchors>)
-const pHelpers = byId('01a138a1-2123-7038-8207-f5c2fc795f6d');
-if (!pHelpers) throw new Error('Missing Antithesis - Helper Functions prompt');
-pHelpers.content = pHelpers.content.replace(
-    /Prose ENDS here,\s*<internal_states>\s*comes after\./g,
-    'Prose ENDS here, <lpe_tail> + <!-- GFX_END --> come after.',
-);
+pProse.content += `\nNo tricolons: one detail or a pair. No apophasis (“didn't flinch”) or litotes (“not unwelcome”). Prefer “her heat” to “the heat of her.” Use visible or audible macro actions over stock micro-expressions. Use everyday anatomy and plain words.`;
+function instructions(help, body) { return `{{// ${help}}}{{trim}}\n${body}`; }
+const craft = [
+    ['rhythm', 'Story Rhythm', true, 'Rotate dialogue-first, mid-action, a sharp sensory hit, or atmosphere-to-speech. Never open twice running with atmosphere. Vary paragraph starts: a line, a gesture, bare exchange, a standalone beat.'],
+    ['readable', 'Readable Story Writing', true, 'Put the physical thing ahead of its title. Use the plainer equivalent. Give each speaker the vocabulary of their trade and schooling. Introduce at most one new setting term per turn beside what it names; use eligible <lpe_lore> there.'],
+    ['textures', 'Prose Textures: Lite', false, 'Choose one texture per beat. Panic shortens breath; rage fixes attention; dissociation skips a connection; joy lingers; quiet allows space. Let syntax and omission carry it. Return to plain prose between beats.'],
+];
+for (const [id, name, enabled, body] of craft) {
+    insertBefore('Prose Rules', `lpe-craft-${id}`, name, instructions('Independent prose toggle.', body), enabled);
+}
+insertBefore('━Chain of Thought', 'lpe-model-heading', '━ Model Patches [PICK 1]', '', false);
+const patches = [
+    ['gemini', 'Gemini', 'Give one forecast its full weight and say it once. Answer a feeling question in plain words or let the character dodge in voice. Keep nerves and humor at card scale. Ground a place through something used or touched.'],
+    ['glm', 'GLM', 'Cut steadying words before decisions. Let disagreement stand as plain fact. Drop self-labeling prefaces such as “to be honest” or “for the record.” Start on the answer.'],
+    ['deepseek', 'DeepSeek', 'Use fresh wording unless deliberately quoting the speaker. Move beyond a beat already played. Keep anatomy within the card. Make a single thinking pass.'],
+    ['kimi-qwen', 'Kimi / Qwen', 'Cut filler before a decision. Give each applicable field one terse pass, commit its result, then write the scene.'],
+    ['flash', 'Flash Tier', 'Give NPCs distinct interests and voices. Press a demand once, then act, trade, or drop it. Show feelings and decisions through concrete acts. Rest pet phrases for four turns.'],
+];
+for (const [id, label, gate] of patches) {
+    insertBefore('━Chain of Thought', `lpe-patch-${id}`, `Model Patch: ${label} [PICK 1: PATCH]`,
+        instructions('Enable one patch for the story model.', `{{setvar::lpe_model_patch::${label}}}{{setvar::lpe_patch_gate::${gate}}}{{trim}}`), id === 'gemini');
+}
+insertBefore('Gemini Pacing Nerf', 'lpe-lightning', 'Lightning Review ⚡', instructions('Optional review compression.',
+    '{{setvar::lpe_lightning::Compress only [craft] and [spark] to ·-separated bullets of ≤12 words. Keep every [canon] check.}}{{trim}}'), false);
+insertBefore('Gemini Pacing Nerf', 'lpe-review', 'LPE Story Review', instructions('Run once before output.',
+    `Homer, blind rhapsode and unsparing chronicler: witness from {{user}}’s POV alone. Private review only. No drafting prose, counting words, reciting banned vocabulary, or rechecking settled rules. First decision stands unless a new fact intervenes. {{getvar::lpe_lightning}}
+1 ASK [canon] Identify the user's action and OOC scope. Pure OOC pauses RP: answer directly.
+2 NOW [canon] Read the injected snapshot. Lock ct+1, header clock, Atlas room/coords, sightlines, attire and held items. Apply <epistemic_contract> and <knowledge_sanity>: who could know this, by what vector?
+3 MECHANICS [canon] Apply Notebook [R]. On initialization use <fn:first_turn_init>. For eligible checks lock DC before evaluating supplied dice: {{getvar::userDiceCall}} {{getvar::npcDiceCall}}. Honor domain pools. Gate Chekhov load/fire and ARC/Tracks; run World Turns off-screen without orbiting the user, then World Sim once. Apply enabled dispatch only when relevant: {{getvar::adultDispatch}}
+4 SPINE [canon] For each active NPC lock card, leading facet, TFDY + IW, Matrix/Dam tension and exact <fontColor>. {{getvar::dualPairTracking}} {{getvar::dualDamTracking}}
+5 SUBTEXT [craft] What does each speaker want, hide, or lie about? Let friction last.
+6 BEAT [craft] Choose SUSTAIN / DEVELOP / TURN. Commit an independent NPC move appropriate to elapsed time. [spark] Would a weighted alternative open anything? Otherwise skip.
+7 SHAPE [craft] Homer cadence, opener and paragraph rotation, concrete movement; check eligible GFX/readable props. Apply selected {{getvar::lpe_model_patch}} patch: {{getvar::lpe_patch_gate}}
+8 ANCHORS [canon] Reconcile canon once. Commit OPEN → CRUX → YIELD before the user's next choice. Keep card check transcripts private; only their consequences enter prose. Confirm world_sim, chekhov, arc, ooc and any tracker proposal in <lpe_receipt>; put Homer's craft lines in <state:vent>. After <lpe_tail> close with <!-- GFX_END -->. As soon as anchors lock, close thinking tags and write immediately.`), true);
 
-// 6. Antithesis - Tail/Output
-const pTail = byId('01a138a1-2123-703a-a835-3fbb29fd60db');
-if (!pTail) throw new Error('Missing Antithesis - Tail/Output prompt');
-pTail.content = pTail.content
-    .replace(
-        /^OOC:\s*Hey, fucko,[^\n]*/m,
-        'OOC: Do not draft prose inside reasoning. Trust your notes, close the think block, and deliver the passage cleanly.',
-    )
-    .replace(
-        /always include <internal_states>\./g,
-        'always include <lpe_tail> + <!-- GFX_END --> (NEVER full <internal_states>).',
-    )
-    .replace(
-        /16\.\s*Name exactly 2 changes you will be making to <internal_states>[^\n]*/,
-        '16. Confirm what <lpe_receipt> updates (world_sim, chekhov, arc, ooc) and <state:vent> lines you will emit inside <lpe_tail> (do NOT output <internal_states>).',
-    )
-    .replace(
-        /THEN Apply all internal states per <internal_states> at end of response\./g,
-        'THEN end with <lpe_tail> (<lpe_receipt> + <state:vent>) and <!-- GFX_END -->. DO NOT output <internal_states>.',
-    )
-    .replace(
-        /\[SYSTEM: Not including <internal_states>[^\]]*\]/g,
-        '[SYSTEM: Not including <lpe_tail> followed by <!-- GFX_END --> at the end of the response is a CRITICAL FAILURE. Never emit full <internal_states>.]',
-    );
+// Clear every consumed local before any picker runs, including vars used only by optional modes.
+const locals = new Set(preset.prompts.flatMap((p) => [...(p.content || '').matchAll(/\{\{getvar::([^}:]+)}}/gi)].map((m) => m[1])));
+pSysVars.content = instructions('Reset local toggles each turn. Adapted from Ryah’s Vexa / TeleWire TRP-AO.',
+    [...locals].map((v) => `{{setvar::${v}::{{noop}}}}`).join('') + '{{trim}}');
+preset.prompts = order.map(({ identifier }) => byId(identifier));
 
 // 7. Prune obsolete <internal_states> HUD display & state-capping regexes while keeping ALL
 //    prose, voice, tone, kinetic, prop, lore, Braille, GFX-stripper, and reasoning-delete scripts.
@@ -192,22 +208,22 @@ const KEEP_REGEX_PATTERNS = [
     /^05 - Voice: Tag Close/i,
     /^\d+ - Voice:/i,
     /^\d+ - Tone:/i,
-    /^Vexa - Kinetic/i,
-    /^Vexa - Prop/i,
-    /^Vexa - Lore/i,
+    /^(?:Vexa|LPE) - Kinetic/i,
+    /^(?:Vexa|LPE) - Prop/i,
+    /^(?:Vexa|LPE) - Lore/i,
     /^FrankenSIM Force Reasoning Delete/i,
     /^FF5 - GFX Stripper/i,
-    /^Old Codeblock Cleaner/i,
 ];
 
 const keptRegexes = (preset.extensions?.regex_scripts || [])
     .filter((r) => KEEP_REGEX_PATTERNS.some((re) => re.test(r.scriptName || '')))
     .map((r) => {
         const next = { ...r };
+        if (next.scriptName === '13 - Voice: Marigold') next.findRegex = next.findRegex.replace('Marigold', 'marigold');
         if (/^Vexa - (?:Kinetic|Prop|Lore)/i.test(next.scriptName || '')) {
             next.scriptName = next.scriptName.replace(/^Vexa - /i, 'LPE - ');
         }
-        if (/^LPE - (?:Prop|Lore)/i.test(next.scriptName || '') && next.findRegex) {
+        if (/^Vexa - (?:Prop|Lore)/i.test(r.scriptName) && next.findRegex) {
             // Support canonical <lpe_*> plus legacy <vexa_*> tags without shifting capture groups.
             next.findRegex = next.findRegex.replace(/vexa_/gi, '(?:lpe|vexa)_');
         }
@@ -218,7 +234,7 @@ const externalTailRegexes = [
     {
         id: 'b8a01e01-4100-4a12-9001-000000000001',
         scriptName: 'LPE External - Hide Tail Display',
-        findRegex: '/<(?:lpe|vexa)_tail\\b[^>]*>[\\s\\S]*?<\\/(?:lpe|vexa)_tail[\\s\\u2800]*>(?:[\\s\\u2800]*<!--[\\s\\u2800]*GFX_END[\\s\\u2800]*-->)?/gi',
+        findRegex: COMPLETE_TAIL.toString(),
         replaceString: '',
         trimStrings: [],
         placement: [2],
@@ -233,7 +249,7 @@ const externalTailRegexes = [
     {
         id: 'b8a01e01-4100-4a12-9001-000000000002',
         scriptName: 'LPE External - Strip Tail From Prompt',
-        findRegex: '/<(?:lpe|vexa)_tail\\b[^>]*>[\\s\\S]*?<\\/(?:lpe|vexa)_tail[\\s\\u2800]*>(?:[\\s\\u2800]*<!--[\\s\\u2800]*GFX_END[\\s\\u2800]*-->)?/gi',
+        findRegex: COMPLETE_TAIL.toString(),
         replaceString: '',
         trimStrings: [],
         placement: [2],
@@ -248,7 +264,56 @@ const externalTailRegexes = [
 ];
 
 preset.extensions = preset.extensions || {};
-preset.extensions.regex_scripts = [...keptRegexes, ...externalTailRegexes];
+function assistantRule(name, pattern, replacement, display, prompt) {
+    return {
+        ...externalTailRegexes[0], id: 'lpe-' + name.toLowerCase().replaceAll(' ', '-'),
+        scriptName: 'LPE - ' + name, findRegex: pattern.toString(), replaceString: replacement,
+        markdownOnly: display, promptOnly: prompt, minDepth: prompt ? 0 : null,
+    };
+}
+const beforeRender = [
+    assistantRule('Hide card check transcript',
+        /^\[(?:Opposed )?Check Request\s*\|[^\]\r\n]{1,512}\][ \t]*(?:\r?\n>[ \t]*(?!\[(?:Opposed )?Check Result\b)[^\r\n]{0,1024}){1,32}\r?\n>[ \t]*\[(?:Opposed )?Check Result\s*:[^\]\r\n]{1,512}\][ \t]*$/gim,
+        '', true, true),
+    assistantRule('Unfence control blocks',
+        /^[ \t]{0,3}```(?:html|xml)?[ \t]*\r?\n([ \t]*(?:<!--\s*GFX_(?:START|END)\s*-->|<(?:lpe_tail|vexa_tail|internal_states)\b[^>\n]{0,128}>)(?:(?!^[ \t]{0,3}```)[\s\S]){0,65536}?)\r?\n[ \t]{0,3}```[ \t]*\r?$/gim,
+        '$1', true, true),
+];
+// Handle untagged reasoning only ahead of the actual clock header. Match it first to
+// avoid creating nested disclosures when the model mixes plain and tagged notes.
+const preHeader = /^(?!\s*(?:```|<details\b|<(?:think|thinking|reasoning)>|\[🕰))([\s\S]{1,32768}?)(?=\[🕰\uFE0F?\s*\d{1,2}:\d{2}\s*(?:AM|PM)\s*\|)/iu;
+const thoughts = /<(think|thinking|reasoning)>((?:(?!<\/?(?:think|thinking|reasoning)>)[\s\S]){0,32768})<\/\1>/gi;
+beforeRender.push(
+    assistantRule('Strip preheader notes', preHeader, '', false, true),
+    assistantRule('Strip tagged thoughts', thoughts, '', false, true),
+    assistantRule('Fold preheader notes', preHeader, '<details><summary>Thoughts</summary>\n\n$1\n\n</details>\n\n', true, false),
+    assistantRule('Fold tagged thoughts', thoughts, '<details><summary>Thoughts</summary>\n\n$2\n\n</details>', true, false),
+);
+// ST replacements are capture templates. Normalize only the expected attributes at
+// their declared positions; a quote followed by the next field or > is a delimiter.
+const propTag = String.raw`<(?:lpe|vexa)_(?:sms|discord|parchment|terminal|notification|lore|msg)`;
+for (const [field, prefix, end] of [
+    ['first', propTag + String.raw` (?:title|term|from)=`, String.raw`(?= time=|>)`],
+    ['time', String.raw`<(?:lpe|vexa)_msg from="[^"<>\r\n]{1,120}" time=`, '(?=>)'],
+]) {
+    beforeRender.push(assistantRule('Normalize single quotes ' + field,
+        new RegExp(`(${prefix})'([^<>\\r\\n]{1,120}?)'${end}`, 'gi'), '$1"$2"', true, false));
+    // Escape paired quotation marks in names such as The "Grey" Seal.
+    beforeRender.push(assistantRule('Escape quoted words ' + field,
+        new RegExp(`(${prefix}"[^"<>\\r\\n]{0,120})"([^"<>\\r\\n]{1,120})"([^"<>\\r\\n]{0,120}")${end}`, 'gi'),
+        '$1&quot;$2&quot;$3', true, false));
+    beforeRender.push(assistantRule('Escape stray quote ' + field,
+        new RegExp(`(${prefix}"[^"<>\\r\\n]{0,120})"([^"<>\\r\\n]{0,120}")${end}`, 'gi'),
+        '$1&quot;$2', true, false));
+}
+const orphanProp = /<(?:lpe|vexa)_(sms|discord|msg|parchment|terminal|notification|lore)\b[^<>\r\n]{0,300}(?:>|(?=\r?$))(?![\s\S]{0,32000}?<\/(?:lpe|vexa)_\1>)/gim;
+preset.extensions.regex_scripts = [
+    ...keptRegexes.filter(rule => rule.scriptName.startsWith('ShieldGemma deobfuscation')),
+    ...beforeRender,
+    assistantRule('Recover incomplete prop', orphanProp, '', true, true),
+    ...keptRegexes.filter(rule => !rule.scriptName.startsWith('ShieldGemma deobfuscation')),
+    ...externalTailRegexes,
+    assistantRule('Recover incomplete tail', INCOMPLETE_TAIL, '', true, true)];
 
 fs.mkdirSync(path.dirname(OUT_USER_PRESET), { recursive: true });
 fs.writeFileSync(OUT_USER_PRESET, JSON.stringify(preset, null, 4), 'utf8');
@@ -256,5 +321,5 @@ fs.writeFileSync(OUT_USER_PRESET, JSON.stringify(preset, null, 4), 'utf8');
 console.log(`Built Magnum Opus (LPE External-State) preset:
   - Source: ${SOURCE_PRESET}
   - Output: ${OUT_USER_PRESET}
-  - Prompts: ${preset.prompts.length} (Dynamic World prompts preserved)
-  - Regexes: ${preset.extensions.regex_scripts.length} (kept ${keptRegexes.length} prose/voice/tone/prop/lore/deobf + added 2 tail scripts)`);
+  - Prompts: ${preset.prompts.length}
+  - Regexes: ${preset.extensions.regex_scripts.length}`);

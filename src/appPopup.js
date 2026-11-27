@@ -374,6 +374,7 @@ export function createLpeAppPopup({
             drawerOpen: false,
             activeRailTab: 'overview',
             drawerSubTabs: {},
+            railDock: { side: 'right', top: null },
         };
         try {
             const raw = localStorage.getItem(RAIL_STATE_KEY);
@@ -388,6 +389,10 @@ export function createLpeAppPopup({
                 drawerOpen: !railCollapsed && Boolean(parsed.drawerOpen),
                 activeRailTab: validRailIds.has(parsed.activeRailTab) ? parsed.activeRailTab : 'overview',
                 drawerSubTabs: parsed.drawerSubTabs && typeof parsed.drawerSubTabs === 'object' ? parsed.drawerSubTabs : {},
+                railDock: {
+                    side: parsed.railDock?.side === 'left' ? 'left' : 'right',
+                    top: Number.isFinite(parsed.railDock?.top) ? Math.max(0, parsed.railDock.top) : null,
+                },
             };
         } catch {
             return defaults;
@@ -400,6 +405,94 @@ export function createLpeAppPopup({
         try {
             localStorage.setItem(RAIL_STATE_KEY, JSON.stringify(railState));
         } catch { /* ignore */ }
+    }
+
+    function setRailDock(side, top) {
+        railState.railDock = { side, top };
+        saveRailState();
+        syncRailDock();
+    }
+
+    function syncRailDock() {
+        const { side, top } = railState.railDock;
+        $('body').toggleClass('lpe-rail-docked-left', side === 'left')
+            .css('--lpe-rail-top', top === null ? '' : `${top}px`);
+    }
+
+    function bindRailDrag($handle, $target, { tail = false } = {}) {
+        const handle = $handle[0];
+        const target = $target[0];
+        let drag = null;
+        let snapAnimation;
+        let suppressClick = false;
+
+        function move(event) {
+            if (!drag || drag.id !== event.pointerId) return;
+            const dx = event.clientX - drag.x;
+            const dy = event.clientY - drag.y;
+            if (!drag.moved) {
+                if (Math.hypot(dx, dy) < 5) return;
+                snapAnimation?.cancel();
+                drag.moved = true;
+            }
+
+            const { width, height } = target.getBoundingClientRect();
+            const left = Math.max(0, Math.min(window.innerWidth - width, drag.left + dx));
+            const top = Math.max(0, Math.min(window.innerHeight - height, drag.top + dy));
+            $target.addClass('lpe-rail-dragging')
+                .css({ '--lpe-rail-drag-x': `${left}px`, '--lpe-rail-drag-y': `${top}px` });
+        }
+
+        function finish(event) {
+            if (!drag || drag.id !== event.pointerId) return;
+            if (event.type === 'pointerup') move(event);
+            const { id, moved, tailOffset } = drag;
+            drag = null;
+            if (handle.hasPointerCapture(id)) handle.releasePointerCapture(id);
+            if (!moved) return;
+            suppressClick = true;
+
+            const from = target.getBoundingClientRect();
+            $target.removeClass('lpe-rail-dragging')
+                .css({ '--lpe-rail-drag-x': '', '--lpe-rail-drag-y': '' });
+            if (!from.width || !from.height) return;
+
+            const side = from.left + from.width / 2 < window.innerWidth / 2 ? 'left' : 'right';
+            setRailDock(side, Math.max(0, Math.round(from.top - tailOffset)));
+
+            if (!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
+                const to = target.getBoundingClientRect();
+                snapAnimation = target.animate?.([
+                    { translate: `${from.left - to.left}px ${from.top - to.top}px` },
+                    { translate: '0 0' },
+                ], { duration: 220, easing: 'ease-out' });
+            }
+        }
+
+        $handle.off('.lpeRailDrag')
+            .on('pointerdown.lpeRailDrag', (e) => {
+                const event = e.originalEvent ?? e;
+                if (drag || event.button !== 0 || event.isPrimary === false) return;
+                suppressClick = false;
+                if (tail && !railState.railCollapsed) return;
+                const { left, top } = target.getBoundingClientRect();
+                const tailOffset = tail ? 0 : top - $('#lpe_rail_expand_btn')[0].getBoundingClientRect().top;
+                handle.setPointerCapture(event.pointerId);
+                drag = { id: event.pointerId, x: event.clientX, y: event.clientY, left, top, tailOffset, moved: false };
+            })
+            .on('pointermove.lpeRailDrag', (e) => move(e.originalEvent ?? e))
+            .on('pointerup.lpeRailDrag pointercancel.lpeRailDrag lostpointercapture.lpeRailDrag', (e) => finish(e.originalEvent ?? e))
+            .on('click.lpeRailDrag', (e) => {
+                const keyboard = (e?.originalEvent ?? e)?.detail === 0;
+                if (suppressClick && !keyboard) {
+                    suppressClick = false;
+                    return;
+                }
+                if (tail) setRailCollapsed(!railState.railCollapsed);
+                else if (keyboard) setRailDock('right', null);
+            });
+
+        if (!tail) $handle.on('dblclick.lpeRailDrag', () => setRailDock('right', null));
     }
 
     function getRailTabDef(railTabId = railState.activeRailTab) {
@@ -590,10 +683,9 @@ export function createLpeAppPopup({
         }).join('');
 
         return `
-            <button type="button" id="lpe_rail_collapse" class="lpe-rail-btn lpe-rail-toggle" title="Collapse LPE side rail" aria-label="Collapse LPE side rail" aria-controls="lpe_rail lpe_drawer" aria-expanded="true">
-                <i class="fa-solid fa-angles-right" aria-hidden="true"></i>
+            <button type="button" id="lpe_rail_drag_handle" class="lpe-rail-grip" title="Drag rail · double-click to reset" aria-label="Move LPE rail. Enter resets its position.">
+                <i class="fa-solid fa-grip-lines" aria-hidden="true"></i>
             </button>
-            <div class="lpe-rail-divider"></div>
             <nav class="lpe-rail-nav" aria-label="LPE Quick Rail Navigation">${itemsHtml}</nav>
             <div class="lpe-rail-spacer"></div>
             <div class="lpe-rail-footer">
@@ -669,9 +761,9 @@ export function createLpeAppPopup({
             syncChrome();
         }
         saveRailState();
-        const focusTarget = collapsed ? '#lpe_rail_expand_btn'
-            : ($('#lpe_rail').prop('hidden') ? '#lpe_fab_btn' : '#lpe_rail_collapse');
-        $(focusTarget)[0]?.focus({ preventScroll: true });
+        if ($('#lpe_rail_expand_btn').prop('hidden')) {
+            $('#lpe_fab_btn')[0]?.focus({ preventScroll: true });
+        }
     }
 
     function toggleDrawer(railTabId = null) {
@@ -712,12 +804,14 @@ export function createLpeAppPopup({
     function mount({ restoreDrawer = true } = {}) {
         if (!$('#lpe_chrome_controls').length) {
             $('body').append(`
-                <div id="lpe_chrome_controls" class="lpe-chrome-controls">
-                    <button type="button" id="lpe_topbar_toggle" class="lpe-chrome-btn" aria-controls="top-bar top-settings-holder" aria-expanded="true" aria-label="Collapse SillyTavern top bar" title="Collapse SillyTavern top bar" hidden>
-                        <i class="fa-solid fa-chevron-up" aria-hidden="true"></i>
+                <div id="lpe_chrome_controls">
+                    <button type="button" id="lpe_topbar_toggle" class="lpe-tail" aria-controls="top-bar top-settings-holder" aria-expanded="true" aria-label="Collapse SillyTavern top bar" hidden>
+                        <i class="lpe-tail-icon fa-solid fa-chevron-up" aria-hidden="true"></i>
+                        <span id="lpe_topbar_tail_label" class="lpe-tail-label" aria-hidden="true">Hide top bar</span>
                     </button>
-                    <button type="button" id="lpe_rail_expand_btn" class="lpe-chrome-btn" aria-controls="lpe_rail" aria-expanded="false" aria-label="Restore LPE side rail" title="Restore LPE side rail" hidden>
-                        <i class="fa-solid fa-angles-left" aria-hidden="true"></i><span>LPE</span>
+                    <button type="button" id="lpe_rail_expand_btn" class="lpe-tail" aria-controls="lpe_rail lpe_drawer lpe_fab_btn" aria-expanded="true" aria-label="Collapse LPE side rail" hidden>
+                        <i class="lpe-tail-icon fa-solid fa-chevron-right" aria-hidden="true"></i>
+                        <span id="lpe_rail_tail_label" class="lpe-tail-label" aria-hidden="true">Hide LPE rail</span>
                     </button>
                 </div>
             `);
@@ -817,9 +911,10 @@ export function createLpeAppPopup({
             saveRailState();
             syncChrome();
         });
-        $('#lpe_rail_expand_btn').off('.lpeChrome').on('click.lpeChrome', () => setRailCollapsed(false));
+        const $railTail = $('#lpe_rail_expand_btn');
+        bindRailDrag($railTail, $railTail, { tail: true });
+        bindRailDrag($('#lpe_rail_drag_handle'), $rail);
         $rail.off('.lpeRail');
-        $rail.on('click.lpeRail', '#lpe_rail_collapse', () => setRailCollapsed(true));
         $rail.on('click.lpeRail', '.lpe-rail-item', function () {
             const tabId = String($(this).data('rail-tab') || 'overview');
             toggleDrawer(tabId);
@@ -915,15 +1010,19 @@ export function createLpeAppPopup({
         const $topbarToggle = $('#lpe_topbar_toggle');
         const topbarLabel = topBarCollapsed ? 'Restore SillyTavern top bar' : 'Collapse SillyTavern top bar';
         $topbarToggle.prop('hidden', !showLauncher && !topBarCollapsed)
-            .attr({ 'aria-expanded': String(!topBarCollapsed), 'aria-label': topbarLabel, title: topbarLabel });
-        const railLabel = isDesktop ? 'Restore LPE side rail' : 'Restore LPE launcher';
-        $('#lpe_rail_expand_btn').prop('hidden', !showLauncher || !railCollapsed)
-            .attr({ 'aria-label': railLabel, title: railLabel });
+            .attr({ 'aria-expanded': String(!topBarCollapsed), 'aria-label': topbarLabel });
+        $('#lpe_topbar_tail_label').text(topBarCollapsed ? 'Show top bar' : 'Hide top bar');
+
+        const railLabel = railCollapsed ? (isDesktop ? 'Restore LPE side rail' : 'Restore LPE launcher') : 'Collapse LPE side rail';
+        $('#lpe_rail_expand_btn').prop('hidden', !showLauncher || (!isDesktop && !railCollapsed))
+            .attr({ 'aria-expanded': String(!railCollapsed), 'aria-label': railLabel });
+        $('#lpe_rail_tail_label').text(railCollapsed ? (isDesktop ? 'Show LPE rail' : 'Show LPE launcher') : 'Hide LPE rail');
 
         $('body')
             .toggleClass('lpe-topbar-collapsed', Boolean($topbarToggle.length && topBarCollapsed))
             .toggleClass('lpe-rail-collapsed', railCollapsed)
             .toggleClass('lpe-drawer-open', showLauncher && isDesktop && !railCollapsed && drawerOpen);
+        syncRailDock();
 
         const $fab = $('#lpe_fab_btn');
         if ($fab.length) {

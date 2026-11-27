@@ -33,6 +33,11 @@ READ THE ATLAS MAP (<state:locations>) AS PHYSICAL 3D SPACE:
 - exits & adj: treat physical doors/bulkheads, wall seams, ceiling heights, glass containment, and elevated walkways as real line-of-sight and acoustic boundaries when narrating movement, cover, combat range, and who can see/hear what.
 </spatial_grounding>`;
 
+// Also used by the preset's display/history regexes. A second opener bounds a
+// damaged block. For a missing closer discard only recognizable receipt fields.
+export const COMPLETE_TAIL = /<(lpe|vexa)_tail\b[^<>\r\n]{0,128}>(?:(?!<(?:lpe|vexa)_tail\b)[\s\S]){0,32768}?<\/\1_tail[\s\u2800]*>(?:[\s\u2800]*<!--[\s\u2800]*GFX_END[\s\u2800]*-->)?/gi;
+export const INCOMPLETE_TAIL = /<(?:lpe|vexa)_tail\b[^<>\r\n]{0,128}(?:>|(?=\r?$))(?:[ \t]*(?:\r?\n)?[ \t]*<(?:lpe|vexa)_receipt>(?:[ \t]*(?:\r?\n)?[ \t]*(?:world_sim|chekhov|arc|ooc|tracker_propose):[^<>\r\n]{0,1024}){0,8}(?:\s*<\/(?:lpe|vexa)_receipt>)?)?/gim;
+
 /** Remove historical <internal_states>, <lpe_tail>, and legacy <vexa_tail> blocks from assistant chat messages. */
 export function stripStateAndTailFromMessage(content) {
     if (typeof content !== 'string' || !content) return content;
@@ -43,8 +48,7 @@ export function stripStateAndTailFromMessage(content) {
     out = out.replace(/<internal_states\b[^>]*>[\s\S]*$/i, '');
 
     // Strip <lpe_tail> / legacy <vexa_tail> (plus attached terminal GFX_END)
-    out = out.replace(/<(?:lpe|vexa)_tail\b[^>]*>[\s\S]*?<\/(?:lpe|vexa)_tail\s*>\s*(?:<!--[\s\u2800]*GFX_END[\s\u2800]*-->)?/gi, '');
-    out = out.replace(/<(?:lpe|vexa)_tail\b[^>]*>[\s\S]*$/i, '');
+    out = out.replace(COMPLETE_TAIL, '').replace(INCOMPLETE_TAIL, '');
 
     // Strip standalone trailing <state:vent>
     out = out.replace(/<state:vent\b[^>]*>[\s\S]*?<\/state:vent\s*>\s*(?:<!--[\s\u2800]*GFX_END[\s\u2800]*-->)?/gi, '');

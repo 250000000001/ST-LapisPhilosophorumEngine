@@ -709,7 +709,6 @@
 
 #lpe_fab_btn,
 #lpe_app_overlay,
-#lpe_chrome_controls,
 #lpe_rail,
 #lpe_drawer {
     --lpe-bg-main: var(--lpe-surface-deep, #171717);
@@ -825,55 +824,131 @@ body.lpe-topbar-collapsed #sheld {
     max-height: calc(100dvh - var(--topBarBlockSize) - 1px);
 }
 
-#lpe_chrome_controls {
-    position: fixed;
-    top: calc(max(var(--topBarBlockSize, 42px), env(safe-area-inset-top, 0px)) + 8px);
-    right: calc(12px + env(safe-area-inset-right, 0px));
-    z-index: 2511;
-    display: flex;
-    flex-direction: column;
-    align-items: flex-end;
-    gap: 6px;
+body {
+    --lpe-chrome-top: max(var(--topBarBlockSize, 42px), env(safe-area-inset-top, 0px));
+    --lpe-tail-icon-width: 26px;
+    --lpe-tail-label-width: min(7.5rem, 38vw);
+    --lpe-tail-slot: 32px;
+    --lpe-rail-min-y: calc(var(--lpe-chrome-top) + 1px);
+    --lpe-rail-bottom: max(16px, env(safe-area-inset-bottom, 0px));
+    --lpe-rail-max-y: calc(100dvh - var(--lpe-rail-bottom) - 376px);
+    --lpe-rail-y: clamp(var(--lpe-rail-min-y), var(--lpe-rail-top, var(--lpe-rail-min-y)), var(--lpe-rail-max-y));
+    --lpe-rail-panel-top: calc(var(--lpe-rail-y) + var(--lpe-tail-slot) - 1px);
 }
 
-.lpe-chrome-btn {
+body.lpe-rail-collapsed {
+    --lpe-rail-max-y: calc(100dvh - var(--lpe-rail-bottom) - 26px);
+}
+
+body.lpe-rail-docked-left {
+    --lpe-rail-min-y: calc(var(--lpe-chrome-top) + var(--lpe-tail-slot));
+}
+
+/* Use the side gutters when chat is centered. Wide chat gets space above its first line. */
+body:not(.movingUI, .waifuMode):has(#lpe_chrome_controls .lpe-tail:not([hidden])) #sheld {
+    --lpe-tail-width: calc(var(--lpe-tail-icon-width) + var(--lpe-tail-label-width) + 2px);
+    --lpe-chat-gutter: var(--lpe-chat-side-gap, calc((100vw - var(--sheldWidth, 100vw)) / 2));
+    --lpe-chat-top: calc(var(--lpe-chrome-top) + clamp(0px, var(--lpe-tail-width) + var(--lpe-tail-slot)
+        + max(env(safe-area-inset-left, 0px), env(safe-area-inset-right, 0px)) - var(--lpe-chat-gutter), var(--lpe-tail-slot)));
+    top: var(--lpe-chat-top);
+    height: calc(100vh - var(--lpe-chat-top) - 1px);
+    height: calc(100dvh - var(--lpe-chat-top) - 1px);
+    max-height: calc(100dvh - var(--lpe-chat-top) - 1px);
+}
+
+.lpe-tail {
+    position: fixed;
+    top: calc(var(--lpe-chrome-top) + 1px);
+    z-index: 2511;
     display: inline-flex;
     align-items: center;
-    justify-content: center;
-    gap: 5px;
-    min-width: 36px;
-    height: 36px;
-    padding: 0 8px;
-    border: 1px solid var(--lpe-hairline-strong);
-    border-radius: 10px;
-    background: var(--lpe-bg);
+    height: 26px;
+    padding: 0;
+    box-sizing: border-box;
+    border: 1px solid rgba(154, 214, 207, 0.38);
+    border-radius: 0 7px 7px 0;
+    background: rgba(29, 29, 32, 0.94);
     backdrop-filter: blur(12px);
-    color: var(--lpe-accent-1);
-    box-shadow: var(--lpe-spec);
+    color: #9ad6cf;
+    box-shadow: 0 3px 10px rgba(0, 0, 0, 0.3);
     cursor: pointer;
-    font: 600 0.8rem var(--lpe-font-sans);
+    font: 600 0.75rem var(--lpe-font-sans);
+    font-variant-numeric: tabular-nums;
+    transition: color 180ms ease, border-color 180ms ease;
 }
 
-.lpe-chrome-btn:hover {
-    background: var(--lpe-bg-elevated);
-}
-
-.lpe-chrome-btn[hidden] {
+.lpe-tail[hidden] {
     display: none;
 }
 
-#lpe_topbar_toggle[aria-expanded="false"] i {
+#lpe_topbar_toggle {
+    left: env(safe-area-inset-left, 0px);
+}
+
+#lpe_rail_expand_btn {
+    top: var(--lpe-rail-y);
+    right: env(safe-area-inset-right, 0px);
+    flex-direction: row-reverse;
+    border-radius: 7px 0 0 7px;
+}
+
+body.lpe-rail-docked-left #lpe_rail_expand_btn {
+    right: auto;
+    left: env(safe-area-inset-left, 0px);
+    flex-direction: row;
+    border-radius: 0 7px 7px 0;
+}
+
+body.lpe-rail-docked-left #lpe_rail_expand_btn .lpe-tail-icon {
+    scale: -1 1;
+}
+
+#lpe_rail_expand_btn[aria-expanded="false"],
+.lpe-rail-grip {
+    cursor: grab;
+    touch-action: none;
+    user-select: none;
+}
+
+.lpe-tail-icon {
+    flex: 0 0 var(--lpe-tail-icon-width);
+    text-align: center;
+    transition: transform 180ms ease;
+}
+
+.lpe-tail[aria-expanded="false"] .lpe-tail-icon {
     transform: rotate(180deg);
+}
+
+.lpe-tail-label {
+    box-sizing: border-box;
+    max-inline-size: 0;
+    opacity: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    transition: max-inline-size 200ms ease, opacity 180ms ease, padding-inline 200ms ease;
+}
+
+.lpe-tail:is(:hover, :focus-visible) {
+    color: #f1be9a;
+    border-color: rgba(241, 190, 154, 0.65);
+}
+
+.lpe-tail:is(:hover, :focus-visible) .lpe-tail-label {
+    max-inline-size: var(--lpe-tail-label-width);
+    opacity: 1;
+    padding-inline: 4px;
 }
 
 /* Persistent Slim Vertical Quick Rail (Desktop >= 1000px) */
 #lpe_rail {
     position: fixed;
-    top: calc(max(var(--topBarBlockSize, 42px), env(safe-area-inset-top, 0px)) + 51px);
-    right: 12px;
+    top: var(--lpe-rail-panel-top);
+    right: calc(12px + env(safe-area-inset-right, 0px));
     z-index: 2500;
     width: 48px;
-    max-height: calc(100dvh - var(--topBarBlockSize, 42px) - 67px);
+    max-height: calc(100dvh - var(--lpe-rail-panel-top) - var(--lpe-rail-bottom));
     padding: 7px 0;
     border-radius: 13px;
     background: var(--lpe-bg, rgba(29, 29, 32, 0.88));
@@ -889,6 +964,41 @@ body.lpe-topbar-collapsed #sheld {
     transition: opacity 0.2s var(--lpe-ease), transform 0.2s var(--lpe-ease);
 }
 
+body.lpe-rail-docked-left #lpe_rail {
+    right: auto;
+    left: calc(12px + env(safe-area-inset-left, 0px));
+}
+
+body #lpe_rail.lpe-rail-dragging,
+body #lpe_rail_expand_btn.lpe-rail-dragging {
+    top: var(--lpe-rail-drag-y);
+    left: var(--lpe-rail-drag-x);
+    right: auto;
+    z-index: 2512;
+    transition: none;
+}
+
+.lpe-rail-grip {
+    flex: 0 0 auto;
+    padding: 2px 10px;
+    color: var(--lpe-accent-1);
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    font-size: 0.8rem;
+    line-height: 1.1;
+}
+
+.lpe-rail-grip:hover {
+    background: var(--lpe-bg-elevated);
+    border-color: var(--lpe-hairline);
+}
+
+#lpe_rail_expand_btn.lpe-rail-dragging,
+.lpe-rail-dragging .lpe-rail-grip {
+    cursor: grabbing;
+}
+
 #lpe_rail[hidden],
 body.lpe-rail-collapsed #lpe_rail,
 body.lpe-rail-collapsed #lpe_drawer {
@@ -897,13 +1007,6 @@ body.lpe-rail-collapsed #lpe_drawer {
 
 #lpe_rail.is-off {
     opacity: 0.65;
-}
-
-.lpe-rail-divider {
-    width: 24px;
-    height: 1px;
-    background: var(--lpe-hairline);
-    margin: 2px 0;
 }
 
 .lpe-rail-nav {
@@ -975,6 +1078,26 @@ body.lpe-rail-collapsed #lpe_drawer {
     transform: translateY(-50%) translateX(0);
 }
 
+body.lpe-rail-docked-left .lpe-rail-tip {
+    right: auto;
+    left: calc(100% + 10px);
+}
+
+@media (max-height: 450px) {
+    .lpe-rail-nav {
+        min-height: 0;
+        overflow-y: auto;
+    }
+
+    .lpe-rail-item {
+        flex-shrink: 0;
+    }
+
+    .lpe-rail-tip {
+        display: none;
+    }
+}
+
 .lpe-rail-alert-dot {
     position: absolute;
     top: 5px;
@@ -1024,9 +1147,9 @@ body.lpe-rail-collapsed #lpe_drawer {
 /* Slide-Out Frosted Glass Drawer */
 #lpe_drawer {
     position: fixed;
-    top: calc(var(--topBarBlockSize, 42px) + 14px);
-    right: 68px;
-    bottom: 16px;
+    top: var(--lpe-rail-panel-top);
+    right: calc(68px + env(safe-area-inset-right, 0px));
+    bottom: var(--lpe-rail-bottom);
     width: min(424px, calc(100vw - 88px));
     z-index: 2499;
     background: var(--lpe-bg, rgba(29, 29, 32, 0.88));
@@ -1041,7 +1164,7 @@ body.lpe-rail-collapsed #lpe_drawer {
     flex-direction: column;
     overflow: hidden;
     opacity: 0;
-    transform: translateX(18px);
+    transform: translateX(var(--lpe-drawer-slide, 18px));
     pointer-events: none;
     transition: opacity 0.2s var(--lpe-ease), transform 0.22s var(--lpe-ease);
 }
@@ -1052,11 +1175,27 @@ body.lpe-rail-collapsed #lpe_drawer {
     pointer-events: auto;
 }
 
+@media (min-width: 1000px) {
+    body.lpe-rail-docked-left #lpe_drawer {
+        --lpe-drawer-slide: -18px;
+        right: auto;
+        left: calc(68px + env(safe-area-inset-left, 0px));
+        border-left: 1px solid var(--lpe-hairline);
+        border-right: 3px solid color-mix(in srgb, var(--lpe-accent-1) 55%, transparent);
+    }
+}
+
 @media (min-width: 1120px) {
     body.lpe-drawer-open:not(.lpe-rail-collapsed):not(.movingUI) #sheld {
+        --lpe-chat-side-gap: 0px;
         right: 500px;
         max-width: calc(100vw - 524px);
-        transition: right 0.22s var(--lpe-ease), max-width 0.22s var(--lpe-ease);
+        transition: left 0.22s var(--lpe-ease), right 0.22s var(--lpe-ease), max-width 0.22s var(--lpe-ease);
+    }
+
+    body.lpe-drawer-open.lpe-rail-docked-left:not(.lpe-rail-collapsed):not(.movingUI) #sheld {
+        left: 500px;
+        right: 0;
     }
 }
 
@@ -2371,7 +2510,18 @@ body.lpe-rail-collapsed #lpe_drawer {
 }
 
 /* Responsive Drawer Bottom Sheet (<1000px) & Mobile Modal Dock */
+@media (max-width: 1000px) {
+    #sheld {
+        --lpe-chat-side-gap: 0px;
+    }
+}
+
 @media (max-width: 999.98px) {
+    body.lpe-rail-collapsed {
+        /* The restore tail stays near the top, clear of the composer. */
+        --lpe-rail-max-y: min(calc(var(--lpe-chrome-top) + 112px), calc(45dvh - 26px));
+    }
+
     #lpe_rail {
         display: none !important;
     }
@@ -2384,7 +2534,7 @@ body.lpe-rail-collapsed #lpe_drawer {
         width: auto;
         max-width: none;
         height: min(76dvh, 620px);
-        max-height: calc(100dvh - max(var(--topBarBlockSize, 42px), env(safe-area-inset-top, 0px)) - 60px - env(safe-area-inset-bottom, 0px));
+        max-height: calc(100dvh - var(--lpe-chrome-top) - var(--lpe-tail-slot) - 8px - env(safe-area-inset-bottom, 0px));
         border-left-width: 1px;
         border-top: 2px solid color-mix(in srgb, var(--lpe-accent-1) 65%, transparent);
         border-radius: 16px;
@@ -4056,7 +4206,7 @@ body.lpe-rail-collapsed #lpe_drawer {
 #lpe_app_overlay input:focus-visible,
 #lpe_app_overlay select:focus-visible,
 #lpe_app_overlay .lpe-switch-row:focus-visible,
-.lpe-chrome-btn:focus-visible,
+.lpe-tail:focus-visible,
 #lpe_fab_btn:focus-visible {
     outline: 2px solid var(--lpe-accent-1, #9AD6CF);
     outline-offset: 2px;
@@ -4079,6 +4229,10 @@ body.lpe-rail-collapsed #lpe_drawer {
     #lpe_drawer,
     #lpe_fab_btn,
     #lpe_fab_btn.is-drawer-open,
+    .lpe-tail,
+    .lpe-tail-icon,
+    .lpe-tail-label,
+    body.lpe-drawer-open #sheld,
     .lpe-bar-fill,
     .lpe-axis-fill,
     .lpe-tile,
