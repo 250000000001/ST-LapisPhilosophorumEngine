@@ -64,6 +64,8 @@ The companion external-state preset (**Magnum Opus**, [`Presets/Magnum Opus.json
 
 See [`docs/card-adaptation/`](docs/card-adaptation/01-overview-and-offloading.md) for the full card-conversion & scripting playbook.
 
+Build and preview sandboxed card panels with the [LPE Card Authoring Kit](templates/lpe-card-template/README.md). For existing cards, follow the [migration workflow](templates/lpe-card-template/migration/MIGRATION_WORKFLOW.md) and run the [headless EJS validator](scripts/verify-ejs-headless.mjs).
+
 ## UI & Companion Theme (`Magnum Opus Glass`)
 
 LPE ships with a native dual-accent dark frosted-glass design system (`.lpe-*`) and an optional companion SillyTavern UI Theme preset:

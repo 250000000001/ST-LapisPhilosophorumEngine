@@ -2,6 +2,12 @@
 
 Every converted card MUST pass both static offline checks (`audit-card.mjs` + headless `ejsEngine.js`) and an isolated live SillyTavern smoke test before release.
 
+Follow the [migration workflow](../../templates/lpe-card-template/migration/MIGRATION_WORKFLOW.md) to extract and repack a card. Run the [headless EJS validator](../../scripts/verify-ejs-headless.mjs) alongside the audit.
+
+```sh
+node scripts/verify-ejs-headless.mjs "./migrated.png" --json
+```
+
 ---
 
 ## 1. Running `scripts/audit-card.mjs`
@@ -11,7 +17,7 @@ node scripts/audit-card.mjs "<path/to/card.png_or_json>" --json --out audit.json
 ```
 
 - Exits **`1`** whenever `summary.blockers > 0` (unless `--no-fail` is passed for baseline telemetry).
-- Inspects `tEXt` (`chara` / `ccv3`) PNG chunks, core fields, `extensions.regex_scripts`, HTML frontend blocks, and all `character_book.entries`.
+- Inspects `chara` / `ccv3` PNG text chunks, core fields, `extensions.regex_scripts`, HTML frontend blocks, and all `character_book.entries`.
 
 ### Issue Severity Definitions
 - **`BLOCKER`** (must hit **`0`** before shipping):

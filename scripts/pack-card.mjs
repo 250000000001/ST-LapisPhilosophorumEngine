@@ -75,7 +75,7 @@ function repackPngLossless(srcPngPath, outPngPath, cardObj) {
     }
 
     const b64 = Buffer.from(JSON.stringify(cardObj), 'utf8').toString('base64');
-    const charaChunk = makeTextChunk('chara', b64);
+    const charaChunk = makeTextChunk(cardObj.spec === 'chara_card_v3' ? 'ccv3' : 'chara', b64);
     const outBuf = Buffer.concat([sig, ...beforeIdat, charaChunk, ...fromIdatToEnd]);
     fs.mkdirSync(path.dirname(path.resolve(outPngPath)), { recursive: true });
     fs.writeFileSync(outPngPath, outBuf);
@@ -93,15 +93,18 @@ function resolveDot(obj, dotPath) {
     return cur;
 }
 
+const usage = 'Usage: node scripts/pack-card.mjs --src <input.png> --work <workDir> --out <output.png> [--parts | --book-name <name> --allow-cjk]';
+
 function parseCliArgs(argv) {
     if (argv.includes('--help') || argv.includes('-h')) {
-        console.log('Usage: node scripts/pack-card.mjs --src <input.png> --work <workDir> --out <output.png> [--book-name <name>] [--allow-cjk]');
+        console.log(usage);
         process.exit(0);
     }
     const opts = { src: '', work: '', out: '', bookName: '', allowCjk: false };
     for (let i = 0; i < argv.length; i++) {
         const a = argv[i];
         if (a === '--allow-cjk') opts.allowCjk = true;
+        else if (a === '--parts') opts.parts = true;
         else if (a === '--src') opts.src = argv[++i] || '';
         else if (a === '--work') opts.work = argv[++i] || '';
         else if (a === '--out') opts.out = argv[++i] || '';
@@ -109,7 +112,7 @@ function parseCliArgs(argv) {
         else throw new Error(`Unknown CLI argument: ${a}`);
     }
     if (!opts.src || !opts.work || !opts.out) {
-        throw new Error('Missing required arguments. Usage: node scripts/pack-card.mjs --src <input.png> --work <workDir> --out <output.png> [--book-name <name>] [--allow-cjk]');
+        throw new Error(usage);
     }
     return {
         srcPng: path.resolve(opts.src),
@@ -117,10 +120,62 @@ function parseCliArgs(argv) {
         outPng: path.resolve(opts.out),
         bookName: opts.bookName.trim(),
         allowCjk: opts.allowCjk,
+        parts: opts.parts,
     };
 }
 
-export function packCard({ srcPng, workDir, outPng, bookName = '', allowCjk = false }) {
+function packPartitionedCard({ srcPng, workDir, outPng }) {
+    if (srcPng === outPng || (fs.existsSync(outPng) && fs.realpathSync(srcPng) === fs.realpathSync(outPng))) {
+        throw new Error('Choose a separate output PNG.');
+    }
+    const partsDir = path.join(workDir, 'parts');
+    const read = (file) => JSON.parse(fs.readFileSync(path.join(partsDir, file), 'utf8'));
+    const card = read('core_fields.json');
+    const ui = read('regex_and_ui.json');
+    if (!['chara_card_v2', 'chara_card_v3'].includes(card?.spec) || !card.data) {
+        throw new Error('Expected a V2 or V3 card in core_fields.json.');
+    }
+    const batchFiles = fs.readdirSync(partsDir)
+        .filter((file) => /^wi_batch_\d+\.json$/.test(file))
+        .sort((a, b) => Number(a.match(/\d+/)[0]) - Number(b.match(/\d+/)[0]));
+    if (!batchFiles.length) throw new Error('No World Info batches in ' + partsDir);
+    const entries = [];
+    const keys = new Set();
+    let keyed;
+    for (const file of batchFiles) {
+        const batch = read(file);
+        const hasKeys = Array.isArray(batch.entry_keys);
+        keyed ??= hasKeys;
+        if (!Array.isArray(batch.entries) || hasKeys !== keyed
+            || (keyed && batch.entries.length !== batch.entry_keys.length)) {
+            throw new Error('Inconsistent World Info batch: ' + file);
+        }
+        for (const [index, entry] of batch.entries.entries()) {
+            if (!keyed) {
+                entries.push(entry);
+                continue;
+            }
+            const key = batch.entry_keys[index];
+            if (typeof key !== 'string' || keys.has(key)) throw new Error('Invalid or duplicate entry key in ' + file);
+            keys.add(key);
+            entries.push([key, entry]);
+        }
+    }
+    const raw = JSON.parse(fs.readFileSync(path.join(workDir, 'raw_card.json'), 'utf8'));
+    if (entries.length || raw.data?.character_book?.entries != null) {
+        card.data.character_book ??= {};
+        card.data.character_book.entries = keyed ? Object.fromEntries(entries) : entries;
+    }
+    if (Object.hasOwn(ui, 'regex_scripts')) {
+        card.data.extensions ??= {};
+        card.data.extensions.regex_scripts = ui.regex_scripts;
+    }
+    fs.writeFileSync(path.join(workDir, 'packed_card.json'), JSON.stringify(card, null, 2), 'utf8');
+    return { ok: true, outputPng: outPng, outputPngBytes: repackPngLossless(srcPng, outPng, card), wiEntryCount: entries.length };
+}
+
+export function packCard({ srcPng, workDir, outPng, bookName = '', allowCjk = false, parts = false }) {
+    if (parts) return packPartitionedCard({ srcPng, workDir, outPng });
     const outDir = path.join(workDir, 'out');
     const packedJsonPath = path.join(workDir, 'packed_card.json');
 

@@ -2,6 +2,8 @@
 
 Interactive card screens (character creation, status HUD panels, action menus) are rendered by `src/cardRenderer.js` + `src/cardBridge.js` inside isolated Blob-URL iframes without exposing host globals, SillyTavern internals, or API keys.
 
+The [LPE Card Authoring Kit](../../templates/lpe-card-template/README.md) provides bridge declarations, a sample panel, a single-file build, and a local sandbox preview. Use the [migration workflow](../../templates/lpe-card-template/migration/MIGRATION_WORKFLOW.md) to map extracted legacy panels back to their card fields.
+
 ---
 
 ## 1. Iframe Sandbox & Content Security Policy

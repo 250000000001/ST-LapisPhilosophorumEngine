@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Adventurer status</title>
+  <!-- LPE_STYLES -->
+</head>
+<body>
+  <main data-lpe-screen="origin" aria-labelledby="title">
+    <h1 id="title"><span class="lpe-ornament" aria-hidden="true">✦</span> Adventurer status</h1>
+    <dl>
+      <div><dt>Health</dt><dd id="health" class="lpe-number">—</dd></div>
+      <div><dt>Resolve</dt><dd id="resolve" class="lpe-number">—</dd></div>
+      <div><dt>Last 1d100</dt><dd id="roll" class="lpe-number">—</dd></div>
+    </dl>
+    <div class="actions">
+      <button id="roll-button" type="button">Roll 1d100</button>
+      <button id="queue-button" type="button">Queue scouting action</button>
+    </div>
+    <p id="status" role="status"></p>
+  </main>
+  <!-- LPE_SCRIPT -->
+</body>
+</html>

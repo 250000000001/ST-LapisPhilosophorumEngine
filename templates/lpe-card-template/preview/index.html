@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="icon" href="data:,">
+  <title>LPE card preview</title>
+  <style>
+    :root { color-scheme: dark; font-family: system-ui, sans-serif; }
+    body { margin: 1.25rem auto; padding: 0 1rem; max-width: 65rem; background: #1d1d20; color: #f4eee8; }
+    iframe { display: block; width: 100%; height: 240px; border: 0; }
+    section { padding: .9rem; border: 1px solid #9ad6cf55; border-radius: .6rem; margin-block: .8rem; }
+    h2 { margin: 0 0 .5rem; font-size: 1rem; color: #9ad6cf; }
+    pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 15rem; overflow: auto; }
+    button { font: inherit; }
+  </style>
+  <script defer src="../dist/preview-data.js"></script>
+  <script defer src="preview.js"></script>
+</head>
+<body>
+  <h1>LPE card preview</h1>
+  <label>Open built panel <input id="panel-file" type="file" accept=".html,text/html"></label>
+  <p id="notice" role="status"></p>
+  <iframe id="panel" title="Sandboxed card panel" sandbox="allow-scripts"></iframe>
+  <section id="confirmation" aria-label="Action confirmation" hidden>
+    <h2>Confirm action</h2>
+    <pre id="pending"></pre>
+    <button id="send" type="button">Confirm send</button>
+    <button id="cancel" type="button">Cancel</button>
+  </section>
+  <section><h2>Chat composer</h2><label>Draft <textarea id="composer" rows="2"></textarea></label><p id="sent" role="status"></p></section>
+  <section><h2>Live card_vars</h2><pre id="vars"></pre></section>
+  <section><h2>postMessage log</h2><pre id="messages"></pre></section>
+</body>
+</html>

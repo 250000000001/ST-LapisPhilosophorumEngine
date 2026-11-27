@@ -2,6 +2,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { inflateSync } from 'node:zlib';
 
 import {
     hasEjsTags,
@@ -34,24 +35,41 @@ function parsePngCard(filePath) {
         throw new Error(`Not a valid PNG file: ${filePath}`);
     }
     let off = 8;
-    const textChunks = {};
-    while (off + 8 <= buf.length) {
+    const textChunks = Object.create(null);
+    while (off + 12 <= buf.length) {
         const len = buf.readUInt32BE(off);
         const type = buf.subarray(off + 4, off + 8).toString('ascii');
-        if (type === 'tEXt') {
+        if (off + 12 + len > buf.length) throw new Error(`Truncated PNG chunk: ${filePath}`);
+        if (type === 'IEND') break;
+        if (['tEXt', 'zTXt', 'iTXt'].includes(type)) {
             const chunkData = buf.subarray(off + 8, off + 8 + len);
             const nul = chunkData.indexOf(0);
             if (nul > 0) {
                 const key = chunkData.subarray(0, nul).toString('latin1');
-                const val = chunkData.subarray(nul + 1).toString('latin1');
-                textChunks[key] = val;
+                if (key === 'chara' || key === 'ccv3') {
+                    let value = chunkData.subarray(nul + 1);
+                    if (type === 'zTXt') {
+                        if (value[0] !== 0) throw new Error('Unsupported PNG text compression method');
+                        value = inflateSync(value.subarray(1));
+                    } else if (type === 'iTXt') {
+                        const compressed = value[0];
+                        const languageEnd = value.indexOf(0, 2);
+                        const keywordEnd = languageEnd < 0 ? -1 : value.indexOf(0, languageEnd + 1);
+                        if (keywordEnd < 0 || compressed > 1 || value[1] !== 0) {
+                            throw new Error('Invalid PNG international text chunk');
+                        }
+                        value = value.subarray(keywordEnd + 1);
+                        if (compressed) value = inflateSync(value);
+                    }
+                    textChunks[key] = value.toString('ascii');
+                }
             }
         }
         off += 12 + len;
     }
     const rawB64 = textChunks.ccv3 || textChunks.chara;
     if (!rawB64) {
-        throw new Error(`No chara or ccv3 tEXt chunk found in PNG: ${filePath}`);
+        throw new Error(`No chara or ccv3 text chunk found in PNG: ${filePath}`);
     }
     const jsonStr = Buffer.from(rawB64, 'base64').toString('utf8');
     return {
@@ -65,12 +83,12 @@ function parsePngCard(filePath) {
     };
 }
 
-function loadCard(inputPath) {
+export function loadCard(inputPath) {
     const ext = path.extname(inputPath).toLowerCase();
     if (ext === '.json') {
         const raw = fs.readFileSync(inputPath, 'utf8');
         return {
-            card: JSON.parse(raw),
+            card: JSON.parse(raw.replace(/^\uFEFF/, '')),
             fileBytes: Buffer.byteLength(raw, 'utf8'),
             jsonBytes: Buffer.byteLength(raw, 'utf8'),
             hasCharaChunk: false,
@@ -177,7 +195,7 @@ export function auditCardFile(inputPath) {
         : [];
     const enabledEntries = rawEntries.filter((e) => e && e.enabled !== false);
     const disabledEntries = rawEntries.filter((e) => e && e.enabled === false);
-    const regexScripts = Array.isArray(d.extensions?.regex_scripts) ? d.extensions.regex_scripts : [];
+    const regexScripts = Object.values(d.extensions?.regex_scripts ?? {});
 
     // 1. Check PNG chunk bloat & size warnings
     if (loaded.fileBytes > 10 * 1024 * 1024) {
@@ -228,6 +246,7 @@ export function auditCardFile(inputPath) {
         ['data.system_prompt', d.system_prompt],
         ['data.post_history_instructions', d.post_history_instructions],
         ...(Array.isArray(d.alternate_greetings) ? d.alternate_greetings.map((g, i) => [`data.alternate_greetings[${i}]`, g]) : []),
+        ...(Array.isArray(d.group_only_greetings) ? d.group_only_greetings.map((g, i) => [`data.group_only_greetings[${i}]`, g]) : []),
     ];
 
     const stateSample = emptyState();

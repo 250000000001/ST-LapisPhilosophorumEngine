@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "key_map": {},
+  "wi_trigger_rules": {
+    "preserve_secondary_keys_and_matching_flags": true,
+    "require_context_specific_keys": true,
+    "replacements_by_entry": {}
+  },
+  "state_offload": {
+    "card_vars": {},
+    "tracker_propose": {},
+    "health_delta": {},
+    "atlas": {}
+  },
+  "glossary": {},
+  "detected": {
+    "init_var_keys": [],
+    "variable_identifiers": [],
+    "regex_anchors": []
+  }
+}
