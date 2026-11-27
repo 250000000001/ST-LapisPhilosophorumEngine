@@ -9,6 +9,8 @@
 import {
     LPE_THEMES,
     LPE_STYLES,
+    LPE_FONTS,
+    resolveLpeFont,
     PALETTE,
     cloneState,
     emptyState,
@@ -43,7 +45,7 @@ import {
 } from './healthDoll.js';
 import { fetchModelsList, extractErrorMessage } from './workerClient.js';
 import { DEFAULT_END_MARKER } from './retryDetector.js';
-import { getChatCompletionProfiles } from './st.js';
+import { getChatCompletionProfiles, getActiveUserName } from './st.js';
 import { evaluateEjs, shouldYieldEjs } from './ejsEngine.js';
 import { shouldYieldRenderer } from './cardRenderer.js';
 
@@ -272,8 +274,6 @@ export function createLpeAppPopup({
     getRecentStoryText = () => '',
     onImportChat,
     onRereadLast,
-    onManualUpdate,
-    getInstalledExtensionVersion,
     onResetChat,
     onCleanLastRefusal,
     onRetryToggleChanged,
@@ -324,47 +324,18 @@ export function createLpeAppPopup({
     let apiKeyVisible = false;
     let fabDragBound = false;
     let railDrawerRestoredOnce = false;
-    let manualUpdatePhase = 'idle';
-    let manualUpdateMessage = '';
 
-    function syncManualUpdate() {
-        for (const surface of ['drawer', 'app']) {
-            $(`#lpe_${surface}_manual_update`).prop('disabled', manualUpdatePhase === 'updating');
-            const $status = $(`#lpe_${surface}_update_status`);
-            if ($status.length && $status.text() !== manualUpdateMessage) {
-                $status.attr('data-phase', manualUpdatePhase).text(manualUpdateMessage);
-            }
-        }
+    function applyReadingFontVars() {
+        if (typeof document === 'undefined' || !document.documentElement?.style?.setProperty) return;
+        const font = resolveLpeFont(getSettings?.()?.readingFont);
+        document.documentElement.style.setProperty('--lpe-reading-font', font.stack);
+        document.documentElement.style.setProperty('--lpe-reading-line-height', font.lineHeight);
     }
 
-    async function runManualUpdate() {
-        if (manualUpdatePhase === 'updating') return;
-        manualUpdatePhase = 'updating';
-        manualUpdateMessage = 'Updating…';
-        syncManualUpdate();
-
-        // Yield before rebuilding the HUD so the pending status can paint.
-        await new Promise((resolve) => setTimeout(resolve, 0));
-        try {
-            if (onManualUpdate) await onManualUpdate();
-            else refresh();
-        } catch {
-            manualUpdatePhase = 'error';
-            manualUpdateMessage = 'Update failed. Try again.';
-            syncManualUpdate();
-            return;
-        }
-
-        let version;
-        try {
-            version = await getInstalledExtensionVersion?.();
-        } catch { /* The state refresh succeeded even if the manifest could not be read. */ }
-        const extensionStatus = typeof version === 'string' && version.trim()
-            ? `LPE v${version.trim()} is loaded.`
-            : 'The loaded extension version is unavailable.';
-        manualUpdatePhase = 'updated';
-        manualUpdateMessage = `Updated at ${new Date().toLocaleTimeString()}. ${extensionStatus} For extension updates, use SillyTavern’s Extensions menu or git pull.`;
-        syncManualUpdate();
+    function buildFontSelectHtml(id, extraClass = '') {
+        const cur = resolveLpeFont(getSettings?.()?.readingFont).id;
+        const opts = LPE_FONTS.map((f) => `<option value="${esc(f.id)}" ${f.id === cur ? 'selected' : ''}>${esc(f.label)}</option>`).join('');
+        return `<select id="${esc(id)}" class="lpe-font-quick-sel ${extraClass}" title="Reading &amp; Prose Font" aria-label="Reading and Prose Font">${opts}</select>`;
     }
 
     function loadRailState() {
@@ -535,6 +506,7 @@ export function createLpeAppPopup({
     }
 
     function notifySettingsChanged({ retryChanged = false } = {}) {
+        applyReadingFontVars();
         saveSettings?.();
         if (retryChanged) onRetryToggleChanged?.();
         onSettingsChanged?.();
@@ -840,12 +812,11 @@ export function createLpeAppPopup({
                             <span id="lpe_drawer_ct_pill" class="lpe-pill lpe-tabular">ct:0</span>
                         </div>
                         <div class="lpe-drawer-head-actions">
-                            <button type="button" id="lpe_drawer_manual_update" class="lpe-mini-btn lpe-drawer-hdr-btn lpe-manual-update" title="Manual Update" aria-label="Manual Update" aria-describedby="lpe_drawer_update_status"><i class="fa-solid fa-rotate" aria-hidden="true"></i><span>Update</span></button>
+                            ${buildFontSelectHtml('lpe_drawer_font_sel', 'lpe-drawer-hdr-btn')}
                             <button type="button" id="lpe_drawer_expand" class="lpe-mini-btn lpe-drawer-hdr-btn" title="Expand into Full Control Center"><i class="fa-solid fa-expand"></i><span> Full</span></button>
                             <button type="button" id="lpe_drawer_close" class="lpe-mini-btn lpe-drawer-hdr-btn" title="Close Drawer" aria-label="Close Drawer"><i class="fa-solid fa-xmark"></i></button>
                         </div>
                     </header>
-                    <div id="lpe_drawer_update_status" class="lpe-manual-update-status" role="status"></div>
                     <div id="lpe_drawer_mobile_tabs" class="lpe-drawer-mobile-tabs" aria-label="Mobile Rail Tabs"></div>
                     <div id="lpe_drawer_subpills" class="lpe-drawer-subpills" style="display:none;"></div>
                     <div id="lpe_drawer_stage" class="lpe-drawer-stage"></div>
@@ -872,14 +843,12 @@ export function createLpeAppPopup({
                                             <span id="lpe_app_worker_lbl">Working</span>
                                             <button type="button" id="lpe_app_stop_btn" class="lpe-mini-stop" title="Stop worker"><i class="fa-solid fa-stop"></i></button>
                                         </div>
+                                        ${buildFontSelectHtml('lpe_app_font_sel', 'lpe-app-btn secondary')}
                                         <button type="button" id="lpe_app_power" class="lpe-app-btn secondary" title="Toggle Lapis Philosophorum Engine on/off">
                                             <i class="fa-solid fa-power-off"></i> <span>On</span>
                                         </button>
                                         <button type="button" id="lpe_app_reread" class="lpe-app-btn secondary" title="Re-run LPE Clerk on latest AI reply">
                                             <i class="fa-solid fa-rotate"></i> <span>Re-read</span>
-                                        </button>
-                                        <button type="button" id="lpe_app_manual_update" class="lpe-app-btn secondary lpe-manual-update" title="Manual Update" aria-label="Manual Update" aria-describedby="lpe_app_update_status">
-                                            <i class="fa-solid fa-rotate" aria-hidden="true"></i><span>Update</span>
                                         </button>
                                         <button type="button" id="lpe_app_close" class="lpe-app-btn primary" title="Save &amp; Close">
                                             <i class="fa-solid fa-floppy-disk"></i> <span>Save &amp; Close</span>
@@ -891,7 +860,6 @@ export function createLpeAppPopup({
                                     <h2 class="lpe-hero-name" id="lpe_hero_name">Lapis Philosophorum Engine (LPE)</h2>
                                 </div>
                             </header>
-                            <div id="lpe_app_update_status" class="lpe-manual-update-status" role="status"></div>
                             <div class="lpe-app-stage" id="lpe_app_stage"></div>
                         </div>
                     </div>
@@ -924,7 +892,12 @@ export function createLpeAppPopup({
         });
 
         $drawer.off('.lpeDrawer');
-        $drawer.on('click.lpeDrawer', '#lpe_drawer_manual_update', runManualUpdate);
+        $drawer.on('change.lpeDrawer', '#lpe_drawer_font_sel', function (e) {
+            const rawVal = e?.target?.value ?? ($(this).length && typeof $(this).val === 'function' ? $(this).val() : $('#lpe_drawer_font_sel').val());
+            getSettings().readingFont = resolveLpeFont(rawVal).id;
+            notifySettingsChanged();
+            if (activeTab === 'appearance') renderActiveTab({ resetScroll: false });
+        });
         $drawer.on('click.lpeDrawer', '#lpe_drawer_close', () => closeDrawer());
         $drawer.on('click.lpeDrawer', '#lpe_drawer_expand', () => {
             const appTab = resolveRailSubAppTab(railState.activeRailTab);
@@ -945,7 +918,12 @@ export function createLpeAppPopup({
         });
 
         $overlay.off('.lpeApp');
-        $overlay.on('click.lpeApp', '#lpe_app_manual_update', runManualUpdate);
+        $overlay.on('change.lpeApp', '#lpe_app_font_sel', function (e) {
+            const rawVal = e?.target?.value ?? ($(this).length && typeof $(this).val === 'function' ? $(this).val() : $('#lpe_app_font_sel').val());
+            getSettings().readingFont = resolveLpeFont(rawVal).id;
+            notifySettingsChanged();
+            if (activeTab === 'appearance') renderActiveTab({ resetScroll: false });
+        });
         $overlay.on('click.lpeApp', (e) => {
             if (e.target === $overlay[0]) close();
         });
@@ -981,7 +959,6 @@ export function createLpeAppPopup({
         });
 
         initFabDrag();
-        syncManualUpdate();
         syncChrome();
         if (restoreDrawer && !railDrawerRestoredOnce) {
             railDrawerRestoredOnce = true;
@@ -999,6 +976,12 @@ export function createLpeAppPopup({
 
     function syncChrome() {
         const s = getSettings();
+        applyReadingFontVars();
+        const activeFontId = resolveLpeFont(s?.readingFont).id;
+        for (const selId of ['#lpe_drawer_font_sel', '#lpe_app_font_sel']) {
+            const $sel = $(selId);
+            if ($sel.length && typeof $sel.val === 'function') $sel.val(activeFontId);
+        }
         const ws = getWorkerStatus?.() || { busy: false };
         const showLauncher = s.showLauncherButton !== false;
         const winW = typeof window !== 'undefined' ? (window.innerWidth || 1280) : 1280;
@@ -1380,6 +1363,7 @@ export function createLpeAppPopup({
         function drawAtlas() {
             disposeWebgl();
             const effectiveMode = atlasView.mode || settings.atlasViewMode || 'webgl';
+            const activeUserName = String(getContextSafe?.()?.name1 || getActiveUserName() || '').trim();
             const camKey = `${atlasView.mapId || state?.locations?.map_index?.active_map_id || ''}|${atlasView.allFloors ? 'all' : (atlasView.level ?? state?.locations?.map_index?.active_level ?? '0')}`;
             if (atlasView.webglCameraKey !== camKey) {
                 atlasView.webglCamera = null;
@@ -1396,6 +1380,7 @@ export function createLpeAppPopup({
                 camera: atlasView.camera,
                 svgCamera: atlasView.svgCamera,
                 allowWebgl: true,
+                userName: activeUserName,
             }));
             if (effectiveMode === 'webgl') {
                 const vpEl = $mount.find('.lpe-webgl-viewport')[0];
@@ -1411,6 +1396,7 @@ export function createLpeAppPopup({
                             cutaway: atlasView.cutaway,
                             showLabels: atlasView.showLabels,
                             camera: atlasView.webglCamera,
+                            userName: activeUserName,
                             onCameraChange: (cam) => { atlasView.webglCamera = cam; },
                             onSelectRoom: (roomId) => {
                                 atlasView.roomId = roomId;
@@ -2870,6 +2856,11 @@ export function createLpeAppPopup({
         $stage.html(`
             ${renderPageHeader(meta)}
             <div class="lpe-glass-card">
+                <div class="lpe-card-title">Reading &amp; Prose Font (${esc(resolveLpeFont(settings.readingFont).label)})</div>
+                ${renderTiles('readingfont', LPE_FONTS.map((f) => ({ id: f.id, label: f.label, desc: f.desc })), resolveLpeFont(settings.readingFont).id)}
+            </div>
+
+            <div class="lpe-glass-card">
                 <div class="lpe-inline-actions" style="justify-content:space-between;margin-bottom:10px;">
                     <div class="lpe-card-title" style="margin-bottom:0;">HUD Color Theme (${esc(activeTheme)})</div>
                     <button type="button" class="lpe-app-btn gold lpe-btn-sm" id="lpe_pop_align_hud_themes" title="Apply active theme and style to every rendered HUD card in this chat without rebuilding">
@@ -2988,6 +2979,11 @@ export function createLpeAppPopup({
             </div>
         `);
 
+        $stage.find('[data-tile-group="readingfont"]').on('click', '.lpe-tile', function () {
+            getSettings().readingFont = resolveLpeFont($(this).data('tile-val')).id;
+            notifySettingsChanged();
+            renderAppearanceTab($stage, getSettings());
+        });
         $stage.find('#lpe_pop_theme_grid').on('click', '.lpe-theme-card', function () {
             const val = String($(this).data('theme-name') || 'Magnum Opus');
             getSettings().hudTheme = val;

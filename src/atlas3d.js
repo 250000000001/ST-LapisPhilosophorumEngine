@@ -15,6 +15,8 @@ import {
     parseRoomHeight,
     clampObjectToRoom,
     buildAtlasTopology,
+    findUserActiveRoom,
+    splitRoomOccupantsForPlayer,
 } from './atlasTopology.js';
 import {
     planePolygons,
@@ -91,19 +93,6 @@ function parseExitsCoords(exitsStr) {
         }
     }
     return out;
-}
-
-function findUserActiveRoom(state, rooms) {
-    const locStr = String(state?.world?.loc || '').toLowerCase();
-    for (const r of rooms) {
-        if (r.name && locStr.includes(r.name.toLowerCase())) return r;
-        if (r.id && locStr.includes(r.id.toLowerCase())) return r;
-    }
-    for (const r of rooms) {
-        const words = String(r.name || '').toLowerCase().split(/\s+/).filter((w) => w.length >= 5);
-        if (words.length >= 2 && words.filter((w) => locStr.includes(w)).length >= 2) return r;
-    }
-    return null;
 }
 
 /**
@@ -303,6 +292,7 @@ export function buildAtlas3DScene(
         allFloors = false,
         cutaway = true,
         showLabels = true,
+        userName = '',
     } = {},
 ) {
     const loc = state?.locations || { map_index: { active_map_id: '∅', active_level: '0', maps: [] }, rooms: [] };
@@ -363,7 +353,8 @@ export function buildAtlas3DScene(
         }
     }
 
-    const userRoom = findUserActiveRoom(state, visibleRooms) || findUserActiveRoom(state, mapRooms);
+    const userRoom = findUserActiveRoom(state, visibleRooms, userName, parseOccupantsList)
+        || findUserActiveRoom(state, mapRooms, userName, parseOccupantsList);
     const userLocalPos = parseLocalPoint3D(state?.world?.user_pos);
     const detailRoom = visibleRooms.find((r) => r.id === selectedRoomId)
         || floorRooms.find((r) => r.id === selectedRoomId)
@@ -659,7 +650,7 @@ export function buildAtlas3DScene(
         }
 
         // 4. Occupants as colored 3D pawns + billboard initials (with anti-pileup spread & z elevation)
-        const occs = parseOccupantsList(room.occupants);
+        const { npcOccs, playerOcc } = splitRoomOccupantsForPlayer(parseOccupantsList(room.occupants), userName);
         const placedPawns = [];
         const spreadLocal = (lx, ly, lz) => {
             let x = clamp(lx, wallThick + 0.45, w - wallThick - 0.45);
@@ -675,9 +666,9 @@ export function buildAtlas3DScene(
             return { wx: box.x1 + x, wy: box.y1 + y };
         };
 
-        for (let idx = 0; idx < occs.length; idx++) {
+        for (let idx = 0; idx < npcOccs.length; idx++) {
             if (polygons.length > MAX_SCENE_FACES - 40) break;
-            const occ = occs[idx];
+            const occ = npcOccs[idx];
             const pt = parseLocalPoint3D(occ.pos);
             const lx = pt ? pt.x : (1.6 + (idx % 3) * 2.2);
             const ly = pt ? pt.y : (d - 1.8 - Math.floor(idx / 3) * 1.6);
@@ -709,15 +700,16 @@ export function buildAtlas3DScene(
 
         // 5. User pawn + diamond marker
         if (isUserHere && polygons.length < MAX_SCENE_FACES - 30) {
-            const uz = userLocalPos ? clamp(userLocalPos.z, 0, Math.max(0, roomH - 0.6)) : 0;
-            const { wx: ux, wy: uy } = spreadLocal(userLocalPos ? userLocalPos.x : w / 2, userLocalPos ? userLocalPos.y : d / 2, uz);
+            const effUserPos = userLocalPos || parseLocalPoint3D(playerOcc?.pos);
+            const uz = effUserPos ? clamp(effUserPos.z, 0, Math.max(0, roomH - 0.6)) : 0;
+            const { wx: ux, wy: uy } = spreadLocal(effUserPos ? effUserPos.x : w / 2, effUserPos ? effUserPos.y : d / 2, uz);
             polygons.push(...buildPawnPolygons({
                 x: ux,
                 y: uy,
                 z: zOff + uz,
                 color: '#89dceb',
                 isUser: true,
-                title: `YOU (${state?.world?.user_pos || 'center'})`,
+                title: `YOU (${state?.world?.user_pos || playerOcc?.pos || 'center'})`,
             }));
             if (showLabels) {
                 labels.push({
@@ -725,7 +717,7 @@ export function buildAtlas3DScene(
                     y: uy,
                     z: zOff + uz + 3.2,
                     className: 'lpe-poly-lbl-you',
-                    title: `YOU (${state?.world?.user_pos || 'center'})`,
+                    title: `YOU (${state?.world?.user_pos || playerOcc?.pos || 'center'})`,
                     html: uz > 0.2 ? `<span class="lpe-poly-chip you">YOU +${Number(uz.toFixed(1))}m</span>` : '<span class="lpe-poly-chip you">YOU</span>',
                 });
             }
@@ -805,6 +797,7 @@ export function renderAtlas3DViewport(
         cutaway = true,
         showLabels = true,
         camera = null,
+        userName = '',
     } = {},
 ) {
     const scene = buildAtlas3DScene(state, {
@@ -814,6 +807,7 @@ export function renderAtlas3DViewport(
         allFloors,
         cutaway,
         showLabels,
+        userName,
     });
 
     if (scene.roomCount === 0) {

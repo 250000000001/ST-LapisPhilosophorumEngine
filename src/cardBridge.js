@@ -430,7 +430,7 @@ export function createCardBridgeHost({
             entry.lastToastAt = now;
         }
         if (method === 'submitInput') {
-            if (entry.lastSubmitAt && now - entry.lastSubmitAt < 2500) return false;
+            if (entry.lastSubmitAt && now - entry.lastSubmitAt < 300) return false;
             entry.lastSubmitAt = now;
         }
         return true;
@@ -584,7 +584,12 @@ export function createCardBridgeHost({
             case 'submitInput': {
                 const text = String(msg.payload?.text || '').slice(0, 16000);
                 const allowAuto = Boolean(getSettings?.()?.rendererAllowAutoSend);
-                onSubmitInput?.(text, entry, { autoSend: allowAuto });
+                const handled = onSubmitInput?.(text, entry, { autoSend: allowAuto });
+                if (handled === false) {
+                    entry.lastSubmitAt = 0;
+                    replyToFrame(entry, replyId, false, null, 'Failed to stage or send input', msgChannel);
+                    return;
+                }
                 replyToFrame(entry, replyId, true, { ok: true, autoSend: allowAuto }, null, msgChannel);
                 return;
             }
@@ -608,6 +613,10 @@ export function createCardBridgeHost({
             lastToastAt: 0,
             lastSubmitAt: 0,
         });
+    }
+
+    function has(token) {
+        return Boolean(token && frames.has(token));
     }
 
     function unregister(token) {
@@ -677,6 +686,7 @@ export function createCardBridgeHost({
 
     return {
         register,
+        has,
         unregister,
         unregisterAll,
         broadcastState,

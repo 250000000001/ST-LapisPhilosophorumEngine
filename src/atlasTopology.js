@@ -9,7 +9,7 @@
  *   - Grounded/clamped 3D props (fixing worker center-Z `pos[2] = h/2` wall bugs)
  */
 
-import { isEmptySentinel } from './schema.js';
+import { isEmptySentinel, isPlayerPersonaName } from './schema.js';
 
 export function parseDimMeters(dimStr) {
     const m = String(dimStr || '').match(/(\d+(?:\.\d+)?)\s*[x×]\s*(\d+(?:\.\d+)?)(?:\s*[x×]\s*(\d+(?:\.\d+)?))?/i);
@@ -539,4 +539,51 @@ export function buildAtlasTopology(positionedRooms = [], { getTheme = () => 'ind
         doors,
         suppressedObjectsByRoom,
     };
+}
+
+/**
+ * Separate NPC occupants from any accidental human-player entry in room.occupants.
+ */
+export function splitRoomOccupantsForPlayer(occs = [], userName = '') {
+    const npcOccs = [];
+    let playerOcc = null;
+    for (const occ of occs || []) {
+        if (!occ?.name) continue;
+        if (isPlayerPersonaName(occ.name, userName)) {
+            if (!playerOcc || (occ.pos && !playerOcc.pos)) playerOcc = occ;
+        } else {
+            npcOccs.push(occ);
+        }
+    }
+    return { npcOccs, playerOcc };
+}
+
+/**
+ * Resolve the room currently occupied by the human player from world.room, world.loc, or fallback occupant entries.
+ */
+export function findUserActiveRoom(state, rooms = [], userName = '', parseOccupants = null) {
+    const roomField = String(state?.world?.room || '').trim().toLowerCase();
+    if (roomField && roomField !== '∅') {
+        const byRoom = rooms.find((r) =>
+            String(r?.id || '').toLowerCase() === roomField
+            || String(r?.name || '').toLowerCase() === roomField,
+        );
+        if (byRoom) return byRoom;
+    }
+    const locStr = String(state?.world?.loc || '').toLowerCase();
+    for (const r of rooms) {
+        if (r?.name && locStr.includes(r.name.toLowerCase())) return r;
+        if (r?.id && locStr.includes(r.id.toLowerCase())) return r;
+    }
+    for (const r of rooms) {
+        const words = String(r?.name || '').toLowerCase().split(/\s+/).filter((w) => w.length >= 5);
+        if (words.length >= 2 && words.filter((w) => locStr.includes(w)).length >= 2) return r;
+    }
+    if (typeof parseOccupants === 'function') {
+        for (const r of rooms) {
+            const occs = parseOccupants(r?.occupants);
+            if (occs.some((o) => isPlayerPersonaName(o.name, userName))) return r;
+        }
+    }
+    return null;
 }

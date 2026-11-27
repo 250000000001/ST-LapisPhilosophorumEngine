@@ -3,7 +3,7 @@
  * Never prefills API keys in source defaults; reads/writes ST extensionSettings.
  */
 
-import { LPE_THEMES, LPE_STYLES } from './schema.js';
+import { LPE_THEMES, LPE_STYLES, LPE_FONTS, resolveLpeFont } from './schema.js';
 import { getChatCompletionProfiles } from './st.js';
 import { fetchModelsList, extractErrorMessage } from './workerClient.js';
 import { DEFAULT_END_MARKER } from './retryDetector.js';
@@ -35,6 +35,7 @@ export function syncSettingsUI(s) {
     $('#lpe_worker_temp').val(s.workerTemperature ?? 0.25);
     $('#lpe_hud_theme').val(s.hudTheme || 'Magnum Opus');
     $('#lpe_hud_style').val(s.hudStyle || 'Afterglow');
+    $('#lpe_reading_font').val(resolveLpeFont(s.readingFont).id);
     $('#lpe_atlas_mode').val(s.atlasViewMode || 'webgl');
     $('#lpe_body_type').val(s.defaultBodyType || 'male');
     $('#lpe_show_launcher').prop('checked', s.showLauncherButton !== false);
@@ -211,6 +212,12 @@ export function injectSettingsUI({
                                 ${LPE_STYLES.map((st) => `<option value="${esc(st)}">${esc(st)}</option>`).join('')}
                             </select>
                         </div>
+                    </div>
+                    <div class="lpe-field">
+                        <label for="lpe_reading_font">Reading &amp; Prose Font</label>
+                        <select id="lpe_reading_font" class="text_pole">
+                            ${LPE_FONTS.map((f) => `<option value="${esc(f.id)}">${esc(f.label)} — ${esc(f.desc)}</option>`).join('')}
+                        </select>
                     </div>
                     <div class="lpe-two-col">
                         <div class="lpe-field">
@@ -429,6 +436,7 @@ export function injectSettingsUI({
     $('#lpe_worker_temp').val(s.workerTemperature ?? 0.25);
     $('#lpe_hud_theme').val(s.hudTheme || 'Magnum Opus');
     $('#lpe_hud_style').val(s.hudStyle || 'Afterglow');
+    $('#lpe_reading_font').val(resolveLpeFont(s.readingFont).id);
     $('#lpe_atlas_mode').val(s.atlasViewMode || 'webgl');
     $('#lpe_body_type').val(s.defaultBodyType || 'male');
     $('#lpe_show_launcher').prop('checked', s.showLauncherButton !== false);
@@ -472,6 +480,7 @@ export function injectSettingsUI({
     $('#lpe_worker_temp').on('change', function () { getSettings().workerTemperature = Number($(this).val()) || 0.25; saveSettings(); onSettingsChanged?.(); });
     $('#lpe_hud_theme').on('change', function () { getSettings().hudTheme = $(this).val(); saveSettings(); onSettingsChanged?.(); });
     $('#lpe_hud_style').on('change', function () { getSettings().hudStyle = $(this).val(); saveSettings(); onSettingsChanged?.(); });
+    $('#lpe_reading_font').on('change', function () { getSettings().readingFont = resolveLpeFont($(this).val()).id; saveSettings(); onSettingsChanged?.(); });
     $('#lpe_atlas_mode').on('change', function () { getSettings().atlasViewMode = $(this).val(); saveSettings(); onSettingsChanged?.(); });
     $('#lpe_body_type').on('change', function () { getSettings().defaultBodyType = $(this).val(); saveSettings(); onSettingsChanged?.(); });
     $('#lpe_show_launcher').on('change', function () { getSettings().showLauncherButton = $(this).prop('checked'); saveSettings(); onSettingsChanged?.(); });

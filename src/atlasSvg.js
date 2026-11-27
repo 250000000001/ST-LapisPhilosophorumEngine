@@ -8,7 +8,7 @@ import { PALETTE, isEmptySentinel } from './schema.js';
 import { computeBbox, parseOccupantsList } from './reducer.js';
 import { renderAtlas3DViewport, inferObjectsFromFeatures, inferRoomStyle } from './atlas3d.js';
 import { resolveMaterialColor } from './polyCss3d.js';
-import { buildAtlasTopology, parseLocalPoint3D, parseRoomHeight } from './atlasTopology.js';
+import { buildAtlasTopology, parseLocalPoint3D, parseRoomHeight, findUserActiveRoom, splitRoomOccupantsForPlayer } from './atlasTopology.js';
 
 let svgClipSeq = 0;
 
@@ -175,20 +175,6 @@ function spreadRoomMarkers(rawPins, box, topClearance = 0) {
     return placed;
 }
 
-function findUserActiveRoom(state, roomsOnFloor) {
-    const locStr = String(state?.world?.loc || '').toLowerCase();
-    for (const r of roomsOnFloor) {
-        if (r.name && locStr.includes(r.name.toLowerCase())) return r;
-        if (r.id && locStr.includes(r.id.toLowerCase())) return r;
-    }
-    // Partial word match fallback
-    for (const r of roomsOnFloor) {
-        const words = String(r.name || '').toLowerCase().split(/\s+/).filter((w) => w.length >= 5);
-        if (words.length >= 2 && words.filter((w) => locStr.includes(w)).length >= 2) return r;
-    }
-    return null;
-}
-
 /**
  * Render the interactive Atlas tab HTML (map selector, floor tabs, 3D CSS or 2D SVG map, room cards).
  */
@@ -205,6 +191,7 @@ export function renderAtlasTab(
         camera = null,
         svgCamera = null,
         allowWebgl = false,
+        userName = '',
     } = {},
 ) {
     const mode = (viewMode === 'webgl' && allowWebgl)
@@ -251,7 +238,7 @@ export function renderAtlasTab(
         else unpositioned.push(r);
     }
 
-    const userRoom = findUserActiveRoom(state, visibleRooms);
+    const userRoom = findUserActiveRoom(state, visibleRooms, userName, parseOccupantsList);
     const userLocalPos = parseLocalPoint3D(state?.world?.user_pos);
 
     let viewportHtml = '';
@@ -288,6 +275,7 @@ export function renderAtlasTab(
             cutaway,
             showLabels,
             camera,
+            userName,
         }).html;
     } else if (positioned.length > 0) {
         let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
@@ -440,8 +428,8 @@ export function renderAtlasTab(
 
             // Collect & de-overlap Occupants + User marker
             const rawPins = [];
-            const occs = parseOccupantsList(room.occupants);
-            occs.forEach((occ, idx) => {
+            const { npcOccs, playerOcc } = splitRoomOccupantsForPlayer(parseOccupantsList(room.occupants), userName);
+            npcOccs.forEach((occ, idx) => {
                 const pt = parseLocalPoint3D(occ.pos);
                 const px = pt ? box.x1 + pt.x : (box.x1 + 2 + (idx % 3) * 2.5);
                 const py = pt ? box.y1 + pt.y : (box.y1 + h - 2);
@@ -458,15 +446,16 @@ export function renderAtlasTab(
             });
 
             if (isUserHere) {
-                const ux = userLocalPos ? box.x1 + userLocalPos.x : box.x1 + w / 2;
-                const uy = userLocalPos ? box.y1 + userLocalPos.y : box.y1 + h / 2;
-                const uz = userLocalPos ? userLocalPos.z : 0;
+                const effUserPos = userLocalPos || parseLocalPoint3D(playerOcc?.pos);
+                const ux = effUserPos ? box.x1 + effUserPos.x : box.x1 + w / 2;
+                const uy = effUserPos ? box.y1 + effUserPos.y : box.y1 + h / 2;
+                const uz = effUserPos ? effUserPos.z : 0;
                 rawPins.push({
                     kind: 'user',
                     x: ux,
                     y: uy,
                     z: uz,
-                    title: `YOU (${state?.world?.user_pos || 'center'})${uz > 0.2 ? ` ↑${Math.round(uz * 10) / 10}m` : ''}`,
+                    title: `YOU (${state?.world?.user_pos || playerOcc?.pos || 'center'})${uz > 0.2 ? ` ↑${Math.round(uz * 10) / 10}m` : ''}`,
                 });
             }
 
@@ -555,6 +544,10 @@ export function renderAtlasTab(
     }
 
     const detailHeight = detailRoom ? parseRoomHeight(detailRoom) : null;
+    const detailOccsStr = detailRoom
+        ? (splitRoomOccupantsForPlayer(parseOccupantsList(detailRoom.occupants), userName).npcOccs
+            .map((o) => (o.pos ? `${o.name} ${o.pos}` : o.name)).join(' | ') || '∅')
+        : '∅';
     const roomDetailHtml = detailRoom ? `
         <div class="lpe-atlas-detail">
             <div class="lpe-atlas-detail-head">
@@ -568,7 +561,7 @@ export function renderAtlasTab(
             </div>
             <div class="lpe-kv-grid">
                 <div><span>Features</span><b>${escHtml(detailRoom.features || '∅')}</b></div>
-                <div><span>Occupants</span><b>${escHtml(detailRoom.occupants || '∅')}</b></div>
+                <div><span>Occupants</span><b>${escHtml(detailOccsStr)}</b></div>
                 <div><span>Exits</span><b>${escHtml(detailRoom.exits || '∅')}</b></div>
                 <div><span>Adjacent</span><b>${escHtml(detailRoom.adj || '∅')}</b></div>
                 ${objectsRowHtml}

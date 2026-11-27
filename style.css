@@ -20,9 +20,29 @@
     );
     --lpe-hairline: color-mix(in srgb, var(--lpe-text) 12%, transparent);
     --lpe-hairline-strong: color-mix(in srgb, var(--lpe-text) 22%, transparent);
-    --lpe-font-serif: Georgia, 'Palatino Linotype', 'Book Antiqua', serif;
+    --lpe-font-serif: 'Lora', Georgia, 'Palatino Linotype', 'Book Antiqua', Cambria, serif;
     --lpe-font-sans: system-ui, -apple-system, 'Segoe UI', sans-serif;
     --lpe-font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    --lpe-reading-font: var(--lpe-font-serif);
+    --lpe-reading-line-height: 1.74;
+}
+
+#chat .mes .mes_text,
+#chat .mes .name_text,
+#chat .mes_text h1,
+#chat .mes_text h2,
+#chat .mes_text h3,
+.lpe-vent-text {
+    font-family: var(--lpe-reading-font);
+}
+
+#chat .mes .mes_text {
+    line-height: var(--lpe-reading-line-height, 1.74);
+}
+
+#chat .mes .mes_text code,
+#chat .mes .mes_text pre {
+    font-family: var(--lpe-font-mono);
 }
 
 .lpe-tabular {
@@ -1240,27 +1260,16 @@ body.lpe-rail-docked-left .lpe-rail-tip {
     flex-shrink: 0;
 }
 
-.lpe-manual-update:disabled {
-    cursor: wait;
-    opacity: 0.65;
+.lpe-font-quick-sel {
+    font: inherit;
+    max-width: 128px;
+    min-width: 0;
+    cursor: pointer;
 }
 
-.lpe-manual-update-status:not(:empty) {
-    flex-shrink: 0;
-    padding: 6px 14px;
-    border-bottom: 1px solid var(--lpe-hairline);
-    color: var(--lpe-text-muted);
-    background: var(--lpe-glass);
-    font-size: 0.75rem;
-    overflow-wrap: anywhere;
-}
-
-.lpe-manual-update-status[data-phase="error"] {
-    color: var(--lpe-danger);
-}
-
-#lpe_app_update_status:not(:empty) {
-    padding-inline-start: 96px;
+.lpe-drawer-head-actions .lpe-font-quick-sel {
+    max-width: 108px;
+    padding: 3px 6px;
 }
 
 .lpe-drawer-hdr-btn {
@@ -1750,10 +1759,6 @@ body.lpe-rail-docked-left .lpe-rail-tip {
     }
     .lpe-app-stage {
         padding: 16px 32px 32px 244px;
-    }
-
-    #lpe_app_update_status:not(:empty) {
-        padding-inline-start: 244px;
     }
 }
 
@@ -2665,10 +2670,6 @@ body.lpe-rail-docked-left .lpe-rail-tip {
     .lpe-app-stage {
         padding: 4px 14px 86px 14px;
         margin-top: -10px;
-    }
-
-    #lpe_app_update_status:not(:empty) {
-        padding-inline-start: 14px;
     }
 }
 

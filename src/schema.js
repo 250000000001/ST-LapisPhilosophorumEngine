@@ -61,6 +61,42 @@ export const LPE_STYLES = Object.freeze([
 ]);
 export const VEXA_STYLES = LPE_STYLES;
 
+export const LPE_FONTS = Object.freeze([
+    {
+        id: 'lora',
+        label: 'Lora',
+        desc: 'Warm literary editorial serif',
+        stack: "'Lora', Georgia, 'Palatino Linotype', 'Book Antiqua', Cambria, serif",
+        lineHeight: '1.74',
+    },
+    {
+        id: 'georgia',
+        label: 'Georgia / Palatino',
+        desc: 'Classic system book serif',
+        stack: "Georgia, 'Palatino Linotype', 'Book Antiqua', Cambria, serif",
+        lineHeight: '1.72',
+    },
+    {
+        id: 'baskerville',
+        label: 'Baskerville / Garamond',
+        desc: 'Crisp high-contrast print serif',
+        stack: "Baskerville, 'Libre Baskerville', Garamond, 'Times New Roman', serif",
+        lineHeight: '1.74',
+    },
+    {
+        id: 'system-sans',
+        label: 'Theme Default Sans',
+        desc: 'Inherit interface sans-serif',
+        stack: "var(--lpe-font-sans)",
+        lineHeight: '1.68',
+    },
+]);
+
+export function resolveLpeFont(fontId) {
+    const key = String(fontId || '').trim().toLowerCase();
+    return LPE_FONTS.find((f) => f.id === key) || LPE_FONTS[0];
+}
+
 export const LPE_THEMES = Object.freeze({
     'Magnum Opus': {
         base: '#1d1d20', mantle: '#17171a', crust: '#131316', surface: '#26262b',
@@ -470,4 +506,25 @@ export function cloneState(state) {
 export function isEmptySentinel(val) {
     const s = String(val ?? '').trim();
     return !s || s === '∅' || /^none$/i.test(s);
+}
+
+/** Normalize a speaker/character name for whitespace- and bracket-insensitive comparison. */
+export function normalizeNameKey(name) {
+    return String(name ?? '')
+        .trim()
+        .replace(/^\[(.*)\]$/, '$1')
+        .replace(/\s+/g, ' ')
+        .toLowerCase();
+}
+
+/** True when a candidate name refers to the human player / active user persona rather than an NPC. */
+export function isPlayerPersonaName(candidate, userName = '') {
+    const key = normalizeNameKey(candidate);
+    if (!key) return false;
+    if (/^(?:you|player|pc|user|\{\{user\}\})$/i.test(key)) return true;
+    const uKey = normalizeNameKey(userName);
+    if (!uKey || uKey === '{{user}}') return false;
+    if (key === uKey) return true;
+    const stripped = key.replace(/\s*\((?:you|player|pc|user)\)\s*$/i, '').trim();
+    return Boolean(stripped && stripped === uKey);
 }

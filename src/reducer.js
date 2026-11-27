@@ -17,6 +17,7 @@ import {
     cloneState,
     isEmptySentinel,
     slugifyTrackerId,
+    isPlayerPersonaName,
 } from './schema.js';
 import { applyHealthDelta, normalizeHealthState } from './healthDoll.js';
 import { POLY_PREFABS, PREFAB_DEFAULT_SIZES } from './polyAssets.js';
@@ -697,12 +698,14 @@ export function applyDelta(prevState, delta = {}, ctx = {}) {
         proseColors = [],
         vent,
         receipt = null,
+        userName = '',
         pinNotebookRules = true,
         enforceMatrixStepCap = true,
         clearFiredOnTurn = true,
         allowTrackerProposals = true,
         autoAcceptTrackerProposals = false,
     } = ctx;
+    const isUserEntity = (name) => isPlayerPersonaName(name, userName);
 
     // 1. World & Deterministic Header / ct++
     if (isTurnAdvance) {
@@ -734,7 +737,7 @@ export function applyDelta(prevState, delta = {}, ctx = {}) {
             : Array.isArray(delta.onscreen?.replace) ? delta.onscreen.replace : null;
         if (list) {
             next.onscreen = list
-                .filter((e) => e && !isEmptySentinel(e.name))
+                .filter((e) => e && !isEmptySentinel(e.name) && !isUserEntity(e.name))
                 .map((e) => ({
                     name: String(e.name).trim(),
                     parrott: String(e.parrott || ''),
@@ -755,13 +758,16 @@ export function applyDelta(prevState, delta = {}, ctx = {}) {
             }
             if (Array.isArray(delta.onscreen.upsert)) {
                 for (const item of delta.onscreen.upsert) {
-                    if (!item?.name) continue;
+                    if (!item?.name || isUserEntity(item.name)) continue;
                     const normalized = { ...item, tfdy: clampTfdyString(item.tfdy || '') };
                     upsertByName(next.onscreen, normalized, (x) => x.name.toLowerCase() === item.name.toLowerCase());
                 }
                 changedSections.add('onscreen');
             }
         }
+    }
+    if (userName) {
+        next.onscreen = next.onscreen.filter((e) => !isUserEntity(e.name));
     }
 
     // 3. Offscreen Agendas
@@ -771,7 +777,7 @@ export function applyDelta(prevState, delta = {}, ctx = {}) {
             const updatedByName = new Map();
             for (const e of next.offscreen_agendas) updatedByName.set(e.name.toLowerCase(), e);
             for (const item of delta.offscreen_agendas) {
-                if (!item || isEmptySentinel(item.name)) continue;
+                if (!item || isEmptySentinel(item.name) || isUserEntity(item.name)) continue;
                 const cleanItem = {
                     name: String(item.name).trim(),
                     loc: String(item.loc || ''),
@@ -791,7 +797,7 @@ export function applyDelta(prevState, delta = {}, ctx = {}) {
             changedSections.add('offscreen_agendas');
         } else if (delta.offscreen_agendas && typeof delta.offscreen_agendas === 'object') {
             if (Array.isArray(delta.offscreen_agendas.replace)) {
-                next.offscreen_agendas = delta.offscreen_agendas.replace;
+                next.offscreen_agendas = delta.offscreen_agendas.replace.filter((e) => e && !isEmptySentinel(e.name) && !isUserEntity(e.name));
             }
             if (Array.isArray(delta.offscreen_agendas.remove)) {
                 const rm = new Set(delta.offscreen_agendas.remove.map((n) => String(n).toLowerCase()));
@@ -799,7 +805,7 @@ export function applyDelta(prevState, delta = {}, ctx = {}) {
             }
             if (Array.isArray(delta.offscreen_agendas.upsert)) {
                 for (const item of delta.offscreen_agendas.upsert) {
-                    if (!item?.name) continue;
+                    if (!item?.name || isUserEntity(item.name)) continue;
                     const normalized = { ...item, tfdy: clampTfdyString(item.tfdy || '') };
                     upsertByName(next.offscreen_agendas, normalized, (x) => x.name.toLowerCase() === item.name.toLowerCase());
                 }
@@ -814,6 +820,9 @@ export function applyDelta(prevState, delta = {}, ctx = {}) {
             next.offscreen_agendas = filtered;
             changedSections.add('offscreen_agendas');
         }
+    }
+    if (userName) {
+        next.offscreen_agendas = next.offscreen_agendas.filter((e) => !isUserEntity(e.name));
     }
 
     // 4. Locations (Atlas)
@@ -877,8 +886,25 @@ export function applyDelta(prevState, delta = {}, ctx = {}) {
             }
             return String(val ?? '∅');
         };
-        const formatRoomOccupants = (val) => {
-            if (typeof val === 'string') return val;
+        let fallbackUserRoom = '';
+        let fallbackUserPos = '';
+        const stripUserOccItems = (items, roomId) => {
+            const kept = [];
+            for (const o of items) {
+                if (!o || !o.name || isEmptySentinel(o.name)) continue;
+                if (isUserEntity(o.name)) {
+                    if (!fallbackUserRoom && roomId) fallbackUserRoom = String(roomId).trim();
+                    if (!fallbackUserPos && o.pos) fallbackUserPos = String(o.pos).trim();
+                    continue;
+                }
+                kept.push(o);
+            }
+            return kept;
+        };
+        const formatRoomOccupants = (val, roomId = '') => {
+            if (typeof val === 'string') {
+                return formatOccupantsList(stripUserOccItems(parseOccupantsList(val), roomId));
+            }
             if (Array.isArray(val)) {
                 const items = [];
                 for (const o of val) {
@@ -891,7 +917,7 @@ export function applyDelta(prevState, delta = {}, ctx = {}) {
                         items.push({ name: String(o.name).trim(), pos: o.pos ? String(o.pos).trim() : '' });
                     }
                 }
-                return formatOccupantsList(items);
+                return formatOccupantsList(stripUserOccItems(items, roomId));
             }
             return String(val ?? '∅');
         };
@@ -937,7 +963,8 @@ export function applyDelta(prevState, delta = {}, ctx = {}) {
             if (r.grid !== undefined) merged.grid = formatGridCoords(r.grid);
             if (r.exits !== undefined) merged.exits = formatRoomExits(r.exits);
             if (r.adj !== undefined) merged.adj = formatRoomAdj(r.adj);
-            if (r.occupants !== undefined) merged.occupants = formatRoomOccupants(r.occupants);
+            if (r.occupants !== undefined) merged.occupants = formatRoomOccupants(r.occupants, merged.id);
+            else if (userName && merged.occupants) merged.occupants = formatRoomOccupants(merged.occupants, merged.id);
             if (r.style !== undefined) {
                 merged.style = normalizeRoomStyle(r.style);
             } else if (merged.style === undefined) {
@@ -1047,8 +1074,14 @@ export function applyDelta(prevState, delta = {}, ctx = {}) {
             const targetNameLower = String(mv.name).trim().toLowerCase();
             for (const room of next.locations.rooms) {
                 const occs = parseOccupantsList(room.occupants);
-                const filtered = occs.filter((o) => o.name.toLowerCase() !== targetNameLower);
+                const filtered = occs.filter((o) => o.name.toLowerCase() !== targetNameLower && !isUserEntity(o.name));
                 if (filtered.length !== occs.length) room.occupants = formatOccupantsList(filtered);
+            }
+            if (isUserEntity(mv.name)) {
+                next.world.room = String(mv.to_room).trim();
+                if (mv.pos) next.world.user_pos = String(mv.pos).trim();
+                changedSections.add('world');
+                continue;
             }
             const dest = next.locations.rooms.find((r) => r.id === mv.to_room);
             if (dest) {
@@ -1058,6 +1091,21 @@ export function applyDelta(prevState, delta = {}, ctx = {}) {
             } else {
                 warnings.push(`Atlas move_occupants target room "${mv.to_room}" not found`);
             }
+        }
+        if (userName) {
+            for (const room of next.locations.rooms) {
+                if (room?.occupants && !isEmptySentinel(room.occupants)) {
+                    room.occupants = formatRoomOccupants(room.occupants, room.id);
+                }
+            }
+        }
+        if (fallbackUserRoom && isEmptySentinel(next.world.room)) {
+            next.world.room = fallbackUserRoom;
+            changedSections.add('world');
+        }
+        if (fallbackUserPos && isEmptySentinel(next.world.user_pos)) {
+            next.world.user_pos = fallbackUserPos;
+            changedSections.add('world');
         }
 
         // Validate AABB overlaps per map+floor
@@ -1091,7 +1139,7 @@ export function applyDelta(prevState, delta = {}, ctx = {}) {
             next.entity_state = [];
         }
         for (const item of list) {
-            if (!item || isEmptySentinel(item.name)) continue;
+            if (!item || isEmptySentinel(item.name) || isUserEntity(item.name)) continue;
             const existing = next.entity_state.find((x) => x.name.toLowerCase() === item.name.toLowerCase());
             // Immutable fontColor rule: preserve already-locked hex if established!
             let fontColor = existing?.fontColor && !isEmptySentinel(existing.fontColor)
@@ -1110,6 +1158,9 @@ export function applyDelta(prevState, delta = {}, ctx = {}) {
             }, (x) => x.name.toLowerCase() === item.name.toLowerCase());
         }
         changedSections.add('entity_state');
+    }
+    if (userName) {
+        next.entity_state = next.entity_state.filter((x) => !isUserEntity(x.name));
     }
 
     // Deterministic color audit from prose dialogue tags: if a known entity has no fontColor yet
@@ -1135,7 +1186,7 @@ export function applyDelta(prevState, delta = {}, ctx = {}) {
     // 6. Entity Memory (append + dedupe + cap 20 per character)
     if (Array.isArray(delta.entityMem_append)) {
         for (const item of delta.entityMem_append) {
-            if (!item?.name) continue;
+            if (!item?.name || isUserEntity(item.name)) continue;
             const memLines = Array.isArray(item.entries)
                 ? item.entries
                 : item.mem ? [item.mem] : [];
@@ -1155,6 +1206,9 @@ export function applyDelta(prevState, delta = {}, ctx = {}) {
         }
         changedSections.add('entityMem');
     }
+    if (userName) {
+        next.entityMem = next.entityMem.filter((x) => !isUserEntity(x.name));
+    }
 
     // 7. Thoughts
     if (delta.thoughts !== undefined) {
@@ -1162,9 +1216,12 @@ export function applyDelta(prevState, delta = {}, ctx = {}) {
             ? delta.thoughts
             : Array.isArray(delta.thoughts?.replace) ? delta.thoughts.replace : null;
         if (list) {
-            next.thoughts = list.filter((t) => t && !isEmptySentinel(t.name)).slice(0, 8);
+            next.thoughts = list.filter((t) => t && !isEmptySentinel(t.name) && !isUserEntity(t.name)).slice(0, 8);
             changedSections.add('thoughts');
         }
+    }
+    if (userName) {
+        next.thoughts = next.thoughts.filter((t) => !isUserEntity(t.name));
     }
 
     // 8. Dam (upsert by directional pair)

@@ -15,6 +15,7 @@ import {
     extractProseColors,
     extractLpeTail,
     stripGfxBlocks,
+    resolveLpeFont,
 } from './src/schema.js';
 import { parseInternalStates, serializeInternalStates } from './src/parser.js';
 import { parseWorkerDelta, approveTrackerProposal, dismissTrackerProposal } from './src/reducer.js';
@@ -49,6 +50,7 @@ import {
     saveChatDebounced,
     getCurrentPresetName,
     getActiveCharacterCardHint,
+    getActiveUserName,
 } from './src/st.js';
 
 const MODULE_NAME = 'lapis_philosophorum_engine';
@@ -84,6 +86,7 @@ const DEFAULT_SETTINGS = Object.freeze({
     workerTemperature: 0.25,
     hudTheme: 'Magnum Opus',
     hudStyle: 'Afterglow',
+    readingFont: 'lora',
     atlasViewMode: 'webgl',
     defaultBodyType: 'male',
     showLauncherButton: true,
@@ -142,17 +145,30 @@ function recentStoryText(chat, count = 3) {
     return parts.join('\n');
 }
 
+function applyReadingFont(settings) {
+    if (typeof document === 'undefined' || !document.documentElement?.style?.setProperty) return;
+    const font = resolveLpeFont(settings?.readingFont);
+    document.documentElement.style.setProperty('--lpe-reading-font', font.stack);
+    document.documentElement.style.setProperty('--lpe-reading-line-height', font.lineHeight);
+}
+
 function buildExchangeAndEarlier(chat, index, replyText) {
     let start = index;
     while (start - 1 >= 0 && chat[start - 1] && chat[start - 1].is_user) start--;
+    const activeUser = getActiveUserName() || 'User';
+    const formatSpeaker = (msg, fallbackAi = 'Storyteller') => {
+        const rawName = String(msg?.name || '').trim();
+        if (msg?.is_user) return `[USER / PLAYER: ${rawName || activeUser}]`;
+        return `[ASSISTANT / STORYTELLER: ${rawName || fallbackAi}]`;
+    };
     const userMsgs = chat.slice(start, index).filter((m) => m && m.is_user)
-        .map((m) => `${m.name || 'User'}: ${extractStoryProse(m.mes || '')}`);
-    const aiName = chat[index]?.name || 'Storyteller';
-    const exchange = [...userMsgs, `${aiName}: ${extractStoryProse(replyText)}`].join('\n\n');
+        .map((m) => `${formatSpeaker(m)}: ${extractStoryProse(m.mes || '')}`);
+    const aiName = String(chat[index]?.name || 'Storyteller').trim() || 'Storyteller';
+    const exchange = [...userMsgs, `[ASSISTANT / STORYTELLER: ${aiName}]: ${extractStoryProse(replyText)}`].join('\n\n');
 
     const earlier = chat.slice(Math.max(0, start - 3), start)
         .filter(Boolean)
-        .map((m) => `${m.name || (m.is_user ? 'User' : aiName)}: ${extractStoryProse(m.mes || '')}`)
+        .map((m) => `${formatSpeaker(m, aiName)}: ${extractStoryProse(m.mes || '')}`)
         .join('\n\n');
     return { exchange, earlier };
 }
@@ -199,6 +215,7 @@ jQuery(() => {
                 return {
                     pinNotebookRules: st.pinNotebookRules !== false,
                     enforceMatrixStepCap: st.enforceMatrixStepCap !== false,
+                    userName: getActiveUserName(),
                 };
             },
         },
@@ -243,12 +260,10 @@ jQuery(() => {
         },
         onSubmitInput: (text, entry, { autoSend } = {}) => {
             if (autoSend) {
-                fillChatComposer(text);
-                clickChatSend();
-            } else {
-                // Stage inside confirmation bar WITHOUT overwriting user's in-progress composer draft
-                cardRenderer?.showConfirmSendBar?.(entry.token, text);
+                return fillChatComposer(text) && clickChatSend();
             }
+            // Stage inside confirmation bar WITHOUT overwriting user's in-progress composer draft
+            return Boolean(cardRenderer?.showConfirmSendBar?.(entry.token, text));
         },
         onToast: (text, level) => {
             const fn = window.toastr?.[level] || window.toastr?.info;
@@ -419,6 +434,7 @@ jQuery(() => {
                 proseColors,
                 vent: tail.vent,
                 receipt: tail.receipt,
+                userName: getActiveUserName(),
                 ...trackerCtx,
             },
         });
@@ -430,17 +446,18 @@ jQuery(() => {
                 // Rebuild prevState when our queued turn actually runs
                 const prevState = store.getStateAt(st.seq - 0.5);
                 const { exchange, earlier } = buildExchangeAndEarlier(getContextSafe().chat || [], index, replyText);
+                const userName = getActiveUserName();
                 const isFirstTurn = Number(prevState?.world?.ct || 0) === 0;
                 const cardHints = isFirstTurn ? getActiveCharacterCardHint() : '';
 
                 if (settings.workerMode === 'split') {
                     const msgs1 = buildWorkerMessages({
                         prevState, exchange, earlier, receipt: tail.receipt, vent: tail.vent,
-                        headerParsed, proseColors, cardHints, mode: 'split', part: 'spatial_entity',
+                        headerParsed, proseColors, cardHints, userName, mode: 'split', part: 'spatial_entity',
                     });
                     const msgs2 = buildWorkerMessages({
                         prevState, exchange, earlier, receipt: tail.receipt, vent: tail.vent,
-                        headerParsed, proseColors, cardHints, mode: 'split', part: 'narrative_sim',
+                        headerParsed, proseColors, cardHints, userName, mode: 'split', part: 'narrative_sim',
                     });
                     const r1 = await send(msgs1);
                     if (signal.aborted) return { aborted: true };
@@ -451,7 +468,7 @@ jQuery(() => {
 
                 const msgs = buildWorkerMessages({
                     prevState, exchange, earlier, receipt: tail.receipt, vent: tail.vent,
-                    headerParsed, proseColors, cardHints, mode: 'combined',
+                    headerParsed, proseColors, cardHints, userName, mode: 'combined',
                 });
                 const res = await send(msgs);
                 return { combined: res.content, meta: [res] };
@@ -479,7 +496,7 @@ jQuery(() => {
                 swipe,
                 status: 'error',
                 error: jobRes.error,
-                ctx: { isTurnAdvance: true, headerParsed, proseColors, vent: tail.vent, receipt: tail.receipt, ...trackerCtx },
+                ctx: { isTurnAdvance: true, headerParsed, proseColors, vent: tail.vent, receipt: tail.receipt, userName: getActiveUserName(), ...trackerCtx },
             });
             window.toastr?.warning?.(`Worker failed: ${jobRes.error}`, DISPLAY_TITLE);
             scheduleHudRefresh(20);
@@ -504,7 +521,7 @@ jQuery(() => {
                     status: 'error',
                     error: msgErr,
                     raw: ans,
-                    ctx: { isTurnAdvance: true, headerParsed, proseColors, vent: tail.vent, receipt: tail.receipt, ...trackerCtx },
+                    ctx: { isTurnAdvance: true, headerParsed, proseColors, vent: tail.vent, receipt: tail.receipt, userName: getActiveUserName(), ...trackerCtx },
                 });
                 window.toastr?.warning?.(msgErr, DISPLAY_TITLE);
                 scheduleHudRefresh(20);
@@ -527,7 +544,7 @@ jQuery(() => {
             status: hasData ? 'synced' : 'error',
             error: hasData ? (errors.length ? errors.join('; ') : null) : (errors.join('; ') || 'No valid JSON delta parsed'),
             raw: rawAnswers.join('\n---\n'),
-            ctx: { isTurnAdvance: true, headerParsed, proseColors, vent: tail.vent, receipt: tail.receipt, ...trackerCtx },
+            ctx: { isTurnAdvance: true, headerParsed, proseColors, vent: tail.vent, receipt: tail.receipt, userName: getActiveUserName(), ...trackerCtx },
         });
         scheduleHudRefresh(20);
     }
@@ -803,6 +820,7 @@ jQuery(() => {
         retryRuntime.syncButtons();
         syncSettingsUI(getSettings());
         const cur = getSettings();
+        applyReadingFont(cur);
         if (!cur.enabled || !cur.rendererEnabled || shouldYieldRenderer(cur)) {
             cardRenderer.teardownAll();
             cardBridgeHost.unregisterAll();
@@ -833,11 +851,6 @@ jQuery(() => {
         getRecentStoryText: () => recentStoryText(getContextSafe().chat || []),
         onImportChat: handleImportChat,
         onRereadLast: handleRereadLast,
-        onManualUpdate: () => scheduleHudRefresh(0),
-        getInstalledExtensionVersion: () => {
-            const folder = decodeURIComponent(new URL('.', import.meta.url).pathname.split('/').at(-2));
-            return getContextSafe().getExtensionManifest?.(folder)?.version;
-        },
         onResetChat: handleResetChat,
         onCleanLastRefusal: () => retryRuntime.cleanLastMessageManually(),
         onRetryToggleChanged: handleRetryToggleChanged,
@@ -879,7 +892,7 @@ jQuery(() => {
         workerClient.stopForOtherChats(chatAtEvent);
         appPopup?.syncChrome?.();
         setTimeout(() => {
-            if (myEpoch !== chatEpoch || getContextSafe().chatId !== chatAtEvent) return;
+            if (myEpoch !== chatEpoch) return;
             store.reconcile();
             seedEmbeddedCharacterInitVars();
             // Auto-import once when opening an existing classic chat containing <internal_states>
@@ -888,6 +901,7 @@ jQuery(() => {
                 const n = store.importFromChat();
                 if (n > 0) window.toastr?.info?.(`Imported ${n} existing state turn(s) into LPE external store.`, DISPLAY_TITLE);
             }
+            applyReadingFont(getSettings());
             appPopup?.refresh?.();
             scheduleHudRefresh(60);
             scheduleRendererRefresh(80, myEpoch);
@@ -908,6 +922,7 @@ jQuery(() => {
     }
 
     function wireUi() {
+        applyReadingFont(getSettings());
         retryRuntime.syncButtons();
         appPopup?.mount?.();
         injectSettingsUI({

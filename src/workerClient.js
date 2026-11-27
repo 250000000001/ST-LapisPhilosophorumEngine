@@ -244,10 +244,10 @@ export function createWorkerClient({ getSettings, getContextSafe, onStatusChange
         publishStatus();
 
         const run = queue.then(async () => {
-            if (entry.controller.signal.aborted) return { aborted: true, content: '' };
             activeJob = entry;
             publishStatus();
             try {
+                if (entry.controller.signal.aborted) return { aborted: true, content: '' };
                 return await taskFn({
                     signal: entry.controller.signal,
                     send: (msgs, opts) => sendOnce(msgs, entry.controller.signal, opts),

@@ -182,12 +182,144 @@ export function createCardRenderer({
     onConfirmSend,
 } = {}) {
     const mounted = new Map(); // preEl -> record
-    const manualLoadPres = new WeakSet();
-    const forceHugePres = new WeakSet();
-    const unloadedPres = new WeakMap(); // preEl -> blockHash explicitly unloaded by user
-    const sourceOpenPres = new WeakSet();
+    let manualLoadPres = new WeakSet();
+    let forceHugePres = new WeakSet();
+    let unloadedPres = new WeakMap(); // preEl -> blockHash explicitly unloaded by user
+    let sourceOpenPres = new WeakSet();
+    const confirmMeta = new WeakMap(); // .lpe-card-confirm-bar -> { fullText, previewShort, expanded, rec }
+    let delegatedRoot = null;
     let totalRevokedUrls = 0;
     let lastScanMs = 0;
+
+    function resolveRecForWrap(wrapEl) {
+        if (!wrapEl) return null;
+        const preEl = wrapEl.previousElementSibling;
+        if (preEl && mounted.has(preEl)) return mounted.get(preEl);
+        for (const rec of mounted.values()) {
+            if (rec?.wrapEl === wrapEl) return rec;
+        }
+        return null;
+    }
+
+    function onChatClick(ev) {
+        const target = ev?.target;
+        if (!target || typeof target.closest !== 'function') return;
+
+        const viewBtn = target.closest('.lpe-card-confirm-view');
+        if (viewBtn) {
+            const bar = viewBtn.closest('.lpe-card-confirm-bar');
+            const meta = bar ? confirmMeta.get(bar) : null;
+            if (!meta) return;
+            meta.expanded = !meta.expanded;
+            const codeEl = bar.querySelector('code');
+            if (codeEl) codeEl.textContent = meta.expanded ? meta.fullText : meta.previewShort;
+            viewBtn.textContent = meta.expanded ? 'Collapse' : 'View Full';
+            return;
+        }
+
+        const sendBtn = target.closest('.lpe-card-send-confirm');
+        if (sendBtn) {
+            ev.stopPropagation();
+            const bar = sendBtn.closest('.lpe-card-confirm-bar');
+            const meta = bar ? confirmMeta.get(bar) : null;
+            if (!bar || !meta) return;
+            confirmMeta.delete(bar);
+            bar.remove();
+            onConfirmSend?.(meta.fullText, meta.rec);
+            return;
+        }
+
+        const dismissBtn = target.closest('.lpe-card-confirm-dismiss');
+        if (dismissBtn) {
+            const bar = dismissBtn.closest('.lpe-card-confirm-bar');
+            if (bar) {
+                confirmMeta.delete(bar);
+                bar.remove();
+            }
+            return;
+        }
+
+        const foldBtn = target.closest('.lpe-code-fold-toggle .lpe-mini-btn');
+        if (foldBtn) {
+            ev.stopPropagation();
+            const toggleEl = foldBtn.closest('.lpe-code-fold-toggle');
+            const preEl = toggleEl?.nextElementSibling;
+            if (!preEl || preEl.tagName !== 'PRE') return;
+            if (sourceOpenPres.has(preEl)) sourceOpenPres.delete(preEl);
+            else sourceOpenPres.add(preEl);
+            const open = sourceOpenPres.has(preEl);
+            preEl.classList.toggle('lpe-code-hidden', !open);
+            foldBtn.innerHTML = open
+                ? '<i class="fa-solid fa-eye-slash"></i> Hide Code Block'
+                : '<i class="fa-solid fa-code"></i> Show Code Block';
+            return;
+        }
+
+        const loadBtn = target.closest('.lpe-card-load-btn');
+        if (loadBtn) {
+            ev.stopPropagation();
+            const wrap = loadBtn.closest('.lpe-card-frame-wrap');
+            const preEl = wrap?.previousElementSibling;
+            if (!preEl || preEl.tagName !== 'PRE') return;
+            unloadedPres.delete(preEl);
+            manualLoadPres.add(preEl);
+            if (wrap.dataset.lpeOversized === '1') forceHugePres.add(preEl);
+            let currentMounted = 0;
+            for (const r of mounted.values()) if (r.status === 'mounted') currentMounted++;
+            if (currentMounted >= MAX_CONCURRENT_IFRAMES) {
+                for (const [otherPre, otherRec] of mounted.entries()) {
+                    if (otherPre !== preEl && otherRec.status === 'mounted') {
+                        manualLoadPres.delete(otherPre);
+                        unloadedPres.set(otherPre, otherRec.hash.split(':')[0] || '');
+                        removeRecordDom(otherPre, otherRec);
+                        mounted.delete(otherPre);
+                        break;
+                    }
+                }
+            }
+            refreshAll();
+            return;
+        }
+
+        const srcBtn = target.closest('.lpe-card-src-btn');
+        if (srcBtn) {
+            ev.stopPropagation();
+            const wrap = srcBtn.closest('.lpe-card-frame-wrap');
+            const preEl = wrap?.previousElementSibling;
+            if (!preEl || preEl.tagName !== 'PRE') return;
+            if (sourceOpenPres.has(preEl)) sourceOpenPres.delete(preEl);
+            else sourceOpenPres.add(preEl);
+            const open = sourceOpenPres.has(preEl);
+            preEl.classList.toggle('lpe-code-hidden', !open);
+            srcBtn.textContent = open ? 'Hide Source' : 'Source';
+            return;
+        }
+
+        const unloadBtn = target.closest('.lpe-card-unload-btn');
+        if (unloadBtn) {
+            ev.stopPropagation();
+            const wrap = unloadBtn.closest('.lpe-card-frame-wrap');
+            const preEl = wrap?.previousElementSibling;
+            if (!preEl || preEl.tagName !== 'PRE') return;
+            const codeEl = preEl.querySelector('code') || preEl;
+            const srcHash = wrap.dataset.lpeSrcHash || hashStringExact(codeEl.textContent || '');
+            manualLoadPres.delete(preEl);
+            forceHugePres.delete(preEl);
+            unloadedPres.set(preEl, srcHash);
+            refreshAll();
+        }
+    }
+
+    function ensureChatDelegation(chatRoot) {
+        if (!chatRoot || delegatedRoot === chatRoot) return;
+        if (delegatedRoot && typeof delegatedRoot.removeEventListener === 'function') {
+            delegatedRoot.removeEventListener('click', onChatClick);
+        }
+        delegatedRoot = chatRoot;
+        if (typeof chatRoot.addEventListener === 'function') {
+            chatRoot.addEventListener('click', onChatClick);
+        }
+    }
 
     function revokeRecord(rec) {
         if (!rec) return;
@@ -242,6 +374,10 @@ export function createCardRenderer({
             removeRecordDom(preEl, rec);
         }
         mounted.clear();
+        manualLoadPres = new WeakSet();
+        forceHugePres = new WeakSet();
+        unloadedPres = new WeakMap();
+        sourceOpenPres = new WeakSet();
         if (typeof document !== 'undefined') {
             for (const el of document.querySelectorAll('#chat .lpe-card-frame-wrap, #chat .lpe-code-fold-toggle')) {
                 el.remove();
@@ -253,53 +389,62 @@ export function createCardRenderer({
     }
 
     function showConfirmSendBar(token, text) {
+        let targetWrap = null;
+        let targetRec = null;
         for (const rec of mounted.values()) {
-            if (rec.token !== token || !rec.wrapEl) continue;
-            const existing = rec.wrapEl.querySelector('.lpe-card-confirm-bar');
-            if (existing) existing.remove();
-            const fullText = String(text || '');
-            const bar = document.createElement('div');
-            bar.className = 'lpe-card-confirm-bar';
-            const label = document.createElement('span');
-            const previewShort = `${fullText.slice(0, 72)}${fullText.length > 72 ? '...' : ''}`;
-            label.innerHTML = `<i class="fa-solid fa-paper-plane"></i> Screen queued reply (${esc(fullText.length)} chars): <code>${esc(previewShort)}</code>`;
-            let expanded = false;
-            const actions = document.createElement('div');
-            actions.className = 'lpe-card-confirm-actions';
-            if (fullText.length > 72) {
-                const viewBtn = document.createElement('button');
-                viewBtn.type = 'button';
-                viewBtn.className = 'lpe-mini-btn';
-                viewBtn.textContent = 'View Full';
-                viewBtn.addEventListener('click', () => {
-                    expanded = !expanded;
-                    const codeEl = label.querySelector('code');
-                    if (codeEl) codeEl.textContent = expanded ? fullText : previewShort;
-                    viewBtn.textContent = expanded ? 'Collapse' : 'View Full';
-                });
-                actions.appendChild(viewBtn);
+            if (rec.token === token && rec.wrapEl?.isConnected) {
+                targetWrap = rec.wrapEl;
+                targetRec = rec;
+                break;
             }
-            const sendBtn = document.createElement('button');
-            sendBtn.type = 'button';
-            sendBtn.className = 'lpe-mini-btn lpe-card-send-confirm';
-            sendBtn.innerHTML = '<i class="fa-solid fa-check"></i> Send to Chat';
-            sendBtn.addEventListener('click', () => {
-                bar.remove();
-                onConfirmSend?.(fullText, rec);
-            });
-            const dismissBtn = document.createElement('button');
-            dismissBtn.type = 'button';
-            dismissBtn.className = 'lpe-mini-btn';
-            dismissBtn.textContent = 'Dismiss';
-            dismissBtn.addEventListener('click', () => bar.remove());
-            actions.appendChild(sendBtn);
-            actions.appendChild(dismissBtn);
-            bar.appendChild(label);
-            bar.appendChild(actions);
-            rec.wrapEl.appendChild(bar);
-            return true;
         }
-        return false;
+        if (!targetWrap && typeof document !== 'undefined') {
+            const safeToken = String(token || '').replace(/[^a-zA-Z0-9_-]/g, '');
+            if (safeToken) {
+                targetWrap = document.querySelector(`#chat .lpe-card-frame-wrap[data-lpe-token="${safeToken}"]`);
+                targetRec = resolveRecForWrap(targetWrap);
+            }
+        }
+        if (!targetWrap) return false;
+
+        const existing = targetWrap.querySelector('.lpe-card-confirm-bar');
+        if (existing) {
+            confirmMeta.delete(existing);
+            existing.remove();
+        }
+        const fullText = String(text || '');
+        const bar = document.createElement('div');
+        bar.className = 'lpe-card-confirm-bar';
+        const label = document.createElement('span');
+        const previewShort = `${fullText.slice(0, 72)}${fullText.length > 72 ? '...' : ''}`;
+        label.innerHTML = `<i class="fa-solid fa-paper-plane"></i> Screen queued reply (${esc(fullText.length)} chars): <code>${esc(previewShort)}</code>`;
+        const actions = document.createElement('div');
+        actions.className = 'lpe-card-confirm-actions';
+        if (fullText.length > 72) {
+            const viewBtn = document.createElement('button');
+            viewBtn.type = 'button';
+            viewBtn.className = 'lpe-mini-btn lpe-card-confirm-view';
+            viewBtn.textContent = 'View Full';
+            actions.appendChild(viewBtn);
+        }
+        const sendBtn = document.createElement('button');
+        sendBtn.type = 'button';
+        sendBtn.className = 'lpe-mini-btn lpe-card-send-confirm';
+        sendBtn.innerHTML = '<i class="fa-solid fa-check"></i> Send to Chat';
+        const dismissBtn = document.createElement('button');
+        dismissBtn.type = 'button';
+        dismissBtn.className = 'lpe-mini-btn lpe-card-confirm-dismiss';
+        dismissBtn.textContent = 'Dismiss';
+        actions.appendChild(sendBtn);
+        actions.appendChild(dismissBtn);
+        bar.appendChild(label);
+        bar.appendChild(actions);
+        confirmMeta.set(bar, { fullText, previewShort, expanded: false, rec: targetRec });
+        targetWrap.appendChild(bar);
+        if (typeof document !== 'undefined') {
+            ensureChatDelegation(document.getElementById('chat'));
+        }
+        return true;
     }
 
     function applyPlainCodeCollapse(preEl, collapseMode) {
@@ -318,30 +463,23 @@ export function createCardRenderer({
             const btn = document.createElement('button');
             btn.type = 'button';
             btn.className = 'lpe-mini-btn';
-            const updateBtn = () => {
-                const open = sourceOpenPres.has(preEl);
-                preEl.classList.toggle('lpe-code-hidden', !open);
-                btn.innerHTML = open
-                    ? '<i class="fa-solid fa-eye-slash"></i> Hide Code Block'
-                    : '<i class="fa-solid fa-code"></i> Show Code Block';
-            };
-            btn.addEventListener('click', (e) => {
-                e.stopPropagation();
-                if (sourceOpenPres.has(preEl)) sourceOpenPres.delete(preEl);
-                else sourceOpenPres.add(preEl);
-                updateBtn();
-            });
+            const open = sourceOpenPres.has(preEl);
+            preEl.classList.toggle('lpe-code-hidden', !open);
+            btn.innerHTML = open
+                ? '<i class="fa-solid fa-eye-slash"></i> Hide Code Block'
+                : '<i class="fa-solid fa-code"></i> Show Code Block';
             toggleEl.appendChild(btn);
             preEl.before(toggleEl);
-            updateBtn();
         } else {
             preEl.classList.toggle('lpe-code-hidden', !sourceOpenPres.has(preEl));
         }
     }
 
-    function buildPlaceholderWrap(preEl, { kind, title, byteLen, onActivate, collapseSource }) {
+    function buildPlaceholderWrap(preEl, { kind, title, byteLen, isOversized = false, srcHash = '', collapseSource }) {
         const wrap = document.createElement('div');
         wrap.className = 'lpe-card-frame-wrap is-placeholder';
+        if (isOversized) wrap.dataset.lpeOversized = '1';
+        if (srcHash) wrap.dataset.lpeSrcHash = srcHash;
         const box = document.createElement('div');
         box.className = 'lpe-card-placeholder';
         const kb = (byteLen / 1024).toFixed(1);
@@ -359,23 +497,12 @@ export function createCardRenderer({
         loadBtn.innerHTML = kind === 'oversized'
             ? '<i class="fa-solid fa-play"></i> Render Once'
             : '<i class="fa-solid fa-play"></i> Load Interactive Screen';
-        loadBtn.addEventListener('click', (e) => {
-            e.stopPropagation();
-            onActivate();
-        });
         btns.appendChild(loadBtn);
         if (collapseSource) {
             const srcBtn = document.createElement('button');
             srcBtn.type = 'button';
             srcBtn.className = 'lpe-mini-btn lpe-card-src-btn';
             srcBtn.textContent = sourceOpenPres.has(preEl) ? 'Hide Source' : 'Source';
-            srcBtn.addEventListener('click', (e) => {
-                e.stopPropagation();
-                if (sourceOpenPres.has(preEl)) sourceOpenPres.delete(preEl);
-                else sourceOpenPres.add(preEl);
-                preEl.classList.toggle('lpe-code-hidden', !sourceOpenPres.has(preEl));
-                srcBtn.textContent = sourceOpenPres.has(preEl) ? 'Hide Source' : 'Source';
-            });
             btns.appendChild(srcBtn);
         }
         box.appendChild(btns);
@@ -400,6 +527,7 @@ export function createCardRenderer({
             && existing.status === 'mounted'
             && existing.hash === blockHash
             && existing.mesId === mesId
+            && (!bridgeHost?.has || bridgeHost.has(existing.token))
             && existing.wrapEl?.isConnected
             && existing.wrapEl.previousElementSibling === preEl
             && existing.iframe?.isConnected
@@ -434,6 +562,8 @@ export function createCardRenderer({
             const wrap = document.createElement('div');
             wrap.className = 'lpe-card-frame-wrap';
             wrap.dataset.lpeFrameMesid = String(mesId);
+            wrap.dataset.lpeToken = token;
+            wrap.dataset.lpeSrcHash = hashStringExact(codeText);
 
             const bar = document.createElement('div');
             bar.className = 'lpe-card-frame-bar';
@@ -446,27 +576,13 @@ export function createCardRenderer({
                 srcBtn.type = 'button';
                 srcBtn.className = 'lpe-mini-btn lpe-card-src-btn';
                 srcBtn.textContent = sourceOpenPres.has(preEl) ? 'Hide Source' : 'Source';
-                srcBtn.addEventListener('click', (e) => {
-                    e.stopPropagation();
-                    if (sourceOpenPres.has(preEl)) sourceOpenPres.delete(preEl);
-                    else sourceOpenPres.add(preEl);
-                    preEl.classList.toggle('lpe-code-hidden', !sourceOpenPres.has(preEl));
-                    srcBtn.textContent = sourceOpenPres.has(preEl) ? 'Hide Source' : 'Source';
-                });
                 barBtns.appendChild(srcBtn);
             }
             const unloadBtn = document.createElement('button');
             unloadBtn.type = 'button';
-            unloadBtn.className = 'lpe-mini-btn';
+            unloadBtn.className = 'lpe-mini-btn lpe-card-unload-btn';
             unloadBtn.title = 'Unload interactive iframe & free memory';
             unloadBtn.innerHTML = '<i class="fa-solid fa-power-off"></i>';
-            unloadBtn.addEventListener('click', (e) => {
-                e.stopPropagation();
-                manualLoadPres.delete(preEl);
-                forceHugePres.delete(preEl);
-                unloadedPres.set(preEl, hashStringExact(codeText));
-                refreshAll();
-            });
             barBtns.appendChild(unloadBtn);
             bar.appendChild(barBtns);
 
@@ -537,6 +653,7 @@ export function createCardRenderer({
         if (!chatRoot) {
             return { mountedCount: 0, placeholderCount: 0, elapsedMs: 0 };
         }
+        ensureChatDelegation(chatRoot);
 
         const depth = Math.max(0, Math.min(50, Number(settings.rendererDepth ?? 2)));
         const maxBytes = Math.max(64, Number(settings.rendererMaxHtmlKb ?? 2048)) * 1024;
@@ -606,27 +723,9 @@ export function createCardRenderer({
                         kind,
                         title,
                         byteLen,
+                        isOversized,
+                        srcHash,
                         collapseSource: collapseMode !== 'none',
-                        onActivate: () => {
-                            unloadedPres.delete(preEl);
-                            manualLoadPres.add(preEl);
-                            if (isOversized) forceHugePres.add(preEl);
-                            // If at concurrent ceiling, automatically demote an auto-loaded frame so cap holds
-                            let currentMounted = 0;
-                            for (const r of mounted.values()) if (r.status === 'mounted') currentMounted++;
-                            if (currentMounted >= MAX_CONCURRENT_IFRAMES) {
-                                for (const [otherPre, otherRec] of mounted.entries()) {
-                                    if (otherPre !== preEl && otherRec.status === 'mounted') {
-                                        manualLoadPres.delete(otherPre);
-                                        unloadedPres.set(otherPre, otherRec.hash.split(':')[0] || '');
-                                        removeRecordDom(otherPre, otherRec);
-                                        mounted.delete(otherPre);
-                                        break;
-                                    }
-                                }
-                            }
-                            refreshAll();
-                        },
                     });
                     preEl.after(phWrap);
                     mounted.set(preEl, { status: 'placeholder', hash: phKey, wrapEl: phWrap, mesId });
@@ -658,9 +757,18 @@ export function createCardRenderer({
         };
     }
 
+    function dispose() {
+        teardownAll();
+        if (delegatedRoot && typeof delegatedRoot.removeEventListener === 'function') {
+            delegatedRoot.removeEventListener('click', onChatClick);
+        }
+        delegatedRoot = null;
+    }
+
     return {
         refreshAll,
         teardownAll,
+        dispose,
         showConfirmSendBar,
         getStats,
     };

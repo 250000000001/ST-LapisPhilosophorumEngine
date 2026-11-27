@@ -51,6 +51,11 @@ function currentChatKey() {
     return String(cid || '');
 }
 
+function currentUserName() {
+    const u = typeof window !== 'undefined' ? window.SillyTavern?.getContext?.()?.name1 : '';
+    return String(u || '').trim();
+}
+
 function getView(viewKey, defaults) {
     if (!viewState.has(viewKey)) {
         viewState.set(viewKey, {
@@ -165,6 +170,7 @@ function renderTabBody(tabId, state, view, settings, prevState = null) {
                 camera: view.camera,
                 svgCamera: view.svgCamera,
                 allowWebgl: false,
+                userName: currentUserName(),
             });
         case 'entityMem': {
             const list = state.entityMem || [];
@@ -663,16 +669,6 @@ function refreshSingleHudCard($mes, ctx) {
         ${renderReceiptDrawer(state, view)}
     `);
 
-    const triggerLocalRefresh = () => {
-        const live = $card.data('lpeLiveCtx');
-        if (!live) return;
-        const freshChat = window.SillyTavern?.getContext?.()?.chat || live.ctx.chat;
-        const freshTl = live.ctx.store.timeline();
-        const freshLatest = freshTl.steps.length ? freshTl.steps[freshTl.steps.length - 1].state : freshTl.base;
-        refreshSingleHudCard($mes, { ...live.ctx, chat: freshChat, tl: freshTl, latestState: freshLatest });
-        observePolyViewports($card[0]);
-    };
-
     if (!view.collapsed) {
         const tabsEl = $card.find('.lpe-tabs')[0];
         const activeBtn = tabsEl?.querySelector('.lpe-tab-btn.active');
@@ -687,9 +683,10 @@ function refreshSingleHudCard($mes, ctx) {
             if (vpEl) {
                 bindPolyOrbitControls(vpEl, view.camera, {
                     onSelectRoom: (roomId) => {
+                        const $wrapMes = $card.closest('.mes');
                         const live = $card.data('lpeLiveCtx');
                         if (live) live.view.roomId = roomId;
-                        triggerLocalRefresh();
+                        refreshCardFromDom($card, $wrapMes);
                     },
                 });
                 observePolyViewports(vpEl);
@@ -700,210 +697,245 @@ function refreshSingleHudCard($mes, ctx) {
         }
     }
 
-    // Wire card controls once via scoped delegation reading fresh liveCtx
-    if (!$card.data('lpeBound')) {
-        $card.data('lpeBound', true);
-        $card.on('click', '.lpe-toggle-btn', () => {
-            const live = $card.data('lpeLiveCtx');
-            if (!live) return;
-            live.view.collapsed = !live.view.collapsed;
-            triggerLocalRefresh();
-        });
-        $card.on('click', '.lpe-tab-btn', function () {
-            const live = $card.data('lpeLiveCtx');
-            if (!live) return;
-            live.view.tab = $(this).data('tab');
-            triggerLocalRefresh();
-        });
-        $card.on('change', '.lpe-theme-sel', function () {
-            const live = $card.data('lpeLiveCtx');
-            if (!live) return;
-            live.view.theme = $(this).val();
-            triggerLocalRefresh();
-        });
-        $card.on('change', '.lpe-style-sel', function () {
-            const live = $card.data('lpeLiveCtx');
-            if (!live) return;
-            live.view.style = $(this).val();
-            triggerLocalRefresh();
-        });
-        $card.on('change', '.lpe-atlas-map-sel', function () {
-            const live = $card.data('lpeLiveCtx');
-            if (!live) return;
-            live.view.mapId = $(this).val();
-            live.view.level = null;
-            live.view.roomId = null;
-            live.view.svgCamera = { zoom: 1, panX: 0, panY: 0 };
-            triggerLocalRefresh();
-        });
-        $card.on('click', '.lpe-atlas-floor-btn', function () {
-            const live = $card.data('lpeLiveCtx');
-            if (!live) return;
-            live.view.level = String($(this).data('level'));
-            live.view.allFloors = false;
-            live.view.roomId = null;
-            live.view.svgCamera = { zoom: 1, panX: 0, panY: 0 };
-            triggerLocalRefresh();
-        });
-        $card.on('click', '.lpe-atlas-allfloors-btn', function () {
-            const live = $card.data('lpeLiveCtx');
-            if (!live) return;
-            live.view.allFloors = !live.view.allFloors;
-            triggerLocalRefresh();
-        });
-        $card.on('click', '.lpe-atlas-mode-btn:not(.lpe-atlas-open-webgl-btn)', function () {
-            const live = $card.data('lpeLiveCtx');
-            if (!live) return;
-            live.view.atlasMode = String($(this).data('atlas-mode') || '2d');
-            triggerLocalRefresh();
-        });
-        $card.on('click', '.lpe-atlas-open-webgl-btn', (e) => {
-            e.stopPropagation();
-            const live = $card.data('lpeLiveCtx');
-            live?.ctx?.onOpenEditor?.(live.mesId, 'locations');
-        });
-        $card.on('click', '.lpe-poly-cutaway-btn', function (e) {
-            e.stopPropagation();
-            const live = $card.data('lpeLiveCtx');
-            if (!live) return;
-            live.view.cutaway = !live.view.cutaway;
-            triggerLocalRefresh();
-        });
-        $card.on('click', '.lpe-poly-labels-btn', function (e) {
-            e.stopPropagation();
-            const live = $card.data('lpeLiveCtx');
-            if (!live) return;
-            live.view.showLabels = !live.view.showLabels;
-            triggerLocalRefresh();
-        });
-        $card.on('click', '.lpe-atlas-room-g, .lpe-atlas-room-pill', function () {
-            const live = $card.data('lpeLiveCtx');
-            if (!live) return;
-            live.view.roomId = $(this).data('room-id');
-            triggerLocalRefresh();
-        });
-        $card.on('click', '.lpe-hud-approve-prop', function (e) {
-            e.stopPropagation();
-            const live = $card.data('lpeLiveCtx');
-            live?.ctx?.onApproveProposal?.(String($(this).data('prop-id') || ''));
-        });
-        $card.on('click', '.lpe-hud-dismiss-prop', function (e) {
-            e.stopPropagation();
-            const live = $card.data('lpeLiveCtx');
-            live?.ctx?.onDismissProposal?.(String($(this).data('prop-id') || ''));
-        });
-        $card.on('click', '.lpe-doll-part', function (e) {
-            e.stopPropagation();
-            const live = $card.data('lpeLiveCtx');
-            if (!live) return;
-            const pid = String($(this).data('part-id') || '');
-            live.view.healthPart = live.view.healthPart === pid ? null : (pid || null);
-            triggerLocalRefresh();
-        });
-        $card.on('click', '.lpe-health-part-chip', function (e) {
-            e.stopPropagation();
-            const live = $card.data('lpeLiveCtx');
-            if (!live) return;
-            live.view.healthPart = String($(this).data('part-id') || '') || null;
-            triggerLocalRefresh();
-        });
-        $card.on('click', '.lpe-health-clear-sel', function (e) {
-            e.stopPropagation();
-            const live = $card.data('lpeLiveCtx');
-            if (!live) return;
-            live.view.healthPart = null;
-            triggerLocalRefresh();
-        });
-        $card.on('click', '.lpe-health-layer-btn, .lpe-doll-internal-alert', function (e) {
-            e.stopPropagation();
-            const live = $card.data('lpeLiveCtx');
-            if (!live) return;
-            live.view.healthLayer = String($(this).data('health-layer') || $(this).data('layer-jump') || 'body');
-            triggerLocalRefresh();
-        });
-        $card.on('click', '.lpe-health-bar-pill, .lpe-health-jump-btn', function (e) {
-            e.stopPropagation();
-            const live = $card.data('lpeLiveCtx');
-            if (!live) return;
-            live.view.collapsed = false;
-            live.view.tab = 'health';
-            triggerLocalRefresh();
-        });
-        $card.on('click', '.lpe-stop-btn', (e) => {
-            e.stopPropagation();
-            $card.data('lpeLiveCtx')?.ctx?.onStopWorker?.();
-        });
-        $card.on('click', '.lpe-retry-btn, .lpe-reread-btn', (e) => {
-            e.stopPropagation();
-            const live = $card.data('lpeLiveCtx');
-            live?.ctx?.onRetryMsg?.(live.mesId);
-        });
-        $card.on('click', '.lpe-edit-btn', (e) => {
-            e.stopPropagation();
-            const live = $card.data('lpeLiveCtx');
-            live?.ctx?.onOpenEditor?.(live.mesId, live.view.tab);
-        });
-        $card.on('click', '.lpe-copy-btn', (e) => {
-            e.stopPropagation();
-            const live = $card.data('lpeLiveCtx');
-            if (!live) return;
-            const xml = serializeInternalStates(live.state, { scoped: false, includeVent: true });
-            live.ctx?.onCopyXml?.(xml);
-        });
-        $card.on('click', '.lpe-receipt-head-btn', (e) => {
-            e.stopPropagation();
-            const live = $card.data('lpeLiveCtx');
-            if (!live) return;
-            live.view.receiptOpen = !live.view.receiptOpen;
-            triggerLocalRefresh();
-        });
-        $card.on('click', '.lpe-receipt-raw-btn', (e) => {
-            e.stopPropagation();
-            const live = $card.data('lpeLiveCtx');
-            if (!live) return;
-            live.view.receiptRaw = !live.view.receiptRaw;
-            triggerLocalRefresh();
-        });
-        $card.on('click', '.lpe-diff-head-btn', (e) => {
-            e.stopPropagation();
-            const live = $card.data('lpeLiveCtx');
-            if (!live) return;
-            live.view.diffOpen = !live.view.diffOpen;
-            triggerLocalRefresh();
-        });
-        $card.on('click', '.lpe-diff-filter-btn', function (e) {
-            e.stopPropagation();
-            const live = $card.data('lpeLiveCtx');
-            if (!live) return;
-            live.view.diffFilter = String($(this).data('diff-filter') || 'all');
-            triggerLocalRefresh();
-        });
-        $card.on('click', '.lpe-diff-more-btn', function (e) {
-            e.stopPropagation();
-            const live = $card.data('lpeLiveCtx');
-            if (!live) return;
-            live.view.diffShowAll = String($(this).data('diff-all')) === '1';
-            triggerLocalRefresh();
-        });
-        $card.on('click', '.lpe-diff-jump', function (e) {
-            e.stopPropagation();
-            const live = $card.data('lpeLiveCtx');
-            if (!live) return;
-            live.view.collapsed = false;
-            live.view.tab = String($(this).data('diff-jump') || 'world');
-            triggerLocalRefresh();
-        });
-        $card.on('click', '.lpe-diff-revert-btn', function (e) {
-            e.stopPropagation();
-            const live = $card.data('lpeLiveCtx');
-            live?.ctx?.onToggleEntryDisabled?.(live.mesId, String($(this).data('diff-toggle')) === '1');
-        });
-        $card.on('click', '.lpe-diff-read-btn', (e) => {
-            e.stopPropagation();
-            const live = $card.data('lpeLiveCtx');
-            live?.ctx?.onRetryMsg?.(live.mesId);
-        });
+    ensureChatHudDelegation();
+}
+
+let delegatedHudRoot = null;
+
+function resolveLiveFromEl(el) {
+    const $el = $(el);
+    const $card = $el.closest('.lpe-hud-card');
+    if (!$card.length) return { $el, $card, $mes: $(), live: null, mesId: NaN };
+    const $mes = $card.closest('.mes');
+    const live = $card.data('lpeLiveCtx') || null;
+    const domMesId = Number($mes.attr('mesid'));
+    const cardMesId = Number($card.attr('data-lpe-mesid'));
+    const mesId = Number.isFinite(domMesId) ? domMesId : (Number.isFinite(cardMesId) ? cardMesId : live?.mesId);
+    if (live && Number.isFinite(mesId)) live.mesId = mesId;
+    return { $el, $card, $mes, live, mesId };
+}
+
+function refreshCardFromDom($card, $mes) {
+    const live = $card?.data?.('lpeLiveCtx');
+    if (!live) return;
+    const freshChat = (typeof window !== 'undefined' ? window.SillyTavern?.getContext?.()?.chat : null) || live.ctx.chat;
+    const freshTl = live.ctx.store.timeline();
+    const freshLatest = freshTl.steps.length ? freshTl.steps[freshTl.steps.length - 1].state : freshTl.base;
+    const targetMes = $mes?.length ? $mes : $card.closest('.mes');
+    refreshSingleHudCard(targetMes, { ...live.ctx, chat: freshChat, tl: freshTl, latestState: freshLatest });
+    observePolyViewports($card[0]);
+}
+
+export function ensureChatHudDelegation() {
+    if (typeof $ !== 'function' || typeof document === 'undefined') return;
+    const chatRoot = document.getElementById('chat') || document;
+    if (delegatedHudRoot === chatRoot) return;
+    if (delegatedHudRoot) {
+        try { $(delegatedHudRoot).off('.lpeHud'); } catch { /* ignore */ }
     }
+    delegatedHudRoot = chatRoot;
+    const $root = $(chatRoot);
+
+    $root.on('click.lpeHud', '.lpe-hud-card .lpe-toggle-btn', function () {
+        const { $card, $mes, live } = resolveLiveFromEl(this);
+        if (!live) return;
+        live.view.collapsed = !live.view.collapsed;
+        refreshCardFromDom($card, $mes);
+    });
+    $root.on('click.lpeHud', '.lpe-hud-card .lpe-tab-btn', function () {
+        const { $el, $card, $mes, live } = resolveLiveFromEl(this);
+        if (!live) return;
+        live.view.tab = $el.data('tab');
+        refreshCardFromDom($card, $mes);
+    });
+    $root.on('change.lpeHud', '.lpe-hud-card .lpe-theme-sel', function () {
+        const { $el, $card, $mes, live } = resolveLiveFromEl(this);
+        if (!live) return;
+        live.view.theme = $el.val();
+        refreshCardFromDom($card, $mes);
+    });
+    $root.on('change.lpeHud', '.lpe-hud-card .lpe-style-sel', function () {
+        const { $el, $card, $mes, live } = resolveLiveFromEl(this);
+        if (!live) return;
+        live.view.style = $el.val();
+        refreshCardFromDom($card, $mes);
+    });
+    $root.on('change.lpeHud', '.lpe-hud-card .lpe-atlas-map-sel', function () {
+        const { $el, $card, $mes, live } = resolveLiveFromEl(this);
+        if (!live) return;
+        live.view.mapId = $el.val();
+        live.view.level = null;
+        live.view.roomId = null;
+        live.view.svgCamera = { zoom: 1, panX: 0, panY: 0 };
+        refreshCardFromDom($card, $mes);
+    });
+    $root.on('click.lpeHud', '.lpe-hud-card .lpe-atlas-floor-btn', function () {
+        const { $el, $card, $mes, live } = resolveLiveFromEl(this);
+        if (!live) return;
+        live.view.level = String($el.data('level'));
+        live.view.allFloors = false;
+        live.view.roomId = null;
+        live.view.svgCamera = { zoom: 1, panX: 0, panY: 0 };
+        refreshCardFromDom($card, $mes);
+    });
+    $root.on('click.lpeHud', '.lpe-hud-card .lpe-atlas-allfloors-btn', function () {
+        const { $card, $mes, live } = resolveLiveFromEl(this);
+        if (!live) return;
+        live.view.allFloors = !live.view.allFloors;
+        refreshCardFromDom($card, $mes);
+    });
+    $root.on('click.lpeHud', '.lpe-hud-card .lpe-atlas-mode-btn:not(.lpe-atlas-open-webgl-btn)', function () {
+        const { $el, $card, $mes, live } = resolveLiveFromEl(this);
+        if (!live) return;
+        live.view.atlasMode = String($el.data('atlas-mode') || '2d');
+        refreshCardFromDom($card, $mes);
+    });
+    $root.on('click.lpeHud', '.lpe-hud-card .lpe-atlas-open-webgl-btn', function (e) {
+        e.stopPropagation();
+        const { live, mesId } = resolveLiveFromEl(this);
+        live?.ctx?.onOpenEditor?.(mesId, 'locations');
+    });
+    $root.on('click.lpeHud', '.lpe-hud-card .lpe-poly-cutaway-btn', function (e) {
+        e.stopPropagation();
+        const { $card, $mes, live } = resolveLiveFromEl(this);
+        if (!live) return;
+        live.view.cutaway = !live.view.cutaway;
+        refreshCardFromDom($card, $mes);
+    });
+    $root.on('click.lpeHud', '.lpe-hud-card .lpe-poly-labels-btn', function (e) {
+        e.stopPropagation();
+        const { $card, $mes, live } = resolveLiveFromEl(this);
+        if (!live) return;
+        live.view.showLabels = !live.view.showLabels;
+        refreshCardFromDom($card, $mes);
+    });
+    $root.on('click.lpeHud', '.lpe-hud-card .lpe-atlas-room-g, .lpe-hud-card .lpe-atlas-room-pill', function () {
+        const { $el, $card, $mes, live } = resolveLiveFromEl(this);
+        if (!live) return;
+        live.view.roomId = $el.data('room-id');
+        refreshCardFromDom($card, $mes);
+    });
+    $root.on('click.lpeHud', '.lpe-hud-card .lpe-hud-approve-prop', function (e) {
+        e.stopPropagation();
+        const { $el, live } = resolveLiveFromEl(this);
+        live?.ctx?.onApproveProposal?.(String($el.data('prop-id') || ''));
+    });
+    $root.on('click.lpeHud', '.lpe-hud-card .lpe-hud-dismiss-prop', function (e) {
+        e.stopPropagation();
+        const { $el, live } = resolveLiveFromEl(this);
+        live?.ctx?.onDismissProposal?.(String($el.data('prop-id') || ''));
+    });
+    $root.on('click.lpeHud', '.lpe-hud-card .lpe-doll-part', function (e) {
+        e.stopPropagation();
+        const { $el, $card, $mes, live } = resolveLiveFromEl(this);
+        if (!live) return;
+        const pid = String($el.data('part-id') || '');
+        live.view.healthPart = live.view.healthPart === pid ? null : (pid || null);
+        refreshCardFromDom($card, $mes);
+    });
+    $root.on('click.lpeHud', '.lpe-hud-card .lpe-health-part-chip', function (e) {
+        e.stopPropagation();
+        const { $el, $card, $mes, live } = resolveLiveFromEl(this);
+        if (!live) return;
+        live.view.healthPart = String($el.data('part-id') || '') || null;
+        refreshCardFromDom($card, $mes);
+    });
+    $root.on('click.lpeHud', '.lpe-hud-card .lpe-health-clear-sel', function (e) {
+        e.stopPropagation();
+        const { $card, $mes, live } = resolveLiveFromEl(this);
+        if (!live) return;
+        live.view.healthPart = null;
+        refreshCardFromDom($card, $mes);
+    });
+    $root.on('click.lpeHud', '.lpe-hud-card .lpe-health-layer-btn, .lpe-hud-card .lpe-doll-internal-alert', function (e) {
+        e.stopPropagation();
+        const { $el, $card, $mes, live } = resolveLiveFromEl(this);
+        if (!live) return;
+        live.view.healthLayer = String($el.data('health-layer') || $el.data('layer-jump') || 'body');
+        refreshCardFromDom($card, $mes);
+    });
+    $root.on('click.lpeHud', '.lpe-hud-card .lpe-health-bar-pill, .lpe-hud-card .lpe-health-jump-btn', function (e) {
+        e.stopPropagation();
+        const { $card, $mes, live } = resolveLiveFromEl(this);
+        if (!live) return;
+        live.view.collapsed = false;
+        live.view.tab = 'health';
+        refreshCardFromDom($card, $mes);
+    });
+    $root.on('click.lpeHud', '.lpe-hud-card .lpe-stop-btn', function (e) {
+        e.stopPropagation();
+        resolveLiveFromEl(this).live?.ctx?.onStopWorker?.();
+    });
+    $root.on('click.lpeHud', '.lpe-hud-card .lpe-retry-btn, .lpe-hud-card .lpe-reread-btn', function (e) {
+        e.stopPropagation();
+        const { live, mesId } = resolveLiveFromEl(this);
+        live?.ctx?.onRetryMsg?.(mesId);
+    });
+    $root.on('click.lpeHud', '.lpe-hud-card .lpe-edit-btn', function (e) {
+        e.stopPropagation();
+        const { live, mesId } = resolveLiveFromEl(this);
+        live?.ctx?.onOpenEditor?.(mesId, live.view.tab);
+    });
+    $root.on('click.lpeHud', '.lpe-hud-card .lpe-copy-btn', function (e) {
+        e.stopPropagation();
+        const { live } = resolveLiveFromEl(this);
+        if (!live) return;
+        const xml = serializeInternalStates(live.state, { scoped: false, includeVent: true });
+        live.ctx?.onCopyXml?.(xml);
+    });
+    $root.on('click.lpeHud', '.lpe-hud-card .lpe-receipt-head-btn', function (e) {
+        e.stopPropagation();
+        const { $card, $mes, live } = resolveLiveFromEl(this);
+        if (!live) return;
+        live.view.receiptOpen = !live.view.receiptOpen;
+        refreshCardFromDom($card, $mes);
+    });
+    $root.on('click.lpeHud', '.lpe-hud-card .lpe-receipt-raw-btn', function (e) {
+        e.stopPropagation();
+        const { $card, $mes, live } = resolveLiveFromEl(this);
+        if (!live) return;
+        live.view.receiptRaw = !live.view.receiptRaw;
+        refreshCardFromDom($card, $mes);
+    });
+    $root.on('click.lpeHud', '.lpe-hud-card .lpe-diff-head-btn', function (e) {
+        e.stopPropagation();
+        const { $card, $mes, live } = resolveLiveFromEl(this);
+        if (!live) return;
+        live.view.diffOpen = !live.view.diffOpen;
+        refreshCardFromDom($card, $mes);
+    });
+    $root.on('click.lpeHud', '.lpe-hud-card .lpe-diff-filter-btn', function (e) {
+        e.stopPropagation();
+        const { $el, $card, $mes, live } = resolveLiveFromEl(this);
+        if (!live) return;
+        live.view.diffFilter = String($el.data('diff-filter') || 'all');
+        refreshCardFromDom($card, $mes);
+    });
+    $root.on('click.lpeHud', '.lpe-hud-card .lpe-diff-more-btn', function (e) {
+        e.stopPropagation();
+        const { $el, $card, $mes, live } = resolveLiveFromEl(this);
+        if (!live) return;
+        live.view.diffShowAll = String($el.data('diff-all')) === '1';
+        refreshCardFromDom($card, $mes);
+    });
+    $root.on('click.lpeHud', '.lpe-hud-card .lpe-diff-jump', function (e) {
+        e.stopPropagation();
+        const { $el, $card, $mes, live } = resolveLiveFromEl(this);
+        if (!live) return;
+        live.view.collapsed = false;
+        live.view.tab = String($el.data('diff-jump') || 'world');
+        refreshCardFromDom($card, $mes);
+    });
+    $root.on('click.lpeHud', '.lpe-hud-card .lpe-diff-revert-btn', function (e) {
+        e.stopPropagation();
+        const { $el, live, mesId } = resolveLiveFromEl(this);
+        live?.ctx?.onToggleEntryDisabled?.(mesId, String($el.data('diff-toggle')) === '1');
+    });
+    $root.on('click.lpeHud', '.lpe-hud-card .lpe-diff-read-btn', function (e) {
+        e.stopPropagation();
+        const { live, mesId } = resolveLiveFromEl(this);
+        live?.ctx?.onRetryMsg?.(mesId);
+    });
 }
 
 /**
@@ -943,6 +975,7 @@ export function alignAllHudThemes(theme, style) {
 }
 
 export function refreshAllHudCards({ store, settings, workerStatus, onOpenEditor, onRetryMsg, onStopWorker, onCopyXml, onApproveProposal, onDismissProposal, onToggleEntryDisabled }) {
+    ensureChatHudDelegation();
     if (!store || !settings.enabled) {
         $('#chat .lpe-hud-card').remove();
         return;

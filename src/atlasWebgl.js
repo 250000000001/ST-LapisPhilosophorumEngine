@@ -21,6 +21,8 @@ import {
     parseRoomHeight,
     clampObjectToRoom,
     buildAtlasTopology,
+    findUserActiveRoom,
+    splitRoomOccupantsForPlayer,
 } from './atlasTopology.js';
 
 const PSX_GLB_URL = new URL('../assets/models/psx-industrial.glb', import.meta.url).href;
@@ -993,7 +995,11 @@ export function mountAtlasWebGLViewport(containerEl, state, opts = {}) {
         onSelectRoom = null,
         onCameraChange = null,
         customPackScenes = null,
+        userName = '',
     } = opts;
+    const activeUserName = String(
+        userName || (typeof window !== 'undefined' ? window.SillyTavern?.getContext?.()?.name1 : '') || '',
+    ).trim();
 
     const loc = state?.locations || { map_index: { active_map_id: '∅', active_level: '0', maps: [] }, rooms: [] };
     const maps = loc.map_index?.maps || state?.locations?.maps || [];
@@ -1309,8 +1315,7 @@ export function mountAtlasWebGLViewport(containerEl, state, opts = {}) {
         });
 
         // Occupants + Player Pawn (supports 3D [x,y,z] elevation above floor)
-        const occs = parseOccupantsList(room.occupants);
-        let renderedUserPawn = false;
+        const { npcOccs, playerOcc } = splitRoomOccupantsForPlayer(parseOccupantsList(room.occupants), activeUserName);
         const placedPawns = [];
         const spreadPos = (lx, ly, lz) => {
             let x = Math.max(wallT + 0.45, Math.min(rw - wallT - 0.45, lx));
@@ -1326,17 +1331,14 @@ export function mountAtlasWebGLViewport(containerEl, state, opts = {}) {
             return { x: box.x1 + x, z: box.y1 + y };
         };
 
-        occs.forEach((occ, idx) => {
-            const isPlayer = /^(you|player|pc)$/i.test(occ.name);
-            if (isPlayer) renderedUserPawn = true;
+        npcOccs.forEach((occ, idx) => {
             const pt = parseLocalPoint3D(occ.pos);
-            const angle = idx * 2.1;
-            const localX = pt ? pt.x : (rw / 2 + Math.cos(angle) * Math.min(rw * 0.28, 1.3));
-            const localY = pt ? pt.y : (rd / 2 + Math.sin(angle) * Math.min(rd * 0.28, 1.3));
+            const localX = pt ? pt.x : (rw / 2 + Math.cos(idx * 2.1) * Math.min(rw * 0.28, 1.3));
+            const localY = pt ? pt.y : (rd / 2 + Math.sin(idx * 2.1) * Math.min(rd * 0.28, 1.3));
             const localZ = pt ? Math.max(0, Math.min(roomH - 0.6, pt.z)) : 0;
             const worldPt = spreadPos(localX, localY, localZ);
-            const col = isPlayer ? '#f59e0b' : colorForEntity(occ.name, entities);
-            const pawn = buildPawnGroup(col, isPlayer, isPlayer ? 1.72 : 1.62);
+            const col = colorForEntity(occ.name, entities);
+            const pawn = buildPawnGroup(col, false, 1.62);
             pawn.position.set(worldPt.x, baseY + localZ, worldPt.z);
             roomGroup.add(pawn);
 
@@ -1351,19 +1353,19 @@ export function mountAtlasWebGLViewport(containerEl, state, opts = {}) {
 
             labelAnchors.push({
                 text: localZ > 0.2 ? `${occ.name} (+${Number(localZ.toFixed(1))}m)` : occ.name,
-                kind: isPlayer ? 'player' : 'pawn',
+                kind: 'pawn',
                 worldPos: new THREE.Vector3(worldPt.x, baseY + localZ + 1.92, worldPt.z),
             });
         });
 
-        const isUserRoom = !renderedUserPawn && (
+        const matchedUserRoom = findUserActiveRoom(state, visibleRooms, activeUserName, parseOccupantsList);
+        const isUserRoom = Boolean(
             room.isCurrent
-            || (state?.world?.room && String(room.id || '').toLowerCase() === String(state.world.room).toLowerCase())
-            || (state?.world?.room && String(room.name || '').toLowerCase() === String(state.world.room).toLowerCase())
-            || (state?.world?.loc && String(room.name || '') && String(state.world.loc).toLowerCase().includes(String(room.name).toLowerCase()))
+            || (matchedUserRoom && matchedUserRoom.id === room.id)
+            || (!matchedUserRoom && playerOcc),
         );
         if (isUserRoom) {
-            const upt = parseLocalPoint3D(state?.world?.user_pos);
+            const upt = parseLocalPoint3D(state?.world?.user_pos) || parseLocalPoint3D(playerOcc?.pos);
             const localZ = upt ? Math.max(0, Math.min(roomH - 0.6, upt.z)) : 0;
             const worldPt = spreadPos(upt ? upt.x : rw / 2, upt ? upt.y : rd / 2, localZ);
             const pawn = buildPawnGroup('#f59e0b', true, 1.72);

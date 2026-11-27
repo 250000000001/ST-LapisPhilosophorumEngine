@@ -40,7 +40,10 @@ CRITICAL OUTPUT RULES:
    - Example: [{"shape":"platform","pos":[10,2,3.5],"size":[16,2.5,0.25],"color":"iron","label":"Upper Catwalk"},{"shape":"stairs","pos":[3,4,0],"size":[1.6,4.5,3.5],"color":"iron","label":"Catwalk Stairs"},{"shape":"table","pos":[8,8,0],"size":[2.2,1.3,0.9],"color":"wood","label":"Council Table"}]
 6. IMMUTABLE DIALOGUE COLORS: Never change an existing entity's fontColor. For a brand-new named NPC, pick an unused color from availableColors (or match proseColorsDetected).
 7. RESPECT MAIN-MODEL RECEIPT: Honor any world_sim outcome, fired Chekhov bullets, arc updates, and OOC directives listed in <main_model_receipt>.
-8. PERSONA BODY HEALTH (Nice Health System): Omit "health_delta" completely unless the user persona suffers, heals, tends, or changes an injury, bleeding, scar, fracture, burn, frostbite, disease, toxin, hypothermia/heatstroke, exhaustion, missing part, or prosthetic this turn — OR unless a visible healed scar, missing part, or prosthetic mentioned in the scene is not yet recorded in current_state_json.health (add scars via add_conditions with kind:"scar", scar:true, severity:10). Valid part IDs: head, left_eye, right_eye, neck, torso, left_shoulder, right_shoulder, left_arm, right_arm, left_hand, right_hand, left_leg, right_leg, left_foot, right_foot, brain, heart, left_lung, right_lung, stomach, liver, left_kidney, right_kidney, skull, ribcage, spine, pelvis. Valid condition kinds: sharp, blunt, burn, frost, bleeding, fracture, infection, toxin, scar, other. Severity is 1-100; JS auto-computes part HP, pain, and capacities.`;
+8. PERSONA BODY HEALTH (Nice Health System): Omit "health_delta" completely unless the user persona suffers, heals, tends, or changes an injury, bleeding, scar, fracture, burn, frostbite, disease, toxin, hypothermia/heatstroke, exhaustion, missing part, or prosthetic this turn — OR unless a visible healed scar, missing part, or prosthetic mentioned in the scene is not yet recorded in current_state_json.health (add scars via add_conditions with kind:"scar", scar:true, severity:10). Valid part IDs: head, left_eye, right_eye, neck, torso, left_shoulder, right_shoulder, left_arm, right_arm, left_hand, right_hand, left_leg, right_leg, left_foot, right_foot, brain, heart, left_lung, right_lung, stomach, liver, left_kidney, right_kidney, skull, ribcage, spine, pelvis. Valid condition kinds: sharp, blunt, burn, frost, bleeding, fracture, infection, toxin, scar, other. Severity is 1-100; JS auto-computes part HP, pain, and capacities.
+9. PLAYER vs NPC BOUNDARY (CRITICAL): The human user persona (identified in <player_identity> and labeled [USER / PLAYER] in <latest_exchange>) is controlled EXCLUSIVELY by the human player — NEVER treat the user persona as an AI NPC or storyteller entity.
+   - NEVER place the user persona in "onscreen", "offscreen_agendas", "entity_state", "entityMem_append", "thoughts", or room "occupants" / "move_occupants" (record the player's location ONLY via world.room and world.user_pos).
+   - DO keep the user persona as the named human participant in "dam_delta" (e.g. "NPC->{{user}}"), "pair_delta" (e.g. "NPC↔{{user}}"), and "health_delta".`;
 
 const COMBINED_SCHEMA_GUIDE = `Return a JSON object containing ONLY the keys that changed this turn:
 {
@@ -109,6 +112,7 @@ const NARRATIVE_SIM_SCHEMA_GUIDE = `Return a JSON object containing ONLY the THO
  * @param {object|null} [opts.headerParsed]
  * @param {Array} [opts.proseColors]
  * @param {string} [opts.cardHints]   Optional character card / persona snippet on turn 1 or new NPC
+ * @param {string} [opts.userName]    Active human player persona name (e.g. "Arthur Blake")
  * @param {'combined'|'split'} [opts.mode='combined']
  * @param {'spatial_entity'|'narrative_sim'|null} [opts.part=null]
  */
@@ -121,15 +125,18 @@ export function buildWorkerMessages({
     headerParsed = null,
     proseColors = [],
     cardHints = '',
+    userName = '',
     mode = 'combined',
     part = null,
 }) {
     const compactState = serializeCompactForWorker(prevState);
     const cleanExchange = extractStoryProse(stripGfxBlocks(normalizeBraille(exchange || '')));
     const cleanEarlier = earlier ? extractStoryProse(stripGfxBlocks(normalizeBraille(earlier))) : '';
+    const cleanUserName = String(userName || '').trim();
 
     const preFacts = {
         next_ct: Number(prevState?.world?.ct || 0) + 1,
+        ...(cleanUserName ? { playerName: cleanUserName } : {}),
         headerParsed: headerParsed || null,
         proseColorsDetected: proseColors.map((c) => ({
             color: c.color,
@@ -152,6 +159,12 @@ export function buildWorkerMessages({
         `<current_state_json>\n${JSON.stringify(compactState)}\n</current_state_json>`,
         `<deterministic_prefacts>\n${JSON.stringify(preFacts)}\n</deterministic_prefacts>`,
     ];
+
+    if (cleanUserName) {
+        userSections.push(
+            `<player_identity>\nHuman Player Persona: ${cleanUserName}\nControl: HUMAN PLAYER ONLY (NOT an AI NPC). Exclude ${cleanUserName} from onscreen, offscreen_agendas, entity_state, entityMem_append, thoughts, and room occupants. Record ${cleanUserName}'s position ONLY in world.room and world.user_pos; keep ${cleanUserName} as the human participant in dam_delta, pair_delta, and health_delta.\n</player_identity>`,
+        );
+    }
 
     if (cardHints && cardHints.trim()) {
         userSections.push(`<character_card_context>\n${cardHints.trim().slice(0, 3500)}\n</character_card_context>`);

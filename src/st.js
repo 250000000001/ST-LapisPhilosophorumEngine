@@ -58,6 +58,22 @@ export function getCurrentPresetName() {
     return '';
 }
 
+export function getActiveUserName() {
+    const ctx = getContextSafe();
+    try {
+        if (typeof ctx.name1 === 'string' && ctx.name1.trim()) {
+            return ctx.name1.trim();
+        }
+        const sub = substituteParams('{{user}}');
+        if (sub && sub !== '{{user}}' && String(sub).trim()) {
+            return String(sub).trim();
+        }
+    } catch {
+        // Ignore
+    }
+    return '';
+}
+
 export function getActiveCharacterCardHint() {
     const ctx = getContextSafe();
     const parts = [];
@@ -68,6 +84,10 @@ export function getActiveCharacterCardHint() {
             if (ch.description) parts.push(`Description: ${String(ch.description).slice(0, 1200)}`);
             if (ch.personality) parts.push(`Personality: ${String(ch.personality).slice(0, 600)}`);
             if (ch.scenario) parts.push(`Scenario: ${String(ch.scenario).slice(0, 600)}`);
+        }
+        const userName = getActiveUserName();
+        if (userName) {
+            parts.push(`User Name (Human-Controlled Player): ${userName}`);
         }
         const persona = substituteParams('{{persona}}');
         if (persona && persona !== '{{persona}}' && persona.trim()) {

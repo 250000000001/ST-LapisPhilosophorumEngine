@@ -3,7 +3,7 @@
   --lpe-accent-1: #9AD6CF;
   --lpe-accent-2: #F1BE9A;
   --lpe-glass: #1D1D20;
-  --lpe-serif: Georgia, Cambria, serif;
+  --lpe-serif: 'Lora', Georgia, 'Palatino Linotype', 'Book Antiqua', Cambria, serif;
   --lpe-sans: system-ui, -apple-system, "Segoe UI", sans-serif;
   --lpe-mono: ui-monospace, Consolas, monospace;
 }
