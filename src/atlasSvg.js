@@ -194,6 +194,7 @@ export function renderAtlasTab(
         userName = '',
         activeCollectionLabel = '',
         externalCreditSummary = '',
+        fullScreen = false,
     } = {},
 ) {
     const mode = (viewMode === 'webgl' && allowWebgl)
@@ -246,13 +247,13 @@ export function renderAtlasTab(
     let viewportHtml = '';
     if (mode === 'webgl') {
         viewportHtml = `
-            <div class="lpe-webgl-viewport" data-map-id="${escHtml(activeMapId)}" data-level="${escHtml(activeFloor)}">
+            <div class="lpe-webgl-viewport ${fullScreen ? 'lpe-atlas-fullscreen' : 'lpe-atlas-compact'}" data-map-id="${escHtml(activeMapId)}" data-level="${escHtml(activeFloor)}" data-lpe-fullscreen="${fullScreen ? 'true' : 'false'}">
                 <canvas class="lpe-webgl-canvas"></canvas>
                 <div class="lpe-webgl-labels"></div>
                 <div class="lpe-webgl-hud-overlay">
-                    <span class="lpe-webgl-chip">${escHtml(currentMap.name || activeMapId || 'Atlas')} · ${allFloors ? 'All Floors' : `Z=${escHtml(activeFloor)}`} · ${visibleRooms.length} room${visibleRooms.length === 1 ? '' : 's'}</span>
+                    <span class="lpe-webgl-chip lpe-webgl-map-status">${escHtml(currentMap.name || activeMapId || 'Atlas')} · ${allFloors ? 'All Floors' : `Z=${escHtml(activeFloor)}`} · ${visibleRooms.length} room${visibleRooms.length === 1 ? '' : 's'}</span>
                     ${activeCollectionLabel ? `<span class="lpe-webgl-chip">Collection: ${escHtml(activeCollectionLabel)}</span>` : ''}
-                    <span class="lpe-webgl-chip">Orbit: Drag · Pan: Shift+Drag · Zoom: Wheel</span>
+                    <span class="lpe-webgl-chip lpe-webgl-nav-hint" ${fullScreen ? '' : 'hidden'}>Orbit: Drag · Pan: Shift+Drag · Zoom: Wheel</span>
                 </div>
                 <div class="lpe-webgl-controls">
                     <button type="button" class="lpe-webgl-btn active" data-webgl-act="iso" title="Isometric view">Iso</button>

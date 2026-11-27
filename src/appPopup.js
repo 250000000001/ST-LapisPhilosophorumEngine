@@ -931,7 +931,6 @@ export function createLpeAppPopup({
                             <span id="lpe_drawer_ct_pill" class="lpe-pill lpe-tabular">ct:0</span>
                         </div>
                         <div class="lpe-drawer-head-actions">
-                            ${buildFontSelectHtml('lpe_drawer_font_sel', 'lpe-drawer-hdr-btn')}
                             <button type="button" id="lpe_drawer_expand" class="lpe-mini-btn lpe-drawer-hdr-btn" title="Expand into Full Control Center"><i class="fa-solid fa-expand"></i><span> Full</span></button>
                             <button type="button" id="lpe_drawer_close" class="lpe-mini-btn lpe-drawer-hdr-btn" title="Close Drawer" aria-label="Close Drawer"><i class="fa-solid fa-xmark"></i></button>
                         </div>
@@ -962,7 +961,6 @@ export function createLpeAppPopup({
                                             <span id="lpe_app_worker_lbl">Working</span>
                                             <button type="button" id="lpe_app_stop_btn" class="lpe-mini-stop" title="Stop worker"><i class="fa-solid fa-stop"></i></button>
                                         </div>
-                                        ${buildFontSelectHtml('lpe_app_font_sel', 'lpe-app-btn secondary')}
                                         <button type="button" id="lpe_app_power" class="lpe-app-btn secondary" title="Toggle Lapis Philosophorum Engine on/off">
                                             <i class="fa-solid fa-power-off"></i> <span>On</span>
                                         </button>
@@ -1578,6 +1576,7 @@ export function createLpeAppPopup({
                 camera: atlasView.camera,
                 svgCamera: atlasView.svgCamera,
                 allowWebgl: true,
+                fullScreen: isOpen(),
                 userName: activeUserName,
                 activeCollectionLabel,
                 externalCreditSummary,
@@ -3710,6 +3709,7 @@ export function createLpeAppPopup({
         const meta = tabMeta('appearance');
         const activeTheme = settings.hudTheme || 'Magnum Opus';
         const activeStyle = settings.hudStyle || 'Afterglow';
+        const fontSelectId = isOpen() ? 'lpe_app_font_sel' : 'lpe_drawer_font_sel';
 
         const themeCards = Object.entries(LPE_THEMES).map(([name, t]) => `
             <button type="button" class="lpe-theme-card ${name === activeTheme ? 'on' : ''}" data-theme-name="${esc(name)}" data-scheme="${esc(t.scheme)}" style="background:${esc(t.base)};color:${esc(t.text)};border-color:${name === activeTheme ? '#f59e0b' : esc(t.border)};">
@@ -3747,6 +3747,10 @@ export function createLpeAppPopup({
             ${renderPageHeader(meta)}
             <div class="lpe-glass-card">
                 <div class="lpe-card-title">Reading &amp; Prose Font (${esc(resolveLpeFont(settings.readingFont).label)})</div>
+                <div class="lpe-font-inline-row">
+                    <label class="lpe-field-lbl" for="${fontSelectId}">Reading &amp; Prose Font</label>
+                    ${buildFontSelectHtml(fontSelectId, 'lpe-app-input lpe-font-inline-sel')}
+                </div>
                 ${renderTiles('readingfont', LPE_FONTS.map((f) => ({ id: f.id, label: f.label, desc: f.desc })), resolveLpeFont(settings.readingFont).id)}
             </div>
 

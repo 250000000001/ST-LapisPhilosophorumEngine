@@ -3494,7 +3494,8 @@ body.lpe-rail-docked-left .lpe-rail-tip {
     position: absolute;
     left: 10px;
     top: 8px;
-    right: 268px;
+    right: auto;
+    max-width: calc(100% - 320px);
     z-index: 4;
     display: flex;
     gap: 6px;
@@ -3504,13 +3505,28 @@ body.lpe-rail-docked-left .lpe-rail-tip {
 
 .lpe-webgl-chip {
     pointer-events: auto;
+    max-width: 100%;
     padding: 2px 8px;
     border-radius: 999px;
     background: rgba(9, 13, 22, 0.78);
     border: 1px solid rgba(255, 255, 255, 0.16);
     color: #cbd5e1;
     font-size: 10.5px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
     backdrop-filter: blur(6px);
+}
+
+/* Navigation hint is an explicit full-screen affordance only. */
+.lpe-webgl-nav-hint {
+    display: none;
+}
+
+.lpe-webgl-viewport.lpe-atlas-fullscreen .lpe-webgl-nav-hint,
+.lpe-webgl-viewport:fullscreen .lpe-webgl-nav-hint,
+.lpe-webgl-viewport:-webkit-full-screen .lpe-webgl-nav-hint {
+    display: inline-block;
 }
 
 .lpe-webgl-controls {
@@ -3520,6 +3536,7 @@ body.lpe-rail-docked-left .lpe-rail-tip {
     z-index: 4;
     display: flex;
     gap: 4px;
+    max-width: calc(100% - 20px);
 }
 
 .lpe-webgl-btn {
@@ -3558,6 +3575,53 @@ body.lpe-rail-docked-left .lpe-rail-tip {
     margin-top: 6px;
     font-size: 0.76em;
     color: var(--lpe-muted, #94a3b8);
+}
+
+/* Narrow Atlas: toolbar owns the top row, status chips drop below it. */
+@media (max-width: 720px) {
+    .lpe-webgl-controls {
+        left: 10px;
+        right: 10px;
+        top: 8px;
+        justify-content: flex-start;
+        flex-wrap: nowrap;
+        overflow-x: auto;
+        max-width: none;
+    }
+
+    .lpe-webgl-hud-overlay {
+        left: 10px;
+        right: 10px;
+        top: 42px;
+        max-width: none;
+    }
+
+    .lpe-webgl-chip {
+        font-size: 9.5px;
+    }
+
+    .lpe-webgl-nav-hint {
+        display: none !important;
+    }
+}
+
+.lpe-font-inline-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-bottom: 10px;
+}
+
+.lpe-font-inline-row .lpe-field-lbl {
+    flex: 0 0 auto;
+    margin: 0;
+}
+
+.lpe-font-inline-row .lpe-font-inline-sel {
+    flex: 1 1 200px;
+    min-width: 0;
+    max-width: 280px;
 }
 
 .lpe-atlas-open-webgl-btn {
