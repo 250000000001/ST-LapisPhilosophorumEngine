@@ -1,3 +1,17 @@
+<div align="center">
+
+[![Live 3D Atlas Showcase](https://img.shields.io/badge/✦_Launch_Interactive_3D_Atlas-9AD6CF?style=for-the-badge&logoColor=1D1D20)](https://250000000001.github.io/ST-LapisPhilosophorumEngine/docs/3d-showcase/)
+[![Version](https://img.shields.io/badge/Release-v0.1.0--alpha-F1BE9A?style=for-the-badge)](#)
+[![WordPress Feature](https://img.shields.io/badge/Read_Feature_Post-1D1D20?style=for-the-badge)](https://xuweijiedev.com/?p=1565)
+
+[**✦ Open Interactive 3D Room & Asset Showcase →**](https://250000000001.github.io/ST-LapisPhilosophorumEngine/docs/3d-showcase/)
+
+[![LPE Interactive 3D WebGL Atlas](assets/screenshots/showcase-3d-atlas.png)](https://250000000001.github.io/ST-LapisPhilosophorumEngine/docs/3d-showcase/)
+
+*Click the preview above to explore the 24-prop Three.js WebGL Atlas & Magnum Opus Glass HUD live in your browser.*
+
+</div>
+
 # Lapis Philosophorum Engine (LPE)
 
 External state engine, swipe-safe journaled store, secondary API worker (**LPE Clerk**), Hybrid Three.js WebGL + PolyCSS 3D Atlas map, anatomical health doll, inline editor, and native themed HUD for **Magnum Opus** and Vexa-lineage SillyTavern presets.
