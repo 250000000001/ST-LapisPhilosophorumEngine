@@ -872,6 +872,14 @@ function initShowcase() {
         anchor.userData.propId = prop.id;
         anchor.add(holder);
         worldRoot.add(anchor);
+        if (prop.floorBound) {
+          anchor.updateMatrixWorld(true);
+          const groundedBox = new THREE.Box3().setFromObject(anchor, true);
+          if (!groundedBox.isEmpty() && Math.abs(groundedBox.min.y) > 1e-4) {
+            anchor.position.y -= groundedBox.min.y;
+            anchor.updateMatrixWorld(true);
+          }
+        }
 
         let triCount = 0;
         holder.traverse((obj) => {
@@ -906,11 +914,29 @@ function initShowcase() {
     selectProp(selectedPropId, false);
     const floorChecks = {};
     const worldBox = new THREE.Box3();
+    const otherBox = new THREE.Box3();
+    const archGroup = worldRoot.getObjectByName('AtlasArchitecture');
     for (const [id, entry] of propAnchors) {
       if (!entry.prop.floorBound) continue;
+      entry.anchor.updateMatrixWorld(true);
       worldBox.setFromObject(entry.anchor, true);
       const minY = Number(worldBox.min.y.toFixed(4));
-      floorChecks[id] = { minY, onFloor: Math.abs(minY) <= 0.01 };
+      const overlaps = [];
+      for (const [otherId, otherEntry] of propAnchors) {
+        if (otherId === id) continue;
+        otherEntry.anchor.updateMatrixWorld(true);
+        otherBox.setFromObject(otherEntry.anchor, true);
+        if (worldBox.intersectsBox(otherBox)) overlaps.push(`prop:${otherId}`);
+      }
+      if (archGroup) {
+        archGroup.traverse((obj) => {
+          if (!obj.isMesh) return;
+          otherBox.setFromObject(obj, true);
+          if (otherBox.max.y <= 0.02) return;
+          if (worldBox.intersectsBox(otherBox)) overlaps.push(`arch:${obj.name || obj.uuid.slice(0, 6)}`);
+        });
+      }
+      floorChecks[id] = { minY, onFloor: Math.abs(minY) <= 0.01, overlaps };
     }
     state.floorBoundProps = floorChecks;
     requestRender();

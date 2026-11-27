@@ -1,22 +1,17 @@
-<div align="center">
-
-[![Live 3D Atlas Showcase](https://img.shields.io/badge/✦_Launch_Interactive_3D_Atlas-9AD6CF?style=for-the-badge&logoColor=1D1D20)](https://250000000001.github.io/ST-LapisPhilosophorumEngine/docs/3d-showcase/)
-[![Version](https://img.shields.io/badge/Release-v0.1.0--alpha-F1BE9A?style=for-the-badge)](#)
-[![WordPress Feature](https://img.shields.io/badge/Read_Feature_Post-1D1D20?style=for-the-badge)](https://xuweijiedev.com/?p=1565)
-
-[**✦ Open Interactive 3D Room & Asset Showcase →**](https://250000000001.github.io/ST-LapisPhilosophorumEngine/docs/3d-showcase/)
-
-[![LPE Interactive 3D WebGL Atlas](assets/screenshots/showcase-3d-atlas.png)](https://250000000001.github.io/ST-LapisPhilosophorumEngine/docs/3d-showcase/)
-
-*Click the preview above to explore the 24-prop Three.js WebGL Atlas & Magnum Opus Glass HUD live in your browser.*
-
-</div>
-
 # Lapis Philosophorum Engine (LPE)
 
 External state engine, swipe-safe journaled store, secondary API worker (**LPE Clerk**), Hybrid Three.js WebGL + PolyCSS 3D Atlas map, anatomical health doll, inline editor, and native themed HUD for **Magnum Opus** and Vexa-lineage SillyTavern presets.
 
-## What It Does
+## Alpha Release (`v0.1.0-alpha`)
+
+- **Engine, Preset & Theme Identity:** Official release baseline for **Lapis Philosophorum Engine (LPE)** paired with the **Magnum Opus** external-state preset ([`Presets/Magnum Opus.json`](Presets/Magnum%20Opus.json)) and **Magnum Opus Glass** UI theme ([`themes/Magnum_Opus_Glass_Theme.json`](themes/Magnum_Opus_Glass_Theme.json)), while preserving automatic upgrades and aliases for legacy Vexa setups (`vexa_state_engine`, `<vexa_tail>`, `window.VexaCard`, `getvexa()`, `--vse-*`).
+- **Tooling & 3D Additions:** Ships with a **24-asset 3D `.glb` library** (`2` bundled CC BY 4.0 packs + `22` standalone CC0 / CC BY 4.0 Sketchfab models), interactive WebGL walkthrough ([`docs/3d-showcase/`](docs/3d-showcase/README.md)), sandboxed card authoring & migration kit ([`templates/lpe-card-template/`](templates/lpe-card-template/README.md)), and Worker-isolated headless EJS validator ([`scripts/verify-ejs-headless.mjs`](scripts/verify-ejs-headless.mjs)).
+- **Key Upstream Inspirations:** Built cleanly from architecture and aesthetic inspirations across [`StageDog/tavern_helper_template`](https://github.com/StageDog/tavern_helper_template) (authoring template structure), [`deepsleep-claw/SleepTavernHome`](https://github.com/deepsleep-claw/SleepTavernHome) (vertical side-rail ergonomics), **KAKAA / `@rech0_viixi`** (`双色盒子-深色毛玻璃.json` frosted obsidian + celadon/peach aesthetic), **Ryah** (Vexa preset architecture), **Megumin Suite** (secondary worker & HUD diff workflow), and CC0 / CC BY 4.0 3D asset creators.
+
+<details>
+<summary><strong>✦ Features &amp; Live UI Showcase</strong></summary>
+
+### Architecture & Core Capabilities
 
 Vanilla TeleWire/Vexa presets emit all 16 `<internal_states>` XML sections at the end of every reply (~35 KB / ~9k–10k output tokens per turn, ~87% of total output). **Lapis Philosophorum Engine (LPE)** splits that workload into three layers:
 
@@ -51,6 +46,28 @@ Vanilla TeleWire/Vexa presets emit all 16 `<internal_states>` XML sections at th
 
 > **Legacy Vexa Compatibility:** Existing configs and chats upgrade automatically without manual steps: `extension_settings.vexa_state_engine` → `extension_settings.lapis_philosophorum_engine`, `chat_metadata.vexa_state` → `chat_metadata.lpe_state`, `(vexa_uid, vexa_seq)` stamps work alongside `(lpe_uid, lpe_seq)`, and parsers/bridges continue accepting `<vexa_tail>`, `<vexa_receipt>`, `window.VexaCard`, `vexa-card-bridge`, `getvexa()`, `{{vexa::...}}`, `[VexaInitVar]`, and `--vse-*`.
 
+### Live E2E Verification Screenshots (Isolated Port `8010`)
+
+![Turn 0 — Sandboxed Character Origin Card UI](assets/screenshots/showcase-turn0-card.png)
+*Turn 0 — Sandboxed (`blob:`, `allow-scripts`) Character Origin card UI with seeded `cardVars` and `LPECard` send-confirmation bar.*
+
+![Turn 1 — Inline HUD & Diff Strip](assets/screenshots/showcase-turn1-hud-diff.png)
+*Turn 1 — Live story reply synced by LPE Clerk with expanded inline HUD, "Changed in this reply" diff strip, and collapsed CoT Receipt.*
+
+![Desktop Side-Rail & Drawer (1440x900)](assets/screenshots/showcase-rail-drawer.png)
+*Desktop Side-Rail & Drawer (`1440×900`) — Non-overlapping vertical `#lpe_rail` and frosted `#lpe_drawer` open on Overview.*
+
+![Magnum Opus Glass & Health Doll](assets/screenshots/showcase-magnum-theme.png)
+*Magnum Opus Glass & Health Doll — Dual celadon/peach frosted UI theme alongside live-extracted anatomical injury tracking.*
+
+![Mobile Bottom-Sheet (390x844)](assets/screenshots/showcase-mobile.png)
+*Mobile Bottom-Sheet (`390×844`) — Responsive narrow-viewport drawer, horizontal tab strip, and floating `#lpe_fab_btn` with zero overflow.*
+
+![Hybrid Three.js WebGL Atlas](assets/screenshots/showcase-3d-atlas.png)
+*Hybrid Three.js WebGL Atlas — Multi-room Tingen Quarter with unified doorway cutout and 13 normalized Sketchfab GLB props.*
+
+</details>
+
 ## Preset Setup
 
 The companion external-state preset (**Magnum Opus**, [`Presets/Magnum Opus.json`](Presets/Magnum%20Opus.json)) is **included directly in this repository with Ryah's permission**:
@@ -75,43 +92,35 @@ LPE ships with a native dual-accent dark frosted-glass design system (`.lpe-*`) 
 - **SmartTheme Variable Inheritance**: `.lpe-*` surfaces inherit SillyTavern's `--SmartThemeBlurTintColor`, `--SmartThemeBorderColor`, `--SmartThemeShadowColor`, `--SmartThemeBodyColor`, `--SmartThemeEmColor`, `--SmartThemeQuoteColor`, and `--SmartThemeUnderlineColor` dynamically (falling back to the obsidian `#1D1D20` + celadon `#9AD6CF` + gilded peach `#F1BE9A` **Magnum Opus** palette). Zero external font or asset CDNs are loaded.
 - **Optional Companion SillyTavern UI Theme**: Import [`themes/Magnum_Opus_Glass_Theme.json`](themes/Magnum_Opus_Glass_Theme.json) under SillyTavern **User Settings (A) → UI Theme → Import** to match chat bubbles, `#send_form`, drawers, and scrollbars to **Magnum Opus Glass**.
 
-## 3D Asset Library & Fetch Pipeline
+## Interactive 3D Showcase (`docs/3d-showcase/`)
 
-- **Bundled Packs & Standalone Imports (`assets/models/*.glb`)**: Combines `2` bundled CC BY 4.0 packs (`psx-industrial.glb` and `scifi-lab-props.glb`) with `22` standalone CC0 / CC BY 4.0 Sketchfab `.glb` models (`sketchfab-*.glb`) indexed in [`src/sketchfabAssets.js`](src/sketchfabAssets.js). Full model credits, UIDs, licenses, and adaptation notes are tracked in [`assets/models/ATTRIBUTION.md`](assets/models/ATTRIBUTION.md).
-- **Curated Manifest & Fetch Script**: [`scripts/sketchfab-general-mix.json`](scripts/sketchfab-general-mix.json) defines curated slots and target dimensions, while [`scripts/fetch-sketchfab-assets.mjs`](scripts/fetch-sketchfab-assets.mjs) fetches permitted CC0 / CC BY Sketchfab GLBs, updates [`src/sketchfabAssets.js`](src/sketchfabAssets.js), and regenerates the standalone credit entries in [`assets/models/ATTRIBUTION.md`](assets/models/ATTRIBUTION.md).
-- **Runtime Normalization (`src/atlasWebgl.js`)**: Automatically centers bottom pivots, fits prop footprints (`bar_counter`, `park_bench`), applies `kitchen_counter`'s 90° Y-axis rotation (`preRotY`), elevates wall/ceiling fixtures (`chandelier` at `z = 2.55`, `wall_sconce` at `z = 1.95`), and adapts legacy `KHR_materials_pbrSpecularGlossiness` materials (`fountain`, `park_bench`) for standard glTF/Three.js PBR lighting.
+Explore the standalone [Tingen Quarter WebGL walkthrough](docs/3d-showcase/README.md) featuring camera presets, lighting moods, floor-grounded props (`sci_jar` flush at `y = 0`), click-to-inspect raycasting, and CC BY 4.0 / CC0 attribution:
 
-## Feature & Visual Showcase (Port `8010` Live E2E)
-
-![Turn 0 — Sandboxed Character Origin Card UI](assets/screenshots/showcase-turn0-card.png)
-*Turn 0 — Sandboxed (`blob:`, `allow-scripts`) Character Origin card UI with seeded `cardVars` and `LPECard` send-confirmation bar.*
-
-![Turn 1 — Inline HUD & Diff Strip](assets/screenshots/showcase-turn1-hud-diff.png)
-*Turn 1 — Live story reply synced by LPE Clerk with expanded inline HUD, "Changed in this reply" diff strip, and collapsed CoT Receipt.*
-
-![Desktop Side-Rail & Drawer (1440x900)](assets/screenshots/showcase-rail-drawer.png)
-*Desktop Side-Rail & Drawer (`1440×900`) — Non-overlapping vertical `#lpe_rail` and frosted `#lpe_drawer` open on Overview.*
-
-![Magnum Opus Glass & Health Doll](assets/screenshots/showcase-magnum-theme.png)
-*Magnum Opus Glass & Health Doll — Dual celadon/peach frosted UI theme alongside live-extracted anatomical injury tracking.*
-
-![Mobile Bottom-Sheet (390x844)](assets/screenshots/showcase-mobile.png)
-*Mobile Bottom-Sheet (`390×844`) — Responsive narrow-viewport drawer, horizontal tab strip, and floating `#lpe_fab_btn` with zero overflow.*
-
-![Hybrid Three.js WebGL Atlas](assets/screenshots/showcase-3d-atlas.png)
-*Hybrid Three.js WebGL Atlas — Multi-room Tingen Quarter with unified doorway cutout and 13 normalized Sketchfab GLB props.*
-
-**Interactive 3D Showcase:** Explore the standalone [Tingen Quarter WebGL walkthrough](docs/3d-showcase/README.md) (camera presets, lighting moods, click-to-inspect, and CC BY 4.0 / CC0 attribution), deployable via GitHub Pages or embeddable with a single `<iframe>`.
+- **GitHub Pages URL:** **https://250000000001.github.io/ST-LapisPhilosophorumEngine/docs/3d-showcase/** (deployed from branch `main` with `/ (root)` so `../../assets/models/` and `../../lib/three/` resolve cleanly).
+- **Custom Domains & WordPress Articles:** A custom subdomain pointed at GitHub Pages via DNS `CNAME` (e.g., `lpe.xuweijiedev.com`) serves the showcase from `https://lpe.xuweijiedev.com/docs/3d-showcase/`, while companion WordPress posts/drafts (such as `https://xuweijiedev.com/?p=1565`) link out to or embed the GitHub Pages / custom-subdomain URL in an `<iframe>` instead of re-uploading `.glb` binaries to WordPress media.
+- **Run Locally Over HTTP:** Serve from the **repository root** over a static HTTP server (e.g., `python -m http.server 8099` → `http://localhost:8099/docs/3d-showcase/`, or an ephemeral port) — **never** open directly via `file://` (ES module & GLB CORS restrictions) and **never** use port `8000`.
 
 ## Testing
 
 - **Offline Unit & Integration Suite:** Run `node --test test/*.test.mjs` inside the repository root to verify reducer determinism, swipe journal isolation, topology/matrix diffs, and 3D WebGL/Health doll helpers without network calls.
+- **Headless Card EJS Validation:** Run `node scripts/verify-ejs-headless.mjs path/to/card.png --json` inside the repository root to verify `[InitVar]` seeding and EJS evaluation across turns `0–2` in an isolated Node `worker_threads` sandbox.
 - **Isolated Live E2E Verification (Port `8010`):** Launch a separate local SillyTavern test copy on an isolated port (`node server.js --port 8010 --browserLaunchEnabled false --listen false`) so any personal SillyTavern instance on port `8000` remains untouched. Read test API credentials strictly in memory at runtime from an untracked local file outside the repo (for example `Projects/Test-playground/LPE_TEST_API_KEY.txt`), run temporary CDP/Playwright verification harnesses under `_tmp/` (deleted after completion), and restore/scrub temporary `settings.json`, `secrets.json`, chats, presets, and imported characters inside `finally` without logging or committing tokens.
 
-## Credits & Acknowledgements
+<details>
+<summary><strong>✦ 3D Asset Library, Licenses &amp; Credits</strong></summary>
+
+### 3D Asset Library & Fetch Pipeline
+
+- **Bundled Packs & Standalone Imports (`assets/models/*.glb`)**: Combines `2` bundled CC BY 4.0 packs (`psx-industrial.glb` and `scifi-lab-props.glb`) with `22` standalone CC0 / CC BY 4.0 Sketchfab `.glb` models (`sketchfab-*.glb`) indexed in [`src/sketchfabAssets.js`](src/sketchfabAssets.js). Full model credits, UIDs, licenses, and adaptation notes are tracked in [`assets/models/ATTRIBUTION.md`](assets/models/ATTRIBUTION.md).
+- **Curated Manifest & Fetch Script**: [`scripts/sketchfab-general-mix.json`](scripts/sketchfab-general-mix.json) defines curated slots and target dimensions, while [`scripts/fetch-sketchfab-assets.mjs`](scripts/fetch-sketchfab-assets.mjs) fetches permitted CC0 / CC BY Sketchfab GLBs, updates [`src/sketchfabAssets.js`](src/sketchfabAssets.js), and regenerates the standalone credit entries in [`assets/models/ATTRIBUTION.md`](assets/models/ATTRIBUTION.md).
+- **Runtime Normalization (`src/atlasWebgl.js`)**: Automatically centers bottom pivots, fits prop footprints (`bar_counter`, `park_bench`), applies `kitchen_counter`'s 90° Y-axis rotation (`preRotY`), elevates wall/ceiling fixtures (`chandelier` at `z = 2.55`, `wall_sconce` at `z = 1.95`), grounds floor-bound fixtures (`sci_jar` flush at `y = 0`), and adapts legacy `KHR_materials_pbrSpecularGlossiness` materials (`fountain`, `park_bench`) for standard glTF/Three.js PBR lighting.
+
+### Credits & Acknowledgements
 
 - **Magnum Opus Glass UI & Side-Rail Inspiration**:
-  - Inspired by the dark frosted obsidian + dual celadon/peach palette of **KAKAA / `@rech0_viixi`** ([CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/)) and the slim vertical sidebar ergonomics of **`deepsleep-claw/SleepTavernHome`** ([Aladdin Free Public License v9](https://github.com/deepsleep-claw/SleepTavernHome)). Both `style.css` (`.lpe-*` / `#lpe_rail` / `#lpe_drawer`) and [`themes/Magnum_Opus_Glass_Theme.json`](themes/Magnum_Opus_Glass_Theme.json) are 100% original clean-room implementations with zero third-party CSS copy-pasting and zero external CDN dependencies.
+  - Inspired by the dark frosted obsidian + dual celadon/peach palette of **KAKAA / `@rech0_viixi`** (`双色盒子-深色毛玻璃.json`, [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/)) and the slim vertical sidebar ergonomics of **`deepsleep-claw/SleepTavernHome`** ([Aladdin Free Public License v9](https://github.com/deepsleep-claw/SleepTavernHome)). Both `style.css` (`.lpe-*` / `#lpe_rail` / `#lpe_drawer`) and [`themes/Magnum_Opus_Glass_Theme.json`](themes/Magnum_Opus_Glass_Theme.json) are 100% original clean-room implementations with zero third-party CSS copy-pasting and zero external CDN dependencies.
+- **LPE Card Authoring Kit Inspiration**:
+  - Separated source/build layout, TypeScript declarations (`types/lpe-card.d.ts`), and local preview workflow in [`templates/lpe-card-template/`](templates/lpe-card-template/README.md) draw architectural inspiration from **`StageDog/tavern_helper_template`** ([PolyForm Noncommercial License 1.0.0](https://github.com/StageDog/tavern_helper_template)). The LPE template and sandboxed `window.LPECard` bridge are original clean-room implementations.
 - **Vexa Preset** by **Ryah** — https://ryah.github.io/vexa
   - Created the TeleWire TRP-AO world-simulation preset, 16-section `<internal_states>` architecture, Aether Matrix/Dam, Atlas, Chekhov, ARC, and HUD theme palettes that Lapis Philosophorum Engine (LPE) & **Magnum Opus** externalize and build upon. The **Magnum Opus** external-state preset included under [`Presets/`](Presets/) is derived from Ryah's Vexa preset and redistributed with Ryah's explicit permission.
 - **Megumin Suite** by **Arif-salah (`KazumaONIISAN`)** — https://github.com/Arif-salah/Megumin-Suite
@@ -132,10 +141,13 @@ LPE ships with a native dual-accent dark frosted-glass design system (`.lpe-*`) 
   - Licensed under [Creative Commons Attribution 4.0 International (CC BY 4.0)](https://creativecommons.org/licenses/by/4.0/). Changes made: extracted individual prop meshes from source `industrial.fbx`, baked transforms, normalized bounds and pivots to `(0, 0, 0)`, converted embedded `512×512` `T_Industrial` / `T_Industrial2` diffuse textures to WebP, and packaged as `assets/models/psx-industrial.glb` (see [`assets/models/ATTRIBUTION.md`](assets/models/ATTRIBUTION.md)).
 - **Sci-fi lab** (`assets/models/scifi-lab-props.glb`) by **Agata Wilczek** (https://sketchfab.com/a_wilczek) — https://sketchfab.com/3d-models/sci-fi-lab-a676e149e343403bb5e57686f3d31da5
   - Licensed under [Creative Commons Attribution 4.0 International (CC BY 4.0)](https://creativecommons.org/licenses/by/4.0/). Changes made: isolated 8 modular interior props (`sci_vat`, `sci_console`, `sci_table`, `sci_jar`, `sci_cabinet`, `sci_airlock`, `sci_screen`, `sci_pipe`) from `enviro_lab.obj`, decimated geometry via UV-preserving vertex clustering, added glowing cyan/emissive containment glass styling, converted/downscaled textures to WebP, normalized pivots, and packaged as `assets/models/scifi-lab-props.glb` (see [`assets/models/ATTRIBUTION.md`](assets/models/ATTRIBUTION.md)).
+- **Standalone Sketchfab Props (`22` CC0 / CC BY 4.0 `.glb` Models):** Credited individually by author, Sketchfab UID, source URL, and license in [`assets/models/ATTRIBUTION.md`](assets/models/ATTRIBUTION.md).
 
-## License
+### License
 
 - **Extension Code & Procedural 3D Geometry:** All original JavaScript, CSS, HTML, procedural Three.js/PolyCSS builders, and tooling scripts in this repository are licensed under **[Creative Commons Attribution-NonCommercial 4.0 International (CC BY-NC 4.0)](LICENSE)**.
 - **Magnum Opus Preset (`Presets/Magnum Opus.json`):** Derived from Ryah's Vexa preset (`https://ryah.github.io/vexa`) and included with Ryah's permission for SillyTavern LPE users.
 - **Vendored Three.js (`lib/three/`):** Licensed separately under the **[MIT License](lib/three/LICENSE)**.
 - **3D Model Assets (`assets/models/*.glb`):** Bundled industrial & sci-fi packs are licensed under **[Creative Commons Attribution 4.0 International (CC BY 4.0)](https://creativecommons.org/licenses/by/4.0/)**, and standalone Sketchfab imports carry their individual **CC0 1.0** or **CC BY 4.0** terms as detailed in [`assets/models/ATTRIBUTION.md`](assets/models/ATTRIBUTION.md). No endorsement by original model authors is implied.
+
+</details>

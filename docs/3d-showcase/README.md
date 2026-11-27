@@ -21,7 +21,7 @@ No files are duplicated and no external CDNs are used.
 
 ## Local Preview
 
-Serve from the **repository root** so the `../../assets/models/` and `../../lib/three/` paths resolve (never use port `8000`):
+Serve from the **repository root** over a local HTTP static server so the `../../assets/models/` and `../../lib/three/` ES module and GLB paths resolve (**never** open `index.html` directly via `file://`, and **never** use port `8000`):
 
 ```bash
 cd ST-LapisPhilosophorumEngine
@@ -29,23 +29,26 @@ python -m http.server 8099
 # open http://localhost:8099/docs/3d-showcase/
 ```
 
-Any static server works; just keep the repository root as the document root.
+Any static HTTP server works (or an ephemeral port like `npx http-server -p 8099`); keep the repository root as the document root.
 
-## GitHub Pages Setup
+## GitHub Pages, Custom Domains & WordPress Integration
 
 1. Push the repository to GitHub.
 2. Open **Settings → Pages**.
 3. Under **Build and deployment**, set **Source** to **Deploy from a branch**.
 4. Choose branch **`main`** and folder **`/ (root)`**, then **Save**.
-5. After the first deploy, the showcase is available at:
+5. After deploy, the showcase is served at:
 
    **https://250000000001.github.io/ST-LapisPhilosophorumEngine/docs/3d-showcase/**
 
-> Path note: assets are resolved relative to the page (`../../assets/models/`), so the showcase must be served from the repository root as shown above. Serving GitHub Pages from `/docs` instead would break the `../../assets` paths.
+- **Custom Domain / Subdomain Routing (`lpe.xuweijiedev.com`):** Pointing a DNS `CNAME` record for a custom subdomain (such as `lpe.xuweijiedev.com` → `250000000001.github.io`) serves the same repository root at `https://lpe.xuweijiedev.com/docs/3d-showcase/` with `../../assets/models/` and `../../lib/three/` intact.
+- **WordPress Links & `<iframe>` Embeds (e.g. `https://xuweijiedev.com/?p=1565`):** WordPress posts link to or embed the GitHub Pages / custom-subdomain URL below via a **Custom HTML** / `wp:html` block, keeping `.glb` models hosted on GitHub Pages rather than uploading binaries to WordPress media.
+
+> Path note: assets are resolved relative to the page (`../../assets/models/`), so GitHub Pages must deploy from `/ (root)` rather than `/docs`.
 
 ## WordPress `<iframe>` Embed
 
-Paste this into a **Custom HTML** / `wp:html` block (the host page must allow iframes):
+Paste this into a **Custom HTML** / `wp:html` block (replace `src` with your custom subdomain URL if enabled; the host page must allow iframes):
 
 ```html
 <iframe
