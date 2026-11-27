@@ -2,6 +2,9 @@
 
 External state engine, swipe-safe journaled store, secondary API worker (**LPE Clerk**), Hybrid Three.js WebGL + PolyCSS 3D Atlas map, anatomical health doll, inline editor, and native themed HUD for **Magnum Opus** and Vexa-lineage SillyTavern presets.
 
+# Why Lapis Philosophorum Engine (LPE) & Magnum Opus?
+Pure on-the-spot AI generation feels fresh at first, but because models are probabilistic—and players bring consistent habits—similar runs and cards tend to converge. LPE pairs deterministic game structure with controlled uncertainty so playthroughs stay surprising and earned.
+
 ## Alpha Release (`v0.1.0-alpha`)
 
 - **Engine, Preset & Theme Identity:** Official release baseline for **Lapis Philosophorum Engine (LPE)** paired with the **Magnum Opus** external-state preset ([`Presets/Magnum Opus.json`](Presets/Magnum%20Opus.json)) and **Magnum Opus Glass** UI theme ([`themes/Magnum_Opus_Glass_Theme.json`](themes/Magnum_Opus_Glass_Theme.json)), while preserving automatic upgrades and aliases for legacy Vexa setups (`vexa_state_engine`, `<vexa_tail>`, `window.VexaCard`, `getvexa()`, `--vse-*`).
