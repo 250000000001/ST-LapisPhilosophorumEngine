@@ -7,7 +7,7 @@
  *  - Strict URL scheme / path-traversal validation for catalog & entry links
  *  - Browsing, install/register, enable/disable, and uninstall lifecycle
  *  - Attribution preservation (author, license, version, repo/source metadata)
- *  - Graceful offline / missing-catalog fallback using installed metadata only
+ *  - Offline / HTTP-404 fallback to a bundled official companion catalog
  *
  * Only lightweight metadata is persisted in extensionSettings; raw source bundles are
  * never stored in settings, keeping the core LPE install lightweight.
@@ -15,11 +15,47 @@
 
 import { normalizeLicenseMeta, resolveManifestUrl } from './modelLibrary.js';
 
-export const DEFAULT_EXTENSION_REPO_URL = 'https://github.com/250000000001/ST-LapisPhilosophorumEngineExtensions';
+export const DEFAULT_EXTENSION_CATALOG_PATH = 'assets/extensions/manifest.json';
+export const DEFAULT_EXTENSION_REPO_URL = 'https://github.com/250000000001/ST-LapisPhilosophorumEngine';
 export const DEFAULT_EXTENSION_BRANCH = 'main';
-export const DEFAULT_EXTENSION_BASE_URL = `https://raw.githubusercontent.com/250000000001/ST-LapisPhilosophorumEngineExtensions/${DEFAULT_EXTENSION_BRANCH}/`;
+export const DEFAULT_EXTENSION_BASE_URL = `https://raw.githubusercontent.com/250000000001/ST-LapisPhilosophorumEngine/${DEFAULT_EXTENSION_BRANCH}/assets/extensions/`;
 export const DEFAULT_EXTENSION_MANIFEST_URL = `${DEFAULT_EXTENSION_BASE_URL}manifest.json`;
 export const EXTENSION_LIBRARY_META_VERSION = 1;
+
+/** Official companion extensions shipped as an offline-first fallback catalog. */
+export const BUNDLED_EXTENSION_CATALOG = {
+    version: EXTENSION_LIBRARY_META_VERSION,
+    name: 'LPE Companion Extensions',
+    updatedAt: '2026-11-28',
+    extensions: [
+        {
+            id: 'st-lpe-temporary-npcs',
+            name: 'Temporary NPCs',
+            version: '0.1.0',
+            summary: 'Ephemeral filler NPCs with 3-turn decay, same-name refresh, despawn on move-on, and Promote to Named Cast.',
+            description: 'Adds lightweight temporary background NPCs that decay after 3 turns, refresh when the same name reappears, despawn when the scene moves on, and can be promoted into the named cast.',
+            category: 'characters',
+            tags: ['npc', 'filler', 'temporary', 'cast', 'promotion'],
+            repoUrl: 'https://github.com/250000000001/ST-LPE-Temporary-NPCs',
+            homepage: 'https://github.com/250000000001/ST-LPE-Temporary-NPCs',
+            author: '250000000001',
+            license: 'See repository',
+        },
+        {
+            id: 'st-lpe-dynamic-memory',
+            name: 'Dynamic Memory',
+            version: '0.1.0-preview',
+            summary: 'Preview companion for dynamic lorebook entries and fading memory in LPE.',
+            description: 'Lightweight preview/upcoming sub-extension for dynamic lorebook updates and fading-memory behavior. Treat availability and feature scope as preview until the companion repository documents a stable release.',
+            category: 'memory',
+            tags: ['memory', 'lorebook', 'fading', 'preview'],
+            repoUrl: 'https://github.com/250000000001/ST-LPE-Dynamic-Memory',
+            homepage: 'https://github.com/250000000001/ST-LPE-Dynamic-Memory',
+            author: '250000000001',
+            license: 'See repository',
+        },
+    ],
+};
 
 const SAFE_EXTENSION_ID_RE = /^[a-z0-9][a-z0-9_.:-]{0,79}$/i;
 const UNSAFE_SCHEME_RE = /^(?:javascript|vbscript|data|file|chrome|chrome-extension|about):/i;
@@ -279,6 +315,14 @@ export function parseExtensionManifest(rawJson, {
     };
 }
 
+/** Parse the built-in official companion catalog for offline or missing-remote use. */
+export function getBundledExtensionManifest({
+    manifestUrl = DEFAULT_EXTENSION_MANIFEST_URL,
+    baseUrl = '',
+} = {}) {
+    return parseExtensionManifest(BUNDLED_EXTENSION_CATALOG, { manifestUrl, baseUrl });
+}
+
 /** Build a lightweight installed record preserving all attribution & source metadata. */
 export function sanitizeInstalledExtensionRecord(entry, { enabled = true } = {}) {
     const license = normalizeExtensionLicense(entry.licenseCode || entry.license, entry.licenseUrl);
@@ -505,6 +549,20 @@ export function createExtensionLibraryManager({
         return resolveExtensionManifestUrl(el.manifestUrl);
     }
 
+    function applyBundledFallback(resolved, reason) {
+        const el = config();
+        const parsed = getBundledExtensionManifest({
+            manifestUrl: resolved.manifestUrl,
+            baseUrl: resolved.baseUrl,
+        });
+        parsed.fallback = true;
+        parsed.fallbackReason = reason;
+        parsed.warnings = [...parsed.warnings, `Bundled catalog fallback: ${reason}`];
+        el.cachedManifest = parsed;
+        commitChange();
+        return parsed;
+    }
+
     async function refreshCatalog({ manifestUrl = null } = {}) {
         const el = config();
         const resolved = resolveExtensionManifestUrl(manifestUrl ?? el.manifestUrl);
@@ -513,17 +571,35 @@ export function createExtensionLibraryManager({
         }
         const fetchFn = getFetch();
         if (!fetchFn) {
-            throw new Error('HTTP fetch API is unavailable in this environment.');
+            return applyBundledFallback(resolved, 'HTTP fetch API unavailable');
         }
-        const res = await fetchFn(resolved.manifestUrl, { headers: { Accept: 'application/json' } });
+
+        let res;
+        try {
+            res = await fetchFn(resolved.manifestUrl, { headers: { Accept: 'application/json' } });
+        } catch (err) {
+            return applyBundledFallback(resolved, `network unavailable: ${err?.message || err}`);
+        }
         if (!res?.ok) {
-            throw new Error(`Could not load extension manifest (HTTP ${res?.status || 'ERR'}).`);
+            return applyBundledFallback(resolved, `HTTP ${res?.status || 'ERR'}`);
         }
-        const text = await res.text();
-        const parsed = parseExtensionManifest(text, {
-            manifestUrl: resolved.manifestUrl,
-            baseUrl: resolved.baseUrl,
-        });
+
+        let text;
+        try {
+            text = await res.text();
+        } catch (err) {
+            return applyBundledFallback(resolved, `response unreadable: ${err?.message || err}`);
+        }
+
+        let parsed;
+        try {
+            parsed = parseExtensionManifest(text, {
+                manifestUrl: resolved.manifestUrl,
+                baseUrl: resolved.baseUrl,
+            });
+        } catch (err) {
+            return applyBundledFallback(resolved, `invalid remote manifest: ${err?.message || err}`);
+        }
         el.cachedManifest = parsed;
         commitChange();
         return parsed;
@@ -531,8 +607,9 @@ export function createExtensionLibraryManager({
 
     function getCatalog(filterOpts = {}) {
         const el = config();
+        const manifest = el.cachedManifest || getBundledExtensionManifest({ manifestUrl: el.manifestUrl });
         return listExtensionEntries({
-            manifest: el.cachedManifest,
+            manifest,
             installedExtensions: el.installed,
             ...filterOpts,
         });

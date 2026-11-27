@@ -1,0 +1,33 @@
+{
+    "version": 1,
+    "name": "LPE Companion Extensions",
+    "updatedAt": "2026-11-28",
+    "extensions": [
+        {
+            "id": "st-lpe-temporary-npcs",
+            "name": "Temporary NPCs",
+            "version": "0.1.0",
+            "summary": "Ephemeral filler NPCs with 3-turn decay, same-name refresh, despawn on move-on, and Promote to Named Cast.",
+            "description": "Adds lightweight temporary background NPCs that decay after 3 turns, refresh when the same name reappears, despawn when the scene moves on, and can be promoted into the named cast.",
+            "category": "characters",
+            "tags": ["npc", "filler", "temporary", "cast", "promotion"],
+            "repoUrl": "https://github.com/250000000001/ST-LPE-Temporary-NPCs",
+            "homepage": "https://github.com/250000000001/ST-LPE-Temporary-NPCs",
+            "author": "250000000001",
+            "license": "See repository"
+        },
+        {
+            "id": "st-lpe-dynamic-memory",
+            "name": "Dynamic Memory",
+            "version": "0.1.0-preview",
+            "summary": "Preview companion for dynamic lorebook entries and fading memory in LPE.",
+            "description": "Lightweight preview/upcoming sub-extension for dynamic lorebook updates and fading-memory behavior. Treat availability and feature scope as preview until the companion repository documents a stable release.",
+            "category": "memory",
+            "tags": ["memory", "lorebook", "fading", "preview"],
+            "repoUrl": "https://github.com/250000000001/ST-LPE-Dynamic-Memory",
+            "homepage": "https://github.com/250000000001/ST-LPE-Dynamic-Memory",
+            "author": "250000000001",
+            "license": "See repository"
+        }
+    ]
+}

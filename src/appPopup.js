@@ -4438,6 +4438,9 @@ export function createLpeAppPopup({
                 const repoHtml = item.repoUrl
                     ? `<a class="lpe-mlib-link" href="${esc(item.repoUrl)}" target="_blank" rel="noopener noreferrer"><i class="fa-solid fa-arrow-up-right-from-square"></i> Repo</a>`
                     : '';
+                const copyRepoHtml = item.repoUrl
+                    ? `<button type="button" class="lpe-app-btn secondary lpe-btn-sm lpe-ext-copy-repo-btn" data-ext-id="${esc(item.id)}" data-ext-repo="${esc(item.repoUrl)}" title="Copy this Git URL for SillyTavern's Install Extension menu"><i class="fa-regular fa-copy"></i> Copy Git URL</button>`
+                    : '';
                 const actionHtml = item.installed
                     ? `
                         <button type="button" class="lpe-app-btn secondary lpe-btn-sm lpe-ext-toggle-btn" data-ext-id="${esc(item.id)}" data-ext-enable="${item.enabled ? '0' : '1'}">
@@ -4446,8 +4449,9 @@ export function createLpeAppPopup({
                         <button type="button" class="lpe-app-btn secondary lpe-btn-sm lpe-ext-remove-btn" data-ext-id="${esc(item.id)}">
                             <i class="fa-solid fa-trash-can"></i> Remove
                         </button>
+                        ${copyRepoHtml}
                     `
-                    : `<button type="button" class="lpe-app-btn primary lpe-btn-sm lpe-ext-install-btn" data-ext-id="${esc(item.id)}" ${isBusy ? 'disabled' : ''}><i class="fa-solid ${isBusy ? 'fa-spinner fa-spin' : 'fa-puzzle-piece'}"></i> ${isBusy ? 'Installing...' : 'Install'}</button>`;
+                    : `<button type="button" class="lpe-app-btn primary lpe-btn-sm lpe-ext-install-btn" data-ext-id="${esc(item.id)}" ${isBusy ? 'disabled' : ''}><i class="fa-solid ${isBusy ? 'fa-spinner fa-spin' : 'fa-puzzle-piece'}"></i> ${isBusy ? 'Installing...' : 'Install'}</button>${copyRepoHtml}`;
 
                 return `
                     <article class="lpe-ext-card ${item.installed ? 'is-installed' : 'is-available'} ${item.enabled ? 'is-enabled' : ''}" data-ext-id="${esc(item.id)}">
@@ -4593,9 +4597,11 @@ export function createLpeAppPopup({
                         ? esc(extensionLibraryUi.statusError)
                         : extensionLibraryUi.statusMessage
                             ? esc(extensionLibraryUi.statusMessage)
-                            : esc(extCfg.cachedManifest
-                                ? `Catalog loaded: ${extCfg.cachedManifest.extensions?.length || 0} extension(s) ready${extCfg.cachedManifest.updatedAt ? ` · Updated ${extCfg.cachedManifest.updatedAt}` : ''}.`
-                                : 'No extension catalog loaded. Install lightweight metadata from the repository or a local fixture.')}
+                            : esc(extCfg.cachedManifest?.fallback
+                                ? `Bundled catalog entries shown (${extCfg.cachedManifest.fallbackReason || 'remote catalog unavailable'}): ${extCfg.cachedManifest.extensions?.length || 0} official companion extension(s). Refresh to retry the online catalog.`
+                                : extCfg.cachedManifest
+                                    ? `Catalog loaded: ${extCfg.cachedManifest.extensions?.length || 0} extension(s) ready${extCfg.cachedManifest.updatedAt ? ` · Updated ${extCfg.cachedManifest.updatedAt}` : ''}.`
+                                    : 'Bundled companion catalog shown for offline-first browsing. Refresh Catalog to check for the latest online entries.')}
                 </div>
             </div>
 
@@ -4833,8 +4839,10 @@ export function createLpeAppPopup({
             try {
                 const parsed = await emgr.refreshCatalog({ manifestUrl: url });
                 extensionLibraryUi.draftManifestUrl = null;
-                const warnSuffix = parsed.warnings?.length ? ` (${parsed.warnings.length} skipped)` : '';
-                extensionLibraryUi.statusMessage = `Loaded ${parsed.extensions.length} extension(s) from ${parsed.name}${warnSuffix}.`;
+                const warnSuffix = parsed.warnings?.length ? ` (${parsed.warnings.length} warning(s))` : '';
+                extensionLibraryUi.statusMessage = parsed.fallback
+                    ? `Bundled catalog entries shown (${parsed.fallbackReason || 'remote catalog unavailable'}): ${parsed.extensions.length} official companion extension(s)${warnSuffix}.`
+                    : `Loaded ${parsed.extensions.length} extension(s) from ${parsed.name}${warnSuffix}.`;
             } catch (err) {
                 extensionLibraryUi.statusError = String(err?.message || err);
             } finally {
@@ -4914,6 +4922,19 @@ export function createLpeAppPopup({
             extensionLibraryUi.statusMessage = res.existed
                 ? `Removed extension "${id}".`
                 : `Extension "${id}" was not installed.`;
+            rerenderLibraryIfActive();
+        });
+
+        $stage.on('click', '.lpe-ext-copy-repo-btn', async function (e) {
+            const url = String(e?.currentTarget?.dataset?.extRepo ?? $(this).data('ext-repo') ?? '').trim();
+            if (!url) return;
+            try {
+                await navigator.clipboard?.writeText?.(url);
+                extensionLibraryUi.statusError = '';
+                extensionLibraryUi.statusMessage = `Copied Git URL: ${url}. Paste it into SillyTavern's Install Extension menu.`;
+            } catch {
+                extensionLibraryUi.statusError = 'Clipboard unavailable. Copy the repo link manually.';
+            }
             rerenderLibraryIfActive();
         });
 
