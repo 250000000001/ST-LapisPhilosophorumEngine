@@ -82,7 +82,7 @@ const DEFAULT_SETTINGS = Object.freeze({
     workerMode: 'combined', // 'combined' | 'split'
     workerMaxTokens: 8192,
     workerTemperature: 0.25,
-    hudTheme: 'Sola',
+    hudTheme: 'Magnum Opus',
     hudStyle: 'Afterglow',
     atlasViewMode: 'webgl',
     defaultBodyType: 'male',

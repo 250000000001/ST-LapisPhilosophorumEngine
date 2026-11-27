@@ -62,6 +62,13 @@ export const LPE_STYLES = Object.freeze([
 export const VEXA_STYLES = LPE_STYLES;
 
 export const LPE_THEMES = Object.freeze({
+    'Magnum Opus': {
+        base: '#1d1d20', mantle: '#17171a', crust: '#131316', surface: '#26262b',
+        border: '#3a3a42', muted: '#9d9d9d', subtext: '#c8c8c3', text: '#dbdbd6', title: '#f2f2ee',
+        blue: '#9ad6cf', cyan: '#9ad6cf', teal: '#9ad6cf', green: '#9ad6cf', yellow: '#f1be9a',
+        orange: '#f1be9a', red: '#e88b8b', purple: '#b9b4e3', pink: '#f1be9a', lavender: '#9ad6cf',
+        scheme: 'dark',
+    },
     'Sola': {
         base: '#1a1310', mantle: '#16100e', crust: '#120d0b', surface: '#2a201a',
         border: '#6a5d54', muted: '#a3948a', subtext: '#e8d6be', text: '#f0dcc4', title: '#fdf6f0',

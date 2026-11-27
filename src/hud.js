@@ -382,7 +382,7 @@ function renderReceiptDrawer(state, view) {
 }
 
 function applyThemeVars($card, themeName) {
-    const theme = LPE_THEMES[themeName] || LPE_THEMES.Sola;
+    const theme = LPE_THEMES[themeName] || LPE_THEMES['Magnum Opus'] || LPE_THEMES.Sola;
     for (const [k, v] of Object.entries(theme)) {
         if (k === 'scheme') $card.css('color-scheme', v);
         else $card.css(`--ist-${k}`, v);
@@ -487,7 +487,7 @@ function refreshSingleHudCard($mes, ctx) {
     const viewKey = `${currentChatKey()}::${uid || `m_${mesId}`}`;
     const view = getView(viewKey, {
         defaultCollapsed: settings.hudDefaultCollapsed !== false,
-        theme: settings.hudTheme || 'Sola',
+        theme: settings.hudTheme || 'Magnum Opus',
         style: settings.hudStyle || 'Afterglow',
     });
 
@@ -636,7 +636,7 @@ function refreshSingleHudCard($mes, ctx) {
         <div class="lpe-hud-bar">
             <button type="button" class="lpe-toggle-btn">
                 <i class="fa-solid fa-chevron-${view.collapsed ? 'right' : 'down'}"></i>
-                <span class="lpe-hud-title">LPE State</span>
+                <span class="lpe-hud-title"><span class="lpe-ornament" aria-hidden="true">✦</span> LPE State</span>
                 <span class="lpe-pill">ct:${esc(state.world?.ct ?? 0)}</span>
                 <span class="lpe-hud-loc">${esc(state.world?.loc || 'No location')}</span>
                 <span class="lpe-hud-time">${esc(state.world?.time || '')}</span>
@@ -911,7 +911,7 @@ function refreshSingleHudCard($mes, ctx) {
  * to the chosen theme & style in-place without tearing down/rebuilding DOM.
  */
 export function alignAllHudThemes(theme, style) {
-    const nextTheme = LPE_THEMES[theme] ? theme : 'Sola';
+    const nextTheme = LPE_THEMES[theme] ? theme : 'Magnum Opus';
     const nextStyle = LPE_STYLES.includes(style) ? style : 'Afterglow';
     const activePrefix = `${currentChatKey()}::`;
     for (const [k, v] of viewState.entries()) {

@@ -152,8 +152,8 @@ export function sanitizeStateForCard(state) {
     };
 }
 
-export function resolveThemeVarsForCard(themeName = 'Sola') {
-    const t = LPE_THEMES[themeName] || LPE_THEMES.Sola;
+export function resolveThemeVarsForCard(themeName = 'Magnum Opus') {
+    const t = LPE_THEMES[themeName] || LPE_THEMES['Magnum Opus'] || LPE_THEMES.Sola;
     return {
         bg: t.base,
         mantle: t.mantle,
@@ -181,8 +181,8 @@ function safeInlineJson(value) {
 
 /** Generate the bootstrap CSS + locked `window.LPECard` (and `window.VexaCard` alias) inside each card iframe. */
 export function buildBridgeBootstrapScript({ token, themeVars, initialState, initialVars, meta, hostOrigin = '' }) {
-    const vars = themeVars || resolveThemeVarsForCard('Sola');
-    const cssText = `:root{color-scheme:${vars.scheme};--lpe-vh:600px;--lpe-bg:${vars.bg};--lpe-mantle:${vars.mantle};--lpe-surface:${vars.surface};--lpe-border:${vars.border};--lpe-text:${vars.text};--lpe-subtext:${vars.subtext};--lpe-muted:${vars.muted};--lpe-accent:${vars.accent};--lpe-green:${vars.green};--lpe-red:${vars.red};--lpe-yellow:${vars.yellow};--vse-vh:var(--lpe-vh);--vse-bg:var(--lpe-bg);--vse-mantle:var(--lpe-mantle);--vse-surface:var(--lpe-surface);--vse-border:var(--lpe-border);--vse-text:var(--lpe-text);--vse-subtext:var(--lpe-subtext);--vse-muted:var(--lpe-muted);--vse-accent:var(--lpe-accent);--vse-green:var(--lpe-green);--vse-red:var(--lpe-red);--vse-yellow:var(--lpe-yellow);}html,body{margin:0;padding:0;overflow-x:hidden;color:var(--lpe-text);font-family:system-ui,-apple-system,Segoe UI,sans-serif;}`;
+    const vars = themeVars || resolveThemeVarsForCard('Magnum Opus');
+    const cssText = `:root{color-scheme:${vars.scheme};--lpe-vh:600px;--lpe-bg:${vars.bg};--lpe-mantle:${vars.mantle};--lpe-surface:${vars.surface};--lpe-border:${vars.border};--lpe-text:${vars.text};--lpe-subtext:${vars.subtext};--lpe-muted:${vars.muted};--lpe-accent:${vars.accent};--lpe-accent-1:${vars.accent};--lpe-accent-2:${vars.yellow};--lpe-green:${vars.green};--lpe-red:${vars.red};--lpe-yellow:${vars.yellow};--vse-vh:var(--lpe-vh);--vse-bg:var(--lpe-bg);--vse-mantle:var(--lpe-mantle);--vse-surface:var(--lpe-surface);--vse-border:var(--lpe-border);--vse-text:var(--lpe-text);--vse-subtext:var(--lpe-subtext);--vse-muted:var(--lpe-muted);--vse-accent:var(--lpe-accent);--vse-green:var(--lpe-green);--vse-red:var(--lpe-red);--vse-yellow:var(--lpe-yellow);}html,body{margin:0;padding:0;overflow-x:hidden;color:var(--lpe-text);font-family:system-ui,-apple-system,Segoe UI,sans-serif;}`;
     const targetOrigin = hostOrigin && hostOrigin !== 'null' ? hostOrigin : '*';
 
     return `<style data-lpe-bridge-css="1">${cssText}</style><script data-lpe-bridge-js="1">(function(){

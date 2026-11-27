@@ -49,6 +49,66 @@ import { shouldYieldRenderer } from './cardRenderer.js';
 
 const FAB_POS_KEY = 'lpe_fab_pos';
 const LEGACY_FAB_POS_KEY = 'vexa_state_engine_fab_pos';
+const RAIL_STATE_KEY = 'lpe_rail_state';
+
+export const RAIL_TABS = Object.freeze([
+    {
+        id: 'overview',
+        title: 'Overview',
+        kicker: 'World Status & Scene',
+        glyph: '✦',
+        icon: 'fa-compass',
+        subTabs: [{ id: 'overview', label: 'Overview' }],
+    },
+    {
+        id: 'atlas',
+        title: 'Atlas',
+        kicker: 'Spatial Map & Locations',
+        icon: 'fa-map',
+        subTabs: [{ id: 'atlas', label: 'Atlas Map' }],
+    },
+    {
+        id: 'health',
+        title: 'Health',
+        kicker: 'Anatomical Health Doll',
+        icon: 'fa-kit-medical',
+        subTabs: [{ id: 'health', label: 'Body & Wounds' }],
+    },
+    {
+        id: 'trackers',
+        title: 'Trackers & Vars',
+        kicker: 'Custom Trackers & Scoped Card Vars',
+        icon: 'fa-chart-simple',
+        subTabs: [
+            { id: 'trackers', label: 'Trackers' },
+            { id: 'runtime', label: 'Card Vars' },
+        ],
+    },
+    {
+        id: 'narrative',
+        title: 'Journal & Chekhov',
+        kicker: 'Chekhov, Notebook, Cast & Bonds',
+        icon: 'fa-feather-pointed',
+        subTabs: [
+            { id: 'narrative', label: 'Chekhov & Notes' },
+            { id: 'cast', label: 'Cast' },
+            { id: 'relations', label: 'Bonds' },
+        ],
+    },
+    {
+        id: 'appearance',
+        title: 'Settings',
+        kicker: 'LPE, Clerk, Guard & Appearance',
+        icon: 'fa-sliders',
+        subTabs: [
+            { id: 'appearance', label: 'Appearance' },
+            { id: 'worker', label: 'Clerk' },
+            { id: 'retry', label: 'Guard' },
+            { id: 'runtime', label: 'Runtime' },
+            { id: 'tools', label: 'Tools' },
+        ],
+    },
+]);
 
 export const APP_DOCK_GROUPS = Object.freeze([
     { id: 'world', title: 'World State' },
@@ -192,7 +252,7 @@ function renderPageHeader({ title, sub, icon, badgeHtml = '' }) {
 }
 
 function applyThemeVarsToEl($el, themeName) {
-    const theme = LPE_THEMES[themeName] || LPE_THEMES.Sola;
+    const theme = LPE_THEMES[themeName] || LPE_THEMES['Magnum Opus'] || LPE_THEMES.Sola;
     for (const [k, v] of Object.entries(theme)) {
         if (k === 'scheme') $el.css('color-scheme', v);
         else $el.css(`--ist-${k}`, v);
@@ -261,10 +321,65 @@ export function createLpeAppPopup({
     let fetchedModels = [];
     let apiKeyVisible = false;
     let fabDragBound = false;
+    let railDrawerRestoredOnce = false;
+
+    function loadRailState() {
+        const defaults = { railCollapsed: false, drawerOpen: false, activeRailTab: 'overview', drawerSubTabs: {} };
+        try {
+            const raw = localStorage.getItem(RAIL_STATE_KEY);
+            if (!raw) return defaults;
+            const parsed = JSON.parse(raw);
+            if (!parsed || typeof parsed !== 'object') return defaults;
+            const validRailIds = new Set(RAIL_TABS.map((t) => t.id));
+            return {
+                railCollapsed: Boolean(parsed.railCollapsed),
+                drawerOpen: Boolean(parsed.drawerOpen),
+                activeRailTab: validRailIds.has(parsed.activeRailTab) ? parsed.activeRailTab : 'overview',
+                drawerSubTabs: parsed.drawerSubTabs && typeof parsed.drawerSubTabs === 'object' ? parsed.drawerSubTabs : {},
+            };
+        } catch {
+            return defaults;
+        }
+    }
+
+    const railState = loadRailState();
+
+    function saveRailState() {
+        try {
+            localStorage.setItem(RAIL_STATE_KEY, JSON.stringify(railState));
+        } catch { /* ignore */ }
+    }
+
+    function getRailTabDef(railTabId = railState.activeRailTab) {
+        return RAIL_TABS.find((t) => t.id === railTabId) || RAIL_TABS[0];
+    }
+
+    function resolveRailSubAppTab(railTabId = railState.activeRailTab) {
+        const def = getRailTabDef(railTabId);
+        const savedSub = railState.drawerSubTabs?.[def.id];
+        if (savedSub && def.subTabs.some((s) => s.id === savedSub)) return savedSub;
+        return def.subTabs[0]?.id || 'overview';
+    }
+
+    function findRailTabForAppTab(appTabId) {
+        const exact = RAIL_TABS.find((r) => r.id === appTabId);
+        if (exact) return exact.id;
+        const parent = RAIL_TABS.find((r) => r.subTabs.some((s) => s.id === appTabId));
+        return parent ? parent.id : 'overview';
+    }
 
     function isOpen() {
         const $ov = $('#lpe_app_overlay');
         return Boolean($ov.length && $ov.css('display') !== 'none');
+    }
+
+    function isDrawerOpen() {
+        const $dr = $('#lpe_drawer');
+        return Boolean($dr.length && $dr.hasClass('is-open'));
+    }
+
+    function isAnyUiOpen() {
+        return isOpen() || isDrawerOpen();
     }
 
     function activeState() {
@@ -315,7 +430,7 @@ export function createLpeAppPopup({
             $btn.css({ left: '', right: '', top: '', bottom: '' });
             const winW = $(window).width() || window.innerWidth || 1280;
             const winH = $(window).height() || window.innerHeight || 720;
-            const gutter = winW <= 768 ? 12 : 20;
+            const gutter = winW < 1000 ? 12 : 18;
             const btnH = $btn.outerHeight() || 46;
 
             if (pos && typeof pos.topPercent === 'number') {
@@ -323,13 +438,19 @@ export function createLpeAppPopup({
                 $btn.css('top', `${Math.round(topPx)}px`);
                 if (pos.side === 'left') $btn.css('left', `${gutter}px`);
                 else $btn.css('right', `${gutter}px`);
+            } else if (winW < 1000) {
+                const topPx = Math.max(56, winH - btnH - 86);
+                $btn.css({ top: `${Math.round(topPx)}px`, right: `${gutter}px`, bottom: 'auto' });
             } else {
-                $btn.css({ top: '120px', right: `${gutter}px` });
+                $btn.css({ top: '76px', right: `${gutter}px` });
             }
         }
 
         applyPosition(savedPos);
-        $(window).off('resize.lpe_fab').on('resize.lpe_fab', () => applyPosition(savedPos));
+        $(window).off('resize.lpe_fab').on('resize.lpe_fab', () => {
+            applyPosition(savedPos);
+            syncChrome();
+        });
 
         function dragStart(e) {
             if (e.type === 'mousedown' && e.which !== 1) return;
@@ -390,9 +511,121 @@ export function createLpeAppPopup({
 
         $btn.on('mousedown.lpe_fab touchstart.lpe_fab', dragStart);
         $btn.on('click.lpe_fab', () => {
-            if (isOpen()) close();
-            else open();
+            if (isOpen()) {
+                close();
+                return;
+            }
+            const winW = $(window).width() || window.innerWidth || 1280;
+            if (winW >= 1000 && railState.railCollapsed) {
+                railState.railCollapsed = false;
+                openDrawer(railState.activeRailTab);
+                return;
+            }
+            toggleDrawer();
         });
+    }
+
+    function buildRailHtml() {
+        const itemsHtml = RAIL_TABS.map((t) => {
+            const isAct = t.id === railState.activeRailTab;
+            const iconHtml = t.glyph
+                ? `<span class="lpe-rail-glyph lpe-ornament" aria-hidden="true">${esc(t.glyph)}</span>`
+                : `<i class="fa-solid ${esc(t.icon)}" aria-hidden="true"></i>`;
+            const extraBadge = t.id === 'health'
+                ? '<span id="lpe_rail_health_dot" class="lpe-rail-alert-dot" style="display:none;"></span>'
+                : '';
+            return `
+                <button type="button" class="lpe-rail-item ${isAct ? 'active' : ''}" data-rail-tab="${esc(t.id)}" title="${esc(t.title)} — ${esc(t.kicker)}" aria-label="${esc(t.title)}">
+                    ${iconHtml}
+                    <span class="lpe-rail-tip">${esc(t.title)}</span>
+                    ${extraBadge}
+                </button>
+            `;
+        }).join('');
+
+        return `
+            <button type="button" id="lpe_rail_collapse" class="lpe-rail-btn lpe-rail-toggle" title="Collapse LPE Side-Rail" aria-label="Collapse LPE Side-Rail">
+                <i class="fa-solid fa-angles-right" aria-hidden="true"></i>
+            </button>
+            <div class="lpe-rail-divider"></div>
+            <nav class="lpe-rail-nav" aria-label="LPE Quick Rail Navigation">${itemsHtml}</nav>
+            <div class="lpe-rail-spacer"></div>
+            <div class="lpe-rail-footer">
+                <span id="lpe_rail_status_dot" class="lpe-rail-status-dot" title="Engine idle"></span>
+                <button type="button" id="lpe_rail_modal_btn" class="lpe-rail-btn" title="Open Full LPE Control Center" aria-label="Open Full LPE Control Center">
+                    <i class="fa-solid fa-expand" aria-hidden="true"></i>
+                </button>
+            </div>
+        `;
+    }
+
+    function buildDrawerHeaderMeta() {
+        const def = getRailTabDef(railState.activeRailTab);
+        $('#lpe_drawer_title').text(def.title);
+        const $subWrap = $('#lpe_drawer_subpills');
+        if (def.subTabs.length > 1) {
+            const curSub = resolveRailSubAppTab(def.id);
+            $subWrap.html(def.subTabs.map((s) => `
+                <button type="button" class="lpe-drawer-subpill ${s.id === curSub ? 'active' : ''}" data-drawer-sub="${esc(s.id)}">${esc(s.label)}</button>
+            `).join('')).show();
+        } else {
+            $subWrap.empty().hide();
+        }
+        const $mobWrap = $('#lpe_drawer_mobile_tabs');
+        $mobWrap.html(RAIL_TABS.map((t) => {
+            const isAct = t.id === railState.activeRailTab;
+            return `<button type="button" class="lpe-drawer-mobtab ${isAct ? 'active' : ''}" data-rail-tab="${esc(t.id)}" title="${esc(t.title)}">
+                ${t.glyph ? `<span class="lpe-ornament">${esc(t.glyph)}</span>` : `<i class="fa-solid ${esc(t.icon)}"></i>`}
+                <span>${esc(t.title.split(' ')[0])}</span>
+            </button>`;
+        }).join(''));
+    }
+
+    function openDrawer(railTabId = railState.activeRailTab, { persist = true } = {}) {
+        if (!$('#lpe_rail').length || !$('#lpe_drawer').length) {
+            mount({ restoreDrawer: false });
+        }
+        const def = getRailTabDef(railTabId);
+        railState.activeRailTab = def.id;
+        railState.drawerOpen = true;
+        railState.railCollapsed = false;
+        activeTab = resolveRailSubAppTab(def.id);
+        if (persist) saveRailState();
+
+        if (isOpen()) {
+            disposeWebgl();
+            $('#lpe_app_stage').off('click change input').empty();
+            $('#lpe_app_overlay').hide();
+        }
+
+        buildDrawerHeaderMeta();
+        $('#lpe_drawer').addClass('is-open').attr('aria-hidden', 'false');
+        syncChrome();
+        renderActiveTab({ resetScroll: true });
+    }
+
+    function closeDrawer({ persist = true } = {}) {
+        const $dr = $('#lpe_drawer');
+        if (!$dr.length) return;
+        disposeWebgl();
+        $dr.removeClass('is-open').attr('aria-hidden', 'true');
+        $('body').removeClass('lpe-drawer-open');
+        $('#lpe_drawer_stage').off('click change input').empty();
+        railState.drawerOpen = false;
+        if (persist) saveRailState();
+        syncChrome();
+    }
+
+    function toggleDrawer(railTabId = null) {
+        if (railTabId && isDrawerOpen() && railState.activeRailTab === railTabId) {
+            closeDrawer();
+            return;
+        }
+        if (!railTabId && isDrawerOpen()) {
+            closeDrawer();
+            return;
+        }
+        openDrawer(railTabId || railState.activeRailTab);
     }
 
     function buildDockHtml() {
@@ -418,12 +651,39 @@ export function createLpeAppPopup({
         return parts.join('');
     }
 
-    function mount() {
+    function mount({ restoreDrawer = true } = {}) {
         if (!$('#lpe_fab_btn').length) {
             $('body').append(`
-                <button type="button" id="lpe_fab_btn" title="Lapis Philosophorum Engine (LPE) — Control Center" aria-label="Open LPE Control Center">
-                    <i class="fa-solid fa-compass"></i>
+                <button type="button" id="lpe_fab_btn" title="Lapis Philosophorum Engine (LPE) — Toggle Inspector" aria-label="Toggle LPE Inspector">
+                    <span class="lpe-fab-glyph lpe-ornament" aria-hidden="true">✦</span>
                 </button>
+            `);
+        }
+
+        if (!$('#lpe_rail').length) {
+            $('body').append(`
+                <aside id="lpe_rail" class="lpe-rail" aria-label="LPE Quick Rail"></aside>
+            `);
+        }
+
+        if (!$('#lpe_drawer').length) {
+            $('body').append(`
+                <section id="lpe_drawer" class="lpe-drawer" aria-label="LPE Frosted Inspector Drawer" aria-hidden="true">
+                    <header class="lpe-drawer-head">
+                        <div class="lpe-drawer-title-wrap">
+                            <span class="lpe-ornament lpe-drawer-star" aria-hidden="true">✦</span>
+                            <h3 id="lpe_drawer_title">Overview</h3>
+                            <span id="lpe_drawer_ct_pill" class="lpe-pill lpe-tabular">ct:0</span>
+                        </div>
+                        <div class="lpe-drawer-head-actions">
+                            <button type="button" id="lpe_drawer_expand" class="lpe-mini-btn lpe-drawer-hdr-btn" title="Expand into Full Control Center"><i class="fa-solid fa-expand"></i><span> Full</span></button>
+                            <button type="button" id="lpe_drawer_close" class="lpe-mini-btn lpe-drawer-hdr-btn" title="Close Drawer" aria-label="Close Drawer"><i class="fa-solid fa-xmark"></i></button>
+                        </div>
+                    </header>
+                    <div id="lpe_drawer_mobile_tabs" class="lpe-drawer-mobile-tabs" aria-label="Mobile Rail Tabs"></div>
+                    <div id="lpe_drawer_subpills" class="lpe-drawer-subpills" style="display:none;"></div>
+                    <div id="lpe_drawer_stage" class="lpe-drawer-stage"></div>
+                </section>
             `);
         }
 
@@ -471,6 +731,46 @@ export function createLpeAppPopup({
 
         const $overlay = $('#lpe_app_overlay');
         $('#lpe_app_dock').html(buildDockHtml());
+        const $rail = $('#lpe_rail');
+        $rail.html(buildRailHtml());
+        const $drawer = $('#lpe_drawer');
+        buildDrawerHeaderMeta();
+
+        $rail.off('.lpeRail');
+        $rail.on('click.lpeRail', '#lpe_rail_collapse', () => {
+            railState.railCollapsed = true;
+            if (isDrawerOpen()) closeDrawer({ persist: false });
+            railState.drawerOpen = false;
+            saveRailState();
+            syncChrome();
+        });
+        $rail.on('click.lpeRail', '.lpe-rail-item', function () {
+            const tabId = String($(this).data('rail-tab') || 'overview');
+            toggleDrawer(tabId);
+        });
+        $rail.on('click.lpeRail', '#lpe_rail_modal_btn', () => {
+            open({ tab: resolveRailSubAppTab(railState.activeRailTab) });
+        });
+
+        $drawer.off('.lpeDrawer');
+        $drawer.on('click.lpeDrawer', '#lpe_drawer_close', () => closeDrawer());
+        $drawer.on('click.lpeDrawer', '#lpe_drawer_expand', () => {
+            const appTab = resolveRailSubAppTab(railState.activeRailTab);
+            closeDrawer({ persist: false });
+            open({ tab: appTab });
+        });
+        $drawer.on('click.lpeDrawer', '.lpe-drawer-subpill', function () {
+            const subId = String($(this).data('drawer-sub') || 'overview');
+            railState.drawerSubTabs[railState.activeRailTab] = subId;
+            activeTab = subId;
+            saveRailState();
+            buildDrawerHeaderMeta();
+            renderActiveTab({ resetScroll: true });
+        });
+        $drawer.on('click.lpeDrawer', '.lpe-drawer-mobtab', function () {
+            const tabId = String($(this).data('rail-tab') || 'overview');
+            openDrawer(tabId);
+        });
 
         $overlay.off('.lpeApp');
         $overlay.on('click.lpeApp', (e) => {
@@ -501,13 +801,20 @@ export function createLpeAppPopup({
         });
 
         $(document).off('keydown.lpeApp').on('keydown.lpeApp', (e) => {
-            if (e.key === 'Escape' && isOpen()) {
-                close();
+            if (e.key === 'Escape') {
+                if (isOpen()) close();
+                else if (isDrawerOpen()) closeDrawer();
             }
         });
 
         initFabDrag();
         syncChrome();
+        if (restoreDrawer && !railDrawerRestoredOnce) {
+            railDrawerRestoredOnce = true;
+            if (railState.drawerOpen && getSettings().showLauncherButton !== false) {
+                openDrawer(railState.activeRailTab, { persist: false });
+            }
+        }
     }
 
     function updateDockActive() {
@@ -519,11 +826,59 @@ export function createLpeAppPopup({
     function syncChrome() {
         const s = getSettings();
         const ws = getWorkerStatus?.() || { busy: false };
+        const showLauncher = s.showLauncherButton !== false;
+        const winW = typeof window !== 'undefined' ? (window.innerWidth || 1280) : 1280;
+        const isDesktop = winW >= 1000;
+        const railVisible = showLauncher && isDesktop && !railState.railCollapsed;
+
         const $fab = $('#lpe_fab_btn');
         if ($fab.length) {
-            $fab.toggle(s.showLauncherButton !== false);
+            $fab.css('display', showLauncher ? '' : 'none');
+            $fab.toggleClass('lpe-fab-hidden-by-rail', railVisible);
             $fab.toggleClass('lpe-fab-off', !s.enabled);
             $fab.toggleClass('lpe-fab-busy', Boolean(ws.busy));
+            $fab.toggleClass('is-drawer-open', isDrawerOpen());
+        }
+        $('body').toggleClass('lpe-drawer-open', isDrawerOpen() && isDesktop);
+
+        const st = activeState();
+        const ct = st?.world?.ct ?? 0;
+
+        let tok = 0;
+        if (store?.hasState?.()) {
+            const xml = serializeInternalStates(st, {
+                scoped: s.scoped !== false,
+                recentText: getRecentStoryText?.() || '',
+                includeVent: false,
+            });
+            tok = estimateTokenCount(xml);
+        }
+
+        const $rail = $('#lpe_rail');
+        if ($rail.length) {
+            $rail.toggle(showLauncher);
+            $rail.toggleClass('is-collapsed', Boolean(railState.railCollapsed));
+            $rail.toggleClass('is-off', !s.enabled);
+            $rail.toggleClass('is-busy', Boolean(ws.busy));
+            $rail.find('.lpe-rail-item').each(function () {
+                const tid = String($(this).data('rail-tab') || '');
+                $(this).toggleClass('active', tid === railState.activeRailTab && isDrawerOpen());
+            });
+            const effH = hasExplicitHealthData(st?.health)
+                ? normalizeHealthState({ ...st.health, bodyType: st.health?.bodyType || s.defaultBodyType || 'male' })
+                : inferHealthFromStatusText(st?.inv?.status || '', s.defaultBodyType || 'male');
+            const hm = computeHealthMetrics(effH);
+            const hasAlert = hm.totalWounds > 0 || hm.bloodLoss > 0 || hm.missingCount > 0;
+            $('#lpe_rail_health_dot').toggle(hasAlert).toggleClass('bleeding', hm.bleedingCount > 0);
+            const $dot = $('#lpe_rail_status_dot');
+            $dot.toggleClass('busy', Boolean(ws.busy)).toggleClass('off', !s.enabled).toggleClass('ok', Boolean(s.enabled && !ws.busy));
+            $dot.attr('title', ws.busy ? `${ws.runningLabel || 'LPE Clerk working'} · ct:${ct}` : (!s.enabled ? 'LPE Disabled' : `Synced · ~${tok} tok · ct:${ct}`));
+        }
+
+        const $drawer = $('#lpe_drawer');
+        if ($drawer.length) {
+            $('#lpe_drawer_ct_pill').html(`<span class="lpe-tabular">~${tok} tok · ct:${esc(ct)}</span>`);
+            if (!showLauncher && isDrawerOpen()) closeDrawer({ persist: false });
         }
 
         const $ov = $('#lpe_app_overlay');
@@ -531,8 +886,6 @@ export function createLpeAppPopup({
 
         const ctx = getContextSafe?.() || {};
         const banner = getCharacterBannerInfo(ctx);
-        const st = activeState();
-        const ct = st?.world?.ct ?? 0;
 
         const $bg = $('#lpe_hero_bg');
         if ($bg.length) {
@@ -563,23 +916,18 @@ export function createLpeAppPopup({
 
         const $tok = $('#lpe_app_tokens');
         if ($tok.length) {
-            let tok = 0;
-            if (store?.hasState?.()) {
-                const xml = serializeInternalStates(st, {
-                    scoped: s.scoped !== false,
-                    recentText: getRecentStoryText?.() || '',
-                    includeVent: false,
-                });
-                tok = estimateTokenCount(xml);
-            }
-            $tok.html(`<i class="fa-solid fa-microchip"></i> ~${tok} tok · ct:${esc(ct)}`);
+            $tok.html(`<i class="fa-solid fa-microchip"></i> <span class="lpe-tabular">~${tok} tok · ct:${esc(ct)}</span>`);
         }
     }
 
     function open({ tab = null, sub = null, seq = null, mesId = null } = {}) {
-        mount();
+        if (!$('#lpe_app_overlay').length) {
+            mount({ restoreDrawer: false });
+        }
+        closeDrawer({ persist: false });
         if (tab && APP_TABS.some((t) => t.id === tab)) {
             activeTab = tab;
+            railState.activeRailTab = findRailTabForAppTab(tab);
         }
         if (sub && activeTab in subTabs) {
             subTabs[activeTab] = sub;
@@ -595,6 +943,7 @@ export function createLpeAppPopup({
 
     function close() {
         disposeWebgl();
+        $('#lpe_app_stage').off('click change input').empty();
         $('#lpe_app_overlay').hide();
         saveSettings?.();
         syncChrome();
@@ -602,9 +951,9 @@ export function createLpeAppPopup({
 
     function refresh() {
         syncChrome();
-        if (!isOpen()) return;
+        if (!isOpen() && !isDrawerOpen()) return;
         const activeEl = document.activeElement;
-        const $stage = $('#lpe_app_stage');
+        const $stage = isOpen() ? $('#lpe_app_stage') : $('#lpe_drawer_stage');
         if (activeEl && $stage.length && $stage[0].contains(activeEl) && /^(INPUT|TEXTAREA|SELECT)$/i.test(activeEl.tagName)) {
             return;
         }
@@ -810,7 +1159,7 @@ export function createLpeAppPopup({
         `);
 
         const $mount = $stage.find('#lpe_pop_atlas_mount');
-        applyThemeVarsToEl($mount, settings.hudTheme || 'Sola');
+        applyThemeVarsToEl($mount, settings.hudTheme || 'Magnum Opus');
 
         function refreshObjList(roomId) {
             const targetRoom = allRooms.find((r) => r.id === roomId);
@@ -862,7 +1211,7 @@ export function createLpeAppPopup({
                 if (vpEl) {
                     const mySeq = ++webglMountSeq;
                     import('./atlasWebgl.js').then(({ mountAtlasWebGLViewport }) => {
-                        if (mySeq !== webglMountSeq || !isOpen() || activeTab !== 'atlas' || !vpEl.isConnected) return;
+                        if (mySeq !== webglMountSeq || !isAnyUiOpen() || activeTab !== 'atlas' || !vpEl.isConnected) return;
                         activeWebglHandle = mountAtlasWebGLViewport(vpEl, state, {
                             selectedMapId: atlasView.mapId,
                             selectedLevel: atlasView.level,
@@ -1586,7 +1935,7 @@ export function createLpeAppPopup({
             </details>
         `);
         if (sub === 'pair') {
-            applyThemeVarsToEl($stage.find('.lpe-matrix-theme-host'), getSettings().hudTheme || 'Sola');
+            applyThemeVarsToEl($stage.find('.lpe-matrix-theme-host'), getSettings().hudTheme || 'Magnum Opus');
         }
 
         $stage.find('.lpe-subtabs').on('click', 'button', function () {
@@ -1921,7 +2270,7 @@ export function createLpeAppPopup({
             } catch (err) {
                 workerTestResult = { ok: false, text: extractErrorMessage(err) };
             } finally {
-                if (isOpen() && activeTab === 'worker') renderWorkerTab($stage, getSettings());
+                if (isAnyUiOpen() && activeTab === 'worker') renderWorkerTab($stage, getSettings());
             }
         });
 
@@ -1934,7 +2283,7 @@ export function createLpeAppPopup({
             } catch (err) {
                 workerTestResult = { ok: false, text: `Connection failed: ${extractErrorMessage(err)}` };
             } finally {
-                if (isOpen() && activeTab === 'worker') renderWorkerTab($stage, getSettings());
+                if (isAnyUiOpen() && activeTab === 'worker') renderWorkerTab($stage, getSettings());
             }
         });
     }
@@ -2292,7 +2641,7 @@ export function createLpeAppPopup({
 
     function renderAppearanceTab($stage, settings) {
         const meta = tabMeta('appearance');
-        const activeTheme = settings.hudTheme || 'Sola';
+        const activeTheme = settings.hudTheme || 'Magnum Opus';
         const activeStyle = settings.hudStyle || 'Afterglow';
 
         const themeCards = Object.entries(LPE_THEMES).map(([name, t]) => `
@@ -2449,14 +2798,14 @@ export function createLpeAppPopup({
         `);
 
         $stage.find('#lpe_pop_theme_grid').on('click', '.lpe-theme-card', function () {
-            const val = String($(this).data('theme-name') || 'Sola');
+            const val = String($(this).data('theme-name') || 'Magnum Opus');
             getSettings().hudTheme = val;
             notifySettingsChanged();
             renderAppearanceTab($stage, getSettings());
         });
         $stage.find('#lpe_pop_align_hud_themes').on('click', () => {
             const s = getSettings();
-            onAlignHudThemes?.(s.hudTheme || 'Sola', s.hudStyle || 'Afterglow');
+            onAlignHudThemes?.(s.hudTheme || 'Magnum Opus', s.hudStyle || 'Afterglow');
         });
         $stage.find('[data-tile-group="hudstyle"]').on('click', '.lpe-tile', function () {
             getSettings().hudStyle = String($(this).data('tile-val') || 'Afterglow');
@@ -2849,7 +3198,9 @@ export function createLpeAppPopup({
     }
 
     function renderActiveTab({ resetScroll = false } = {}) {
-        const $stage = $('#lpe_app_stage');
+        const $stage = isOpen()
+            ? $('#lpe_app_stage')
+            : (isDrawerOpen() ? $('#lpe_drawer_stage') : $());
         if (!$stage.length) return;
         const savedTop = resetScroll ? 0 : ($stage.scrollTop() || 0);
         const state = activeState();
@@ -2915,6 +3266,10 @@ export function createLpeAppPopup({
         open,
         close,
         isOpen,
+        openDrawer,
+        closeDrawer,
+        toggleDrawer,
+        isDrawerOpen,
         refresh,
         syncChrome,
     };

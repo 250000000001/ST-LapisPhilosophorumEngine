@@ -64,8 +64,19 @@ The companion external-state preset (**Magnum Opus**, [`Presets/Magnum Opus.json
 
 See [`docs/card-adaptation/`](docs/card-adaptation/01-overview-and-offloading.md) for the full card-conversion & scripting playbook.
 
+## UI & Companion Theme (`Magnum Opus Glass`)
+
+LPE ships with a native dual-accent dark frosted-glass design system (`.lpe-*`) and an optional companion SillyTavern UI Theme preset:
+
+- **Collapsible Vertical Side-Rail & Slide-Out Drawer (`>= 1000px`)**: `#lpe_rail` docks beside the SillyTavern chat viewport (`6` quick tabs: `Overview`, `Atlas`, `Health`, `Trackers & Vars`, `Journal & Chekhov`, `Settings`, plus a `✦` HUD pulse & collapse toggle) and opens a frosted `#lpe_drawer` panel without obstructing `#top-bar`, `#left-nav-panel`, `#right-nav-panel`, or the chat composer. When collapsed, the floating `#lpe_fab_btn` (`✦`) reappears.
+- **Mobile Bottom-Sheet Mode (`< 1000px`)**: Hides the side-rail cleanly and turns `#lpe_fab_btn` into a `76dvh` frosted bottom-sheet drawer toggle with horizontal sub-tabs.
+- **SmartTheme Variable Inheritance**: `.lpe-*` surfaces inherit SillyTavern's `--SmartThemeBlurTintColor`, `--SmartThemeBorderColor`, `--SmartThemeShadowColor`, `--SmartThemeBodyColor`, `--SmartThemeEmColor`, `--SmartThemeQuoteColor`, and `--SmartThemeUnderlineColor` dynamically (falling back to the obsidian `#1D1D20` + celadon `#9AD6CF` + gilded peach `#F1BE9A` **Magnum Opus** palette). Zero external font or asset CDNs are loaded.
+- **Optional Companion SillyTavern UI Theme**: Import [`themes/Magnum_Opus_Glass_Theme.json`](themes/Magnum_Opus_Glass_Theme.json) under SillyTavern **User Settings (A) → UI Theme → Import** to match chat bubbles, `#send_form`, drawers, and scrollbars to **Magnum Opus Glass**.
+
 ## Credits & Acknowledgements
 
+- **Magnum Opus Glass UI & Side-Rail Inspiration**:
+  - Inspired by the dark frosted obsidian + dual celadon/peach palette of **KAKAA / `@rech0_viixi`** ([CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/)) and the slim vertical sidebar ergonomics of **`deepsleep-claw/SleepTavernHome`** ([Aladdin Free Public License v9](https://github.com/deepsleep-claw/SleepTavernHome)). Both `style.css` (`.lpe-*` / `#lpe_rail` / `#lpe_drawer`) and [`themes/Magnum_Opus_Glass_Theme.json`](themes/Magnum_Opus_Glass_Theme.json) are 100% original clean-room implementations with zero third-party CSS copy-pasting and zero external CDN dependencies.
 - **Vexa Preset** by **Ryah** — https://ryah.github.io/vexa
   - Created the TeleWire TRP-AO world-simulation preset, 16-section `<internal_states>` architecture, Aether Matrix/Dam, Atlas, Chekhov, ARC, and HUD theme palettes that Lapis Philosophorum Engine (LPE) & **Magnum Opus** externalize and build upon. The **Magnum Opus** external-state preset included under [`Presets/`](Presets/) is derived from Ryah's Vexa preset and redistributed with Ryah's explicit permission.
 - **Megumin Suite** by **Arif-salah (`KazumaONIISAN`)** — https://github.com/Arif-salah/Megumin-Suite

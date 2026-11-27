@@ -33,7 +33,7 @@ export function syncSettingsUI(s) {
     $('#lpe_worker_mode').val(s.workerMode || 'combined');
     $('#lpe_worker_max_tokens').val(s.workerMaxTokens || 8192);
     $('#lpe_worker_temp').val(s.workerTemperature ?? 0.25);
-    $('#lpe_hud_theme').val(s.hudTheme || 'Sola');
+    $('#lpe_hud_theme').val(s.hudTheme || 'Magnum Opus');
     $('#lpe_hud_style').val(s.hudStyle || 'Afterglow');
     $('#lpe_atlas_mode').val(s.atlasViewMode || 'webgl');
     $('#lpe_body_type').val(s.defaultBodyType || 'male');
@@ -106,7 +106,7 @@ export function injectSettingsUI({
         <div id="lpe_settings_container" class="lpe-settings">
             <div class="inline-drawer">
                 <div class="inline-drawer-toggle inline-drawer-header">
-                    <b>Lapis Philosophorum Engine (LPE)</b>
+                    <b><span class="lpe-ornament" aria-hidden="true">✦</span> Lapis Philosophorum Engine (LPE)</b>
                     <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
                 </div>
                 <div class="inline-drawer-content">
@@ -427,7 +427,7 @@ export function injectSettingsUI({
     $('#lpe_worker_mode').val(s.workerMode || 'combined');
     $('#lpe_worker_max_tokens').val(s.workerMaxTokens || 8192);
     $('#lpe_worker_temp').val(s.workerTemperature ?? 0.25);
-    $('#lpe_hud_theme').val(s.hudTheme || 'Sola');
+    $('#lpe_hud_theme').val(s.hudTheme || 'Magnum Opus');
     $('#lpe_hud_style').val(s.hudStyle || 'Afterglow');
     $('#lpe_atlas_mode').val(s.atlasViewMode || 'webgl');
     $('#lpe_body_type').val(s.defaultBodyType || 'male');
@@ -480,7 +480,7 @@ export function injectSettingsUI({
     $('#lpe_spatial_grounding').on('change', function () { getSettings().spatialGrounding = $(this).prop('checked'); saveSettings(); onSettingsChanged?.(); });
     $('#lpe_align_hud_themes_btn').on('click', () => {
         const cur = getSettings();
-        onAlignHudThemes?.(cur.hudTheme || 'Sola', cur.hudStyle || 'Afterglow');
+        onAlignHudThemes?.(cur.hudTheme || 'Magnum Opus', cur.hudStyle || 'Afterglow');
     });
     $('#lpe_open_popup_btn').on('click', () => onOpenPopup?.());
     $('#lpe_pin_rules').on('change', function () { getSettings().pinNotebookRules = $(this).prop('checked'); saveSettings(); onSettingsChanged?.(); });
