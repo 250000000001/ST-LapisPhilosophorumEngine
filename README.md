@@ -2,21 +2,6 @@
 
 External state engine, swipe-safe journaled store, secondary API worker (**LPE Clerk**), Hybrid Three.js WebGL + PolyCSS 3D Atlas map, anatomical health doll, inline editor, and native themed HUD for **Magnum Opus** and Vexa-lineage SillyTavern presets.
 
-## Screenshots
-
-<p align="center">
-  <img src="Screenshots/control-center-atlas3d.png" alt="LPE Control Center — Hybrid WebGL Atlas Map (Castle Black Z=0 with Cutout Doorways)" width="49%">
-  <img src="Screenshots/webgl-textured-kits.png" alt="Hybrid Three.js WebGL Atlas — Medieval Procedural + CC BY 4.0 PSX Industrial & Sci-Fi Lab Textured Kits" width="49%">
-</p>
-<p align="center">
-  <img src="Screenshots/control-center-health.png" alt="LPE Control Center — Nice Health Tab Body Doll (X-Ray)" width="49%">
-  <img src="Screenshots/inline-hud.png" alt="Per-Message Inline LPE HUD Card in SillyTavern" width="49%">
-</p>
-<p align="center">
-  <img src="Screenshots/polycss-3d-assets.png" alt="PolyCSS 3D Library — Diorama Prefabs & Geometric Primitives" width="49%">
-  <img src="Screenshots/health-doll-layers.png" alt="Anatomical Body Health Doll — Body, Organs, Bones & X-Ray Layers" width="49%">
-</p>
-
 ## What It Does
 
 Vanilla TeleWire/Vexa presets emit all 16 `<internal_states>` XML sections at the end of every reply (~35 KB / ~9k–10k output tokens per turn, ~87% of total output). **Lapis Philosophorum Engine (LPE)** splits that workload into three layers:
@@ -84,14 +69,23 @@ LPE ships with a native dual-accent dark frosted-glass design system (`.lpe-*`) 
 
 ## Feature & Visual Showcase (Port `8010` Live E2E)
 
-Live verification screenshots captured against an isolated SillyTavern test instance (`Projects/Test-playground/ui-previews/`):
+![Turn 0 — Sandboxed Character Origin Card UI](assets/screenshots/showcase-turn0-card.png)
+*Turn 0 — Sandboxed (`blob:`, `allow-scripts`) Character Origin card UI with seeded `cardVars` and `LPECard` send-confirmation bar.*
 
-- [`showcase-turn0-card.png`](../Test-playground/ui-previews/showcase-turn0-card.png) — Turn 0 card greeting with seeded `cardVars`, sandboxed (`allow-scripts`) `blob:` card panel, and `window.LPECard.submitInput(...)` confirmation bar (`View Full` / `Send to Chat` / `Dismiss`).
-- [`showcase-turn1-hud-diff.png`](../Test-playground/ui-previews/showcase-turn1-hud-diff.png) — Turn 1 live story generation + background **LPE Clerk** extraction, expanded inline HUD card, **Changed in this reply** diff strip with section jump badges, Reducer notes, and collapsed **CoT Receipt** bar.
-- [`showcase-rail-drawer.png`](../Test-playground/ui-previews/showcase-rail-drawer.png) — Desktop (`1440×900`) non-overlapping vertical `#lpe_rail` side-rail + frosted `#lpe_drawer` open on **Overview** (`~tok`, `ct:1`, scene metrics, and quick environment editor).
-- [`showcase-magnum-theme.png`](../Test-playground/ui-previews/showcase-magnum-theme.png) — **Magnum Opus Glass** companion theme active alongside live-extracted **Health & Body** anatomical doll state (`100% HP · 1 WOUND · 1 BLEEDING`, body/organs/bones/X-ray inspection layers).
-- [`showcase-mobile.png`](../Test-playground/ui-previews/showcase-mobile.png) — Responsive narrow/mobile viewport (`390×844`) with `#lpe_rail` hidden, floating `#lpe_fab_btn` (`✦`), and frosted bottom-sheet drawer + horizontal tab strip with zero horizontal overflow.
-- [`showcase-3d-atlas.png`](../Test-playground/ui-previews/showcase-3d-atlas.png) — **Control Center → Atlas Map (3D WebGL)** rendering multi-room **Tingen Quarter** (`Tingen Gaslit Tavern` + `Cobblestone Courtyard` connected by a unified doorway cutout) with `13` loaded Sketchfab GLB props (`kitchen_counter` 90° Y rotation, `chandelier`/`wall_sconce` elevated mounting, fitted `bar_counter`/`park_bench`, and adapted `fountain`/`park_bench` materials).
+![Turn 1 — Inline HUD & Diff Strip](assets/screenshots/showcase-turn1-hud-diff.png)
+*Turn 1 — Live story reply synced by LPE Clerk with expanded inline HUD, "Changed in this reply" diff strip, and collapsed CoT Receipt.*
+
+![Desktop Side-Rail & Drawer (1440x900)](assets/screenshots/showcase-rail-drawer.png)
+*Desktop Side-Rail & Drawer (`1440×900`) — Non-overlapping vertical `#lpe_rail` and frosted `#lpe_drawer` open on Overview.*
+
+![Magnum Opus Glass & Health Doll](assets/screenshots/showcase-magnum-theme.png)
+*Magnum Opus Glass & Health Doll — Dual celadon/peach frosted UI theme alongside live-extracted anatomical injury tracking.*
+
+![Mobile Bottom-Sheet (390x844)](assets/screenshots/showcase-mobile.png)
+*Mobile Bottom-Sheet (`390×844`) — Responsive narrow-viewport drawer, horizontal tab strip, and floating `#lpe_fab_btn` with zero overflow.*
+
+![Hybrid Three.js WebGL Atlas](assets/screenshots/showcase-3d-atlas.png)
+*Hybrid Three.js WebGL Atlas — Multi-room Tingen Quarter with unified doorway cutout and 13 normalized Sketchfab GLB props.*
 
 ## Testing
 
