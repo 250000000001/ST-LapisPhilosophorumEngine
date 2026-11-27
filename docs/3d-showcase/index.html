@@ -1,0 +1,265 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>LPE 3D Atlas Showcase — Magnum Opus Glass</title>
+  <link rel="stylesheet" href="./style.css" />
+</head>
+<body>
+  <div id="lpe_showcase_app" class="lpe-app" data-lighting="gaslight">
+    <!-- Spatial WebGL Stage -->
+    <main class="lpe-viewport-stage" aria-label="Interactive 3D Atlas Viewport">
+      <div id="lpe_canvas_wrap" class="lpe-canvas-wrap">
+        <div id="lpe_labels_layer" class="lpe-webgl-labels" aria-hidden="true"></div>
+      </div>
+
+      <!-- Top Floating Telemetry & Status Bar -->
+      <header class="lpe-topbar lpe-glass">
+        <div class="lpe-brand">
+          <span class="lpe-glyph" aria-hidden="true">✦</span>
+          <div class="lpe-brand-copy">
+            <span class="lpe-eyebrow">LAPIS PHILOSOPHORUM ENGINE · WEBGL ATLAS</span>
+            <h1 class="lpe-title">Tingen Quarter — Spatial Prop &amp; Topology Stage</h1>
+          </div>
+        </div>
+
+        <div class="lpe-telemetry" aria-label="Scene Telemetry">
+          <div class="lpe-stat">
+            <span class="lpe-stat-label">GLB ASSETS</span>
+            <span id="stat_glb_count" class="lpe-stat-val">0 / 24</span>
+          </div>
+          <div class="lpe-stat">
+            <span class="lpe-stat-label">TRIANGLES</span>
+            <span id="stat_tri_count" class="lpe-stat-val">0</span>
+          </div>
+          <div class="lpe-stat">
+            <span class="lpe-stat-label">CAMERA</span>
+            <span id="stat_cam_coords" class="lpe-stat-val">0.42 rad · 16.5m</span>
+          </div>
+        </div>
+
+        <div class="lpe-topbar-actions">
+          <button type="button" id="btn_open_credits" class="lpe-btn lpe-btn-ghost" title="View CC BY 4.0 &amp; CC0 Model Attributions">
+            <span aria-hidden="true">✦</span> Credits &amp; CC Licenses
+          </button>
+          <a class="lpe-btn lpe-btn-primary" href="https://github.com/250000000001/ST-LapisPhilosophorumEngine/tree/main" target="_blank" rel="noopener noreferrer">
+            View LPE Engine / Source ↗
+          </a>
+        </div>
+      </header>
+
+      <!-- Bottom Floating Camera Presets & Lighting Mood Dock -->
+      <section class="lpe-bottom-dock lpe-glass" aria-label="Camera Presets and Lighting Controls">
+        <div class="lpe-dock-group">
+          <span class="lpe-dock-label">CAMERA PRESET</span>
+          <div class="lpe-pill-row" role="group" aria-label="Camera Presets">
+            <button type="button" class="lpe-pill is-active" data-cam-preset="overview">Overview</button>
+            <button type="button" class="lpe-pill" data-cam-preset="study">Study Corner</button>
+            <button type="button" class="lpe-pill" data-cam-preset="hearth">Hearth / Counter</button>
+            <button type="button" class="lpe-pill" data-cam-preset="courtyard">Courtyard</button>
+          </div>
+        </div>
+
+        <div class="lpe-dock-divider" aria-hidden="true"></div>
+
+        <div class="lpe-dock-group">
+          <span class="lpe-dock-label">LIGHTING MOOD</span>
+          <div class="lpe-pill-row" role="group" aria-label="Lighting Moods">
+            <button type="button" class="lpe-pill is-active" data-light-mood="gaslight">Gaslight Warm</button>
+            <button type="button" class="lpe-pill" data-light-mood="celadon">Celadon Night</button>
+            <button type="button" class="lpe-pill" data-light-mood="daylight">Daylight</button>
+          </div>
+        </div>
+
+        <div class="lpe-dock-divider" aria-hidden="true"></div>
+
+        <div class="lpe-dock-group lpe-dock-tools">
+          <button type="button" id="btn_toggle_labels" class="lpe-icon-pill is-active" title="Toggle 3D Projected Labels">Labels</button>
+          <button type="button" id="btn_toggle_cutaway" class="lpe-icon-pill is-active" title="Toggle Wall Cutaway">Cutaway</button>
+          <button type="button" id="btn_reset_view" class="lpe-icon-pill" title="Reset Camera Orbit">Reset</button>
+        </div>
+      </section>
+
+      <!-- Subtle Interaction Hint -->
+      <div class="lpe-hint-pill" aria-hidden="true">
+        <span id="hover_hint_text">Click any 3D prop to inspect · Drag to orbit · Shift+Drag to pan · Wheel to zoom</span>
+      </div>
+    </main>
+
+    <!-- Slide-Out Magnum Opus Glass Drawer -->
+    <aside id="lpe_drawer" class="lpe-drawer lpe-glass" aria-label="LPE Spatial Inspector Drawer">
+      <div class="lpe-drawer-header">
+        <div class="lpe-drawer-title-wrap">
+          <span class="lpe-glyph">✦</span>
+          <div>
+            <div class="lpe-eyebrow">MAGNUM OPUS GLASS HUD</div>
+            <h2 id="drawer_heading" class="lpe-drawer-title">Prop Inspector</h2>
+          </div>
+        </div>
+        <button type="button" id="btn_close_drawer" class="lpe-icon-btn" aria-label="Collapse Inspector Drawer" title="Collapse Drawer">✕</button>
+      </div>
+
+      <!-- Drawer Sub-Tabs -->
+      <div class="lpe-drawer-tabs" role="tablist">
+        <button type="button" class="lpe-tab is-active" role="tab" aria-selected="true" data-drawer-tab="inspector">Inspector</button>
+        <button type="button" class="lpe-tab" role="tab" aria-selected="false" data-drawer-tab="catalog">Prop Catalog (24)</button>
+        <button type="button" class="lpe-tab" role="tab" aria-selected="false" data-drawer-tab="credits">Attributions</button>
+      </div>
+
+      <!-- TAB 1: Selected Prop Inspector -->
+      <div id="tab_inspector" class="lpe-drawer-body" role="tabpanel">
+        <div id="inspector_card" class="lpe-bento-card lpe-selected-card">
+          <div class="lpe-card-kicker">
+            <span id="insp_zone_badge" class="lpe-badge lpe-badge-celadon">Study Corner</span>
+            <span id="insp_license_badge" class="lpe-badge lpe-badge-peach">CC BY 4.0</span>
+          </div>
+          <h3 id="insp_name" class="lpe-prop-name">Antique Globe</h3>
+          <p id="insp_desc" class="lpe-prop-desc">Normalized bottom-center pivot GLB prop with real-time bounding-box grounding and shadow projection.</p>
+
+          <dl class="lpe-spec-grid">
+            <div class="lpe-spec-cell">
+              <dt>SHAPE ID</dt>
+              <dd id="insp_shape_id"><code>globe</code></dd>
+            </div>
+            <div class="lpe-spec-cell">
+              <dt>DIMENSIONS (W×D×H)</dt>
+              <dd id="insp_dims">0.38 × 0.38 × 0.48 m</dd>
+            </div>
+            <div class="lpe-spec-cell">
+              <dt>WORLD COORDS</dt>
+              <dd id="insp_coords">[-2.75, 0.95, -2.10]</dd>
+            </div>
+            <div class="lpe-spec-cell">
+              <dt>GEOMETRY / SIZE</dt>
+              <dd id="insp_geom">2,000 faces · 1,602 KB</dd>
+            </div>
+            <div class="lpe-spec-cell lpe-spec-wide">
+              <dt>AUTHOR &amp; LICENSE</dt>
+              <dd id="insp_author">thelowestanimal · Creative Commons Attribution 4.0</dd>
+            </div>
+            <div class="lpe-spec-cell lpe-spec-wide">
+              <dt>GLB ASSET FILE</dt>
+              <dd id="insp_file"><code>sketchfab-a30fc85dd7764b3bb45f509a38c0d000.glb</code></dd>
+            </div>
+          </dl>
+
+          <div class="lpe-card-actions">
+            <button type="button" id="btn_focus_prop" class="lpe-btn lpe-btn-celadon">
+              ✦ Focus Camera on Prop
+            </button>
+            <a id="insp_source_url" class="lpe-btn lpe-btn-ghost" href="https://sketchfab.com/3d-models/antique-globe-a30fc85dd7764b3bb45f509a38c0d000" target="_blank" rel="noopener noreferrer">
+              Original Model Source ↗
+            </a>
+          </div>
+        </div>
+
+        <!-- Zone Quick-Select Bento -->
+        <div class="lpe-bento-card">
+          <div class="lpe-section-header">
+            <span class="lpe-glyph">✦</span>
+            <span>SPATIAL ZONES &amp; TOPOLOGY</span>
+          </div>
+          <p class="lpe-small-copy">
+            Adjacent rooms share a unified doorway wall cutout (`splitWallWithDoorways`) without duplicate overlapping walls.
+          </p>
+          <div class="lpe-zone-grid">
+            <button type="button" class="lpe-zone-btn" data-cam-preset="study">
+              <strong>Study Corner</strong>
+              <span>Desk, wall bookshelf, globe, books, lamp, armchair</span>
+            </button>
+            <button type="button" class="lpe-zone-btn" data-cam-preset="hearth">
+              <strong>Hearth &amp; Counter</strong>
+              <span>Wood stove, bar, kitchen counter, sofa, table, kits</span>
+            </button>
+            <button type="button" class="lpe-zone-btn" data-cam-preset="courtyard">
+              <strong>Cobblestone Courtyard</strong>
+              <span>Fountain, bench, streetlamp, plant, medieval signpost</span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- TAB 2: Prop Catalog -->
+      <div id="tab_catalog" class="lpe-drawer-body is-hidden" role="tabpanel">
+        <div class="lpe-filter-row">
+          <button type="button" class="lpe-chip is-active" data-zone-filter="all">All (24)</button>
+          <button type="button" class="lpe-chip" data-zone-filter="Study Corner">Study</button>
+          <button type="button" class="lpe-chip" data-zone-filter="Hearth & Counter">Hearth &amp; Hall</button>
+          <button type="button" class="lpe-chip" data-zone-filter="Courtyard">Courtyard</button>
+        </div>
+        <div id="catalog_list" class="lpe-catalog-list" role="list"></div>
+      </div>
+
+      <!-- TAB 3: Credits & Licenses -->
+      <div id="tab_credits" class="lpe-drawer-body is-hidden" role="tabpanel">
+        <div class="lpe-bento-card">
+          <div class="lpe-section-header">
+            <span class="lpe-glyph">✦</span>
+            <span>LICENSE BOUNDARY &amp; CREDITS</span>
+          </div>
+          <p class="lpe-small-copy">
+            All 3D models are credited below per <strong>CC BY 4.0</strong> and <strong>CC0 1.0</strong>. At load time, LPE centers bottom pivots to <code>(0,0,0)</code>, adapts legacy specular-glossiness materials, and scales props to target room dimensions. No endorsement by original creators is implied.
+          </p>
+        </div>
+        <div id="drawer_credits_list" class="lpe-credits-list"></div>
+      </div>
+
+      <!-- Drawer Footer CTA -->
+      <div class="lpe-drawer-footer">
+        <a class="lpe-btn lpe-btn-primary lpe-btn-full" href="https://github.com/250000000001/ST-LapisPhilosophorumEngine/tree/main" target="_blank" rel="noopener noreferrer">
+          ✦ Explore Lapis Philosophorum Engine on GitHub ↗
+        </a>
+      </div>
+    </aside>
+
+    <!-- Vertical Collapsible Side-Rail (SleepTavernHome + Magnum Opus Glass Ergonomics) -->
+    <nav id="lpe_rail" class="lpe-rail lpe-glass" aria-label="Magnum Opus Vertical Rail">
+      <button type="button" class="lpe-rail-btn is-active" data-rail-tab="inspector" title="Prop Inspector">
+        <span class="lpe-rail-icon" aria-hidden="true">✦</span>
+        <span class="lpe-rail-text">Inspect</span>
+      </button>
+      <button type="button" class="lpe-rail-btn" data-rail-tab="catalog" title="3D Prop Catalog">
+        <span class="lpe-rail-icon" aria-hidden="true">⬡</span>
+        <span class="lpe-rail-text">Catalog</span>
+      </button>
+      <button type="button" class="lpe-rail-btn" data-rail-tab="credits" title="CC BY 4.0 &amp; CC0 Attributions">
+        <span class="lpe-rail-icon" aria-hidden="true">©</span>
+        <span class="lpe-rail-text">Credits</span>
+      </button>
+      <div class="lpe-rail-spacer"></div>
+      <button type="button" id="btn_rail_toggle" class="lpe-rail-btn" title="Toggle Inspector Drawer" aria-expanded="true">
+        <span class="lpe-rail-icon" aria-hidden="true">⇄</span>
+        <span class="lpe-rail-text">Drawer</span>
+      </button>
+    </nav>
+
+    <!-- Credits & Attribution Modal -->
+    <div id="credits_modal" class="lpe-modal-backdrop is-hidden" role="dialog" aria-modal="true" aria-labelledby="modal_credits_title">
+      <div class="lpe-modal lpe-glass">
+        <div class="lpe-modal-header">
+          <div class="lpe-drawer-title-wrap">
+            <span class="lpe-glyph">✦</span>
+            <div>
+              <div class="lpe-eyebrow">CREATIVE COMMONS ATTRIBUTION</div>
+              <h2 id="modal_credits_title" class="lpe-drawer-title">3D Model Assets &amp; Engine Licenses</h2>
+            </div>
+          </div>
+          <button type="button" id="btn_close_modal" class="lpe-icon-btn" aria-label="Close Credits Modal">✕</button>
+        </div>
+        <div class="lpe-modal-body">
+          <p class="lpe-small-copy">
+            <strong>Engine &amp; UI Code:</strong> Lapis Philosophorum Engine (LPE) procedural architecture, topology, and Magnum Opus Glass UI are licensed under <a href="https://creativecommons.org/licenses/by-nc/4.0/" target="_blank" rel="noopener noreferrer">CC BY-NC 4.0</a>. Three.js (`0.187.0`) is licensed under the MIT License.
+          </p>
+          <p class="lpe-small-copy">
+            <strong>3D Asset Transformations:</strong> Industrial (`psx-industrial.glb`) and Sci-Fi (`scifi-lab-props.glb`) packs had individual prop meshes isolated, pivots normalized to <code>(0,0,0)</code>, and textures converted to WebP. Standalone Sketchfab `.glb` models have bottom-center pivots normalized, orientation aligned, and legacy `KHR_materials_pbrSpecularGlossiness` materials adapted at runtime.
+          </p>
+          <div id="modal_credits_grid" class="lpe-modal-credits-grid"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="./showcase.js"></script>
+</body>
+</html>

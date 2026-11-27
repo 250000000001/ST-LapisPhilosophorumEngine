@@ -87,6 +87,8 @@ LPE ships with a native dual-accent dark frosted-glass design system (`.lpe-*`) 
 ![Hybrid Three.js WebGL Atlas](assets/screenshots/showcase-3d-atlas.png)
 *Hybrid Three.js WebGL Atlas — Multi-room Tingen Quarter with unified doorway cutout and 13 normalized Sketchfab GLB props.*
 
+**Interactive 3D Showcase:** Explore the standalone [Tingen Quarter WebGL walkthrough](docs/3d-showcase/README.md) (camera presets, lighting moods, click-to-inspect, and CC BY 4.0 / CC0 attribution), deployable via GitHub Pages or embeddable with a single `<iframe>`.
+
 ## Testing
 
 - **Offline Unit & Integration Suite:** Run `node --test test/*.test.mjs` inside the repository root to verify reducer determinism, swipe journal isolation, topology/matrix diffs, and 3D WebGL/Health doll helpers without network calls.
