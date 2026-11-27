@@ -853,7 +853,7 @@ body {
     --lpe-rail-bottom: max(16px, env(safe-area-inset-bottom, 0px));
     --lpe-rail-max-y: calc(100dvh - var(--lpe-rail-bottom) - 376px);
     --lpe-rail-y: clamp(var(--lpe-rail-min-y), var(--lpe-rail-top, var(--lpe-rail-min-y)), var(--lpe-rail-max-y));
-    --lpe-rail-panel-top: calc(var(--lpe-rail-y) + var(--lpe-tail-slot) - 1px);
+    --lpe-rail-panel-top: var(--lpe-rail-y);
 }
 
 body.lpe-rail-collapsed {
@@ -902,7 +902,10 @@ body:not(.movingUI, .waifuMode):has(#lpe_chrome_controls .lpe-tail:not([hidden])
 }
 
 #lpe_topbar_toggle {
-    left: env(safe-area-inset-left, 0px);
+    left: 50%;
+    transform: translateX(-50%);
+    border-radius: 0 0 8px 8px;
+    border-top: none;
 }
 
 #lpe_rail_expand_btn {
@@ -928,6 +931,74 @@ body.lpe-rail-docked-left #lpe_rail_expand_btn .lpe-tail-icon {
     cursor: grab;
     touch-action: none;
     user-select: none;
+}
+
+/* Collapsed tail: keeps a comfortable hit target, but only a faint sliver shows at rest. */
+#lpe_rail_expand_btn[aria-expanded="false"] {
+    width: var(--lpe-tail-icon-width);
+    overflow: hidden;
+    transition: background-color 180ms ease, border-color 180ms ease;
+}
+
+#lpe_rail_expand_btn[aria-expanded="false"]:not(:hover):not(:focus-visible) {
+    background: transparent;
+    border-color: transparent;
+    box-shadow: none;
+}
+
+#lpe_rail_expand_btn[aria-expanded="false"]:not(:hover):not(:focus-visible)::before {
+    content: "";
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    width: 3px;
+    height: 14px;
+    border-radius: 2px;
+    background: color-mix(in srgb, var(--lpe-accent-1, #9ad6cf) 40%, transparent);
+}
+
+#lpe_rail_expand_btn[aria-expanded="false"] .lpe-tail-icon {
+    opacity: 0;
+    transition: opacity 160ms ease;
+}
+
+#lpe_rail_expand_btn[aria-expanded="false"]:is(:hover, :focus-visible) .lpe-tail-icon {
+    opacity: 1;
+}
+
+#lpe_rail_expand_btn .lpe-tail-label {
+    display: none;
+}
+
+/* In-rail collapse control anchored to the bottom of the expanded sidebar. */
+.lpe-rail-collapse-btn {
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 34px;
+    height: 28px;
+    margin-top: 2px;
+    padding: 0;
+    border: 1px solid transparent;
+    border-radius: 9px;
+    background: transparent;
+    color: var(--lpe-text-muted);
+    font-size: 0.82rem;
+    cursor: pointer;
+    transition: color 180ms ease, background-color 180ms ease, border-color 180ms ease;
+}
+
+.lpe-rail-collapse-btn:hover,
+.lpe-rail-collapse-btn:focus-visible {
+    color: var(--lpe-accent-2, #f1be9a);
+    background: var(--lpe-bg-elevated);
+    border-color: var(--lpe-hairline);
+}
+
+body.lpe-rail-docked-left .lpe-rail-collapse-btn i {
+    scale: -1 1;
 }
 
 .lpe-tail-icon {
