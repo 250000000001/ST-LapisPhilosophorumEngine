@@ -127,6 +127,7 @@ export function buildWorkerMessages({
     proseColors = [],
     cardHints = '',
     userName = '',
+    extraShapes = [],
     mode = 'combined',
     part = null,
 }) {
@@ -184,8 +185,15 @@ export function buildWorkerMessages({
 
     userSections.push(`<output_schema>\n${guide}\n</output_schema>`);
 
+    const cleanExtraShapes = Array.isArray(extraShapes)
+        ? [...new Set(extraShapes.map((s) => String(s || '').trim().toLowerCase()).filter((s) => /^[a-z][a-z0-9_]{0,63}$/.test(s) && !sketchfabShapes.includes(s)))]
+        : [];
+    const systemPrompt = cleanExtraShapes.length > 0 && (mode !== 'split' || part === 'spatial_entity')
+        ? `${SYSTEM_BASE}\n   - Active 3D collection custom shapes: ${cleanExtraShapes.map((id) => JSON.stringify(id)).join(', ')}.`
+        : SYSTEM_BASE;
+
     return [
-        { role: 'system', content: SYSTEM_BASE },
+        { role: 'system', content: systemPrompt },
         { role: 'user', content: userSections.join('\n\n') },
     ];
 }

@@ -192,6 +192,8 @@ export function renderAtlasTab(
         svgCamera = null,
         allowWebgl = false,
         userName = '',
+        activeCollectionLabel = '',
+        externalCreditSummary = '',
     } = {},
 ) {
     const mode = (viewMode === 'webgl' && allowWebgl)
@@ -249,6 +251,7 @@ export function renderAtlasTab(
                 <div class="lpe-webgl-labels"></div>
                 <div class="lpe-webgl-hud-overlay">
                     <span class="lpe-webgl-chip">${escHtml(currentMap.name || activeMapId || 'Atlas')} · ${allFloors ? 'All Floors' : `Z=${escHtml(activeFloor)}`} · ${visibleRooms.length} room${visibleRooms.length === 1 ? '' : 's'}</span>
+                    ${activeCollectionLabel ? `<span class="lpe-webgl-chip">Collection: ${escHtml(activeCollectionLabel)}</span>` : ''}
                     <span class="lpe-webgl-chip">Orbit: Drag · Pan: Shift+Drag · Zoom: Wheel</span>
                 </div>
                 <div class="lpe-webgl-controls">
@@ -264,6 +267,7 @@ export function renderAtlasTab(
             <div class="lpe-webgl-footer-note">
                 <span>Hybrid Three.js WebGL Engine + Doorway Cutouts</span>
                 <span>Textured kits: PSX Industrial Pack (Tomitos) &amp; Sci-fi lab (Agata Wilczek) — CC BY 4.0</span>
+                ${externalCreditSummary ? `<span>External Models: ${escHtml(externalCreditSummary)}</span>` : ''}
             </div>
         `;
     } else if (mode === '3d') {

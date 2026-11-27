@@ -29,7 +29,8 @@ function render(text, mode = 'markdownOnly') {
 }
 
 test('immutable archive regenerates the checked-in preset and all expressions compile', () => {
-    assert.equal(createHash('sha256').update(fs.readFileSync(archive)).digest('hex'),
+    const archiveLf = fs.readFileSync(archive, 'utf8').replace(/\r\n/g, '\n');
+    assert.equal(createHash('sha256').update(archiveLf, 'utf8').digest('hex'),
         '1ef2bf2ef44d297b278dcfa41c678775345d6cf9fe7831de2b0dcb268650a15c');
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'lpe-preset-'));
     try {

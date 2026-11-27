@@ -17,6 +17,13 @@ import { resolveMaterialColor, shadeHex } from './polyCss3d.js';
 import { PALETTE, isEmptySentinel } from './schema.js';
 import { SKETCHFAB_ASSETS } from './sketchfabAssets.js';
 import {
+    DEFAULT_COLLECTION_ID,
+    normalizeLicenseMeta,
+    resolveModelForShape,
+    onPackCacheInvalidate,
+    validateGlbHeader,
+} from './modelLibrary.js';
+import {
     parseLocalPoint3D,
     parseRoomHeight,
     clampObjectToRoom,
@@ -133,6 +140,21 @@ const DEFAULT_OBJ_SIZES = Object.freeze({
 
 const packCache = new Map();
 
+export function invalidateGlbPackCache(packId = null) {
+    if (!packId) packCache.clear();
+    else packCache.delete(packId);
+}
+
+onPackCacheInvalidate((packId) => invalidateGlbPackCache(packId));
+
+export function resolveWebglPropAsset(shape, opts = {}) {
+    return resolveModelForShape(shape, {
+        ...opts,
+        bundledKitCatalog: WEBGL_KIT_CATALOG,
+        sketchfabAssets: SKETCHFAB_ASSETS,
+    });
+}
+
 export function createAtlasGlbLoader() {
     const loader = new GLTFLoader();
     // The bench and fountain use the archived specular-glossiness workflow.
@@ -165,9 +187,33 @@ export function createAtlasGlbLoader() {
 }
 
 function loadGlbPack(packId, url) {
+    if (!url) return Promise.resolve(null);
     if (packCache.has(packId)) return packCache.get(packId);
     const p = createAtlasGlbLoader().loadAsync(url)
         .then((gltf) => gltf?.scene || null, () => null)
+        .then((scene) => {
+            if (!scene) packCache.delete(packId);
+            return scene;
+        });
+    packCache.set(packId, p);
+    return p;
+}
+
+function loadExternalGlbPack(packId, modelId, loadBufferFn) {
+    if (packCache.has(packId)) return packCache.get(packId);
+    if (typeof loadBufferFn !== 'function' || !modelId) return Promise.resolve(null);
+    const p = Promise.resolve()
+        .then(() => loadBufferFn(modelId))
+        .then((rawBuf) => {
+            if (!rawBuf) return null;
+            const valid = validateGlbHeader(rawBuf);
+            if (!valid.ok) return null;
+            const ab = rawBuf instanceof ArrayBuffer
+                ? rawBuf
+                : rawBuf.buffer.slice(rawBuf.byteOffset, rawBuf.byteOffset + rawBuf.byteLength);
+            return createAtlasGlbLoader().parseAsync(ab, '').then((gltf) => gltf?.scene || null);
+        })
+        .catch(() => null)
         .then((scene) => {
             if (!scene) packCache.delete(packId);
             return scene;
@@ -873,10 +919,19 @@ function buildProceduralProp(shape, colorHex, w, d, h, roomLights, worldPos) {
  * Fits a GLB scene or kit node to [width, depth, height] in meters, with uniform
  * XZ scale, bounded vertical adjustment and a bottom-center pivot.
  */
-export function normalizeGlbAsset(sourceNode, targetW, targetD, targetH, preRotY = 0) {
+export function normalizeGlbAsset(sourceNode, targetW, targetD, targetH, preRotY = 0, transformOpts = null) {
     const clone = new THREE.Group();
     clone.add(cloneGltfScene(sourceNode));
-    clone.rotation.y = preRotY;
+    const extRot = Array.isArray(transformOpts?.rotation) ? transformOpts.rotation : null;
+    if (extRot) {
+        clone.rotation.set(
+            Number(extRot[0]) || 0,
+            (Number(preRotY) || 0) + (Number(extRot[1]) || 0),
+            Number(extRot[2]) || 0,
+        );
+    } else {
+        clone.rotation.y = preRotY;
+    }
     clone.updateMatrixWorld(true);
 
     const rawBox = new THREE.Box3().setFromObject(clone, true);
@@ -884,15 +939,19 @@ export function normalizeGlbAsset(sourceNode, targetW, targetD, targetH, preRotY
     const rawSize = rawBox.getSize(new THREE.Vector3());
 
     // Align elongated models to the target footprint after applying authored yaw.
-    if ((targetW > targetD * 1.25 && rawSize.z > rawSize.x * 1.25)
-        || (targetD > targetW * 1.25 && rawSize.x > rawSize.z * 1.25)) {
+    if (!extRot && ((targetW > targetD * 1.25 && rawSize.z > rawSize.x * 1.25)
+        || (targetD > targetW * 1.25 && rawSize.x > rawSize.z * 1.25))) {
         clone.rotation.y += Math.PI / 2;
         clone.updateMatrixWorld(true);
         rawBox.setFromObject(clone, true).getSize(rawSize);
     }
 
     const rawCenter = rawBox.getCenter(new THREE.Vector3());
-    clone.position.set(-rawCenter.x, -rawBox.min.y, -rawCenter.z);
+    const groundMode = transformOpts?.groundMode || 'bottom';
+    const localYShift = groundMode === 'center'
+        ? -rawCenter.y
+        : (groundMode === 'top' ? -rawBox.max.y : -rawBox.min.y);
+    clone.position.set(-rawCenter.x, localYShift, -rawCenter.z);
 
     clone.traverse((ch) => {
         if (ch.isMesh) {
@@ -910,16 +969,33 @@ export function normalizeGlbAsset(sourceNode, targetW, targetD, targetH, preRotY
     const sz = Math.max(0.05, rawSize.z);
     const sXZ = Math.min(targetW / sx, targetD / sz);
     const sY = THREE.MathUtils.clamp(targetH / sy, sXZ * 0.7, sXZ * 1.85);
+    const extScale = Array.isArray(transformOpts?.scale)
+        ? transformOpts.scale
+        : (Number.isFinite(Number(transformOpts?.scale))
+            ? [Number(transformOpts.scale), Number(transformOpts.scale), Number(transformOpts.scale)]
+            : null);
+    const mulX = extScale ? Math.max(0.1, Math.min(4, Number(extScale[0]) || 1)) : 1;
+    const mulY = extScale ? Math.max(0.1, Math.min(4, Number(extScale[1]) || 1)) : 1;
+    const mulZ = extScale ? Math.max(0.1, Math.min(4, Number(extScale[2]) || 1)) : 1;
+
     const holder = new THREE.Group();
     holder.add(clone);
-    holder.scale.set(sXZ, sY, sXZ);
+    holder.scale.set(sXZ * mulX, sY * mulY, sXZ * mulZ);
+
+    const groundOffset = Number(transformOpts?.groundOffset) || 0;
+    const baseOffsetY = groundMode === 'center'
+        ? (targetH * 0.5)
+        : (groundMode === 'top' ? targetH : 0);
+    if (baseOffsetY !== 0 || groundOffset !== 0) {
+        holder.position.y = baseOffsetY + groundOffset;
+    }
     holder.updateMatrixWorld(true);
 
     return holder;
 }
 
-function resolveObjDims(obj) {
-    const def = SKETCHFAB_ASSETS[obj?.shape]?.size || DEFAULT_OBJ_SIZES[obj?.shape] || DEFAULT_OBJ_SIZES.box;
+function resolveObjDims(obj, resolvedAsset = null) {
+    const def = resolvedAsset?.size || SKETCHFAB_ASSETS[obj?.shape]?.size || DEFAULT_OBJ_SIZES[obj?.shape] || DEFAULT_OBJ_SIZES.box;
     if (Array.isArray(obj?.size) && obj.size.length >= 2) {
         const w = Number(obj.size[0]);
         const d = Number(obj.size[1]);
@@ -996,7 +1072,26 @@ export function mountAtlasWebGLViewport(containerEl, state, opts = {}) {
         onCameraChange = null,
         customPackScenes = null,
         userName = '',
+        modelLibrary = null,
+        activeCollection: explicitCollection = '',
     } = opts;
+    const libCfg = typeof modelLibrary?.getConfig === 'function' ? modelLibrary.getConfig() : null;
+    const effColInfo = typeof modelLibrary?.getEffectiveCollection === 'function'
+        ? modelLibrary.getEffectiveCollection()
+        : null;
+    const activeCollection = explicitCollection
+        || effColInfo?.effective
+        || modelLibrary?.activeCollection
+        || DEFAULT_COLLECTION_ID;
+    const defaultCollection = libCfg?.defaultCollection
+        || modelLibrary?.defaultCollection
+        || DEFAULT_COLLECTION_ID;
+    const installedModels = libCfg?.installed
+        || modelLibrary?.installedModels
+        || {};
+    const loadExternalBuffer = typeof modelLibrary?.loadExternalModelBuffer === 'function'
+        ? (id) => modelLibrary.loadExternalModelBuffer(id)
+        : (typeof modelLibrary?.loadModelBuffer === 'function' ? modelLibrary.loadModelBuffer : null);
     const activeUserName = String(
         userName || (typeof window !== 'undefined' ? window.SillyTavern?.getContext?.()?.name1 : '') || '',
     ).trim();
@@ -1116,6 +1211,9 @@ export function mountAtlasWebGLViewport(containerEl, state, opts = {}) {
 
     const wallT = 0.22;
     let glbReplacedCount = 0;
+    let externalPropsLoaded = 0;
+    let bundledPropsLoaded = 0;
+    const loadedAttributions = new Map();
     containerEl.dataset.webglGlbLoaded = '0';
 
     // 1. Precompute room bounds, intra-level height, and floor elevation
@@ -1277,7 +1375,14 @@ export function mountAtlasWebGLViewport(containerEl, state, opts = {}) {
 
         rawObjs.forEach((rawObj, objIdx) => {
             if (supSet.has(objIdx)) return;
-            const dims = resolveObjDims(rawObj);
+            const rawShape = String(rawObj.shape || 'box').trim().toLowerCase();
+            const kit = resolveWebglPropAsset(rawShape, {
+                activeCollection,
+                defaultCollection,
+                installedModels,
+                roomStyle: styleId,
+            });
+            const dims = resolveObjDims(rawObj, kit);
             const grounded = clampObjectToRoom(
                 { ...rawObj, size: [dims.w, dims.d, dims.h] },
                 roomDim,
@@ -1297,7 +1402,7 @@ export function mountAtlasWebGLViewport(containerEl, state, opts = {}) {
             roomGroup.add(slot);
 
             const proc = buildProceduralProp(
-                rawObj.shape || 'box',
+                rawShape,
                 colHex,
                 cw,
                 cd,
@@ -1307,10 +1412,20 @@ export function mountAtlasWebGLViewport(containerEl, state, opts = {}) {
             );
             slot.add(proc);
 
-            const kit = WEBGL_KIT_CATALOG[rawObj.shape] || SKETCHFAB_ASSETS[rawObj.shape];
             if (kit) {
                 const nodeName = kit.styleNodes?.[styleId] || kit.node;
-                pendingGlbSlots.push({ slot, kit, nodeName, dims: { w: cw, d: cd, h: ch }, proc });
+                const bundledFallbackKit = kit.source === 'external'
+                    ? (WEBGL_KIT_CATALOG[rawShape] || SKETCHFAB_ASSETS[rawShape] || null)
+                    : null;
+                pendingGlbSlots.push({
+                    slot,
+                    kit,
+                    nodeName,
+                    dims: { w: cw, d: cd, h: ch },
+                    proc,
+                    styleId,
+                    bundledFallbackKit,
+                });
             }
         });
 
@@ -1572,38 +1687,107 @@ export function mountAtlasWebGLViewport(containerEl, state, opts = {}) {
 
     // Populate GLB props asynchronously without blocking first paint
     const applyPack = (packScene, slots) => {
-        if (disposed || !packScene) return;
+        if (disposed || !packScene) return [];
         let changed = 0;
+        const applied = [];
         for (const item of slots) {
             const srcNode = item.nodeName
-                ? packScene.getObjectByName(item.nodeName) || packScene.getObjectByName(item.kit.node)
+                ? packScene.getObjectByName(item.nodeName) || (item.kit.node ? packScene.getObjectByName(item.kit.node) : null) || packScene
                 : packScene;
             if (!srcNode) continue;
-            const mesh = normalizeGlbAsset(srcNode, item.dims.w, item.dims.d, item.dims.h, item.kit.preRotY || 0);
+            const mesh = normalizeGlbAsset(
+                srcNode,
+                item.dims.w,
+                item.dims.d,
+                item.dims.h,
+                item.kit.preRotY || 0,
+                item.kit.source === 'external'
+                    ? {
+                        rotation: item.kit.rotation,
+                        scale: item.kit.scale,
+                        groundOffset: item.kit.groundOffset,
+                        groundMode: item.kit.groundMode,
+                    }
+                    : null,
+            );
             if (!mesh) continue;
             item.slot.remove(item.proc);
             disposeObjectTree(item.proc);
             item.slot.add(mesh);
+            applied.push(item);
             changed++;
+            if (item.kit.source === 'external') externalPropsLoaded++;
+            else bundledPropsLoaded++;
+            const attrKey = `${item.kit.source || 'bundled'}:${item.kit.uid || item.kit.id || item.kit.pack}`;
+            if (item.kit.author && !loadedAttributions.has(attrKey)) {
+                loadedAttributions.set(attrKey, {
+                    id: item.kit.id || item.kit.pack,
+                    name: item.kit.name || item.kit.id || item.kit.pack,
+                    author: item.kit.author,
+                    uid: item.kit.uid || '',
+                    license: normalizeLicenseMeta(item.kit.license || 'CC BY 4.0', item.kit.licenseUrl).label,
+                    viewerUrl: item.kit.viewerUrl || '',
+                    source: item.kit.source || 'bundled',
+                });
+            }
         }
         glbReplacedCount += changed;
         containerEl.dataset.webglGlbLoaded = String(glbReplacedCount);
         if (changed > 0) requestRender();
+        return applied;
     };
 
-    const slotsByPack = new Map();
+    const loadBundledSlotsByPack = (slotList) => {
+        const byPack = new Map();
+        for (const item of slotList) {
+            const pId = item.kit.pack;
+            if (!byPack.has(pId)) byPack.set(pId, []);
+            byPack.get(pId).push(item);
+        }
+        for (const [pId, slots] of byPack) {
+            if (customPackScenes) {
+                applyPack(customPackScenes[pId], slots);
+            } else {
+                loadGlbPack(pId, assetPackUrls.get(pId))
+                    .then((scene) => applyPack(scene, slots))
+                    .catch(() => {});
+            }
+        }
+    };
+
+    const bundledQueue = [];
+    const externalByPack = new Map();
     for (const item of pendingGlbSlots) {
-        const packId = item.kit.pack;
-        if (!slotsByPack.has(packId)) slotsByPack.set(packId, []);
-        slotsByPack.get(packId).push(item);
-    }
-    for (const [packId, slots] of slotsByPack) {
-        if (customPackScenes) {
-            applyPack(customPackScenes[packId], slots);
+        if (item.kit.source === 'external') {
+            const packId = item.kit.pack;
+            if (!externalByPack.has(packId)) externalByPack.set(packId, []);
+            externalByPack.get(packId).push(item);
         } else {
-            loadGlbPack(packId, assetPackUrls.get(packId))
-                .then((scene) => applyPack(scene, slots))
-                .catch(() => {});
+            bundledQueue.push(item);
+        }
+    }
+
+    loadBundledSlotsByPack(bundledQueue);
+
+    for (const [packId, slots] of externalByPack) {
+        const modelId = slots[0]?.kit?.id;
+        const onExternalScene = (scene) => {
+            const appliedSet = new Set(applyPack(scene, slots));
+            const missed = slots.filter((it) => !appliedSet.has(it) && it.bundledFallbackKit);
+            if (missed.length) {
+                loadBundledSlotsByPack(missed.map((it) => ({
+                    ...it,
+                    kit: { ...it.bundledFallbackKit, source: 'bundled' },
+                    nodeName: it.bundledFallbackKit.styleNodes?.[it.styleId] || it.bundledFallbackKit.node || null,
+                })));
+            }
+        };
+        if (customPackScenes && customPackScenes[packId]) {
+            onExternalScene(customPackScenes[packId]);
+        } else {
+            loadExternalGlbPack(packId, modelId, loadExternalBuffer)
+                .then(onExternalScene)
+                .catch(() => onExternalScene(null));
         }
     }
 
@@ -1784,6 +1968,10 @@ export function mountAtlasWebGLViewport(containerEl, state, opts = {}) {
             rooms: visibleRooms.length,
             props: pendingGlbSlots.length,
             glbPropsLoaded: glbReplacedCount,
+            externalPropsLoaded,
+            bundledPropsLoaded,
+            activeCollection,
+            attributions: [...loadedAttributions.values()],
             labels: labelAnchors.length,
             framesRendered: frameCount,
             lights: roomLights.count,

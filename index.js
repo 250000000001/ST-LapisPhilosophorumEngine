@@ -44,6 +44,11 @@ import { createLpeAppPopup, mapHudTabToAppTab } from './src/appPopup.js';
 import { DEFAULT_END_MARKER } from './src/retryDetector.js';
 import { createLpeRetryRuntime } from './src/retryRuntime.js';
 import {
+    DEFAULT_LIBRARY_MANIFEST_URL,
+    createModelLibraryManager,
+    syncInstalledExternalShapes,
+} from './src/modelLibrary.js';
+import {
     getContextSafe,
     saveSettingsDebounced,
     saveMetadataDebounced,
@@ -110,6 +115,13 @@ const DEFAULT_SETTINGS = Object.freeze({
     rendererAllowExternalResources: false,
     rendererAllowAutoSend: false,
     rendererAutoYield: true,
+    modelLibrary: Object.freeze({
+        manifestUrl: DEFAULT_LIBRARY_MANIFEST_URL,
+        defaultCollection: 'default',
+        cardCollections: Object.freeze({}),
+        installed: Object.freeze({}),
+        cachedManifest: null,
+    }),
     retry: DEFAULT_RETRY_SETTINGS,
 });
 
@@ -227,6 +239,17 @@ jQuery(() => {
     let chatEpoch = 0;
     let lastWiEntries = [];
     let appPopup = null;
+    syncInstalledExternalShapes(getSettings().modelLibrary?.installed);
+    const modelLibraryManager = createModelLibraryManager({
+        getSettings,
+        saveSettings,
+        getContextSafe,
+        store,
+        onChanged: () => {
+            syncSettingsUI(getSettings());
+            appPopup?.refresh?.();
+        },
+    });
 
     function fillChatComposer(text) {
         const ta = document.getElementById('send_textarea');
@@ -449,15 +472,16 @@ jQuery(() => {
                 const userName = getActiveUserName();
                 const isFirstTurn = Number(prevState?.world?.ct || 0) === 0;
                 const cardHints = isFirstTurn ? getActiveCharacterCardHint() : '';
+                const extraShapes = modelLibraryManager.getActiveCustomShapes();
 
                 if (settings.workerMode === 'split') {
                     const msgs1 = buildWorkerMessages({
                         prevState, exchange, earlier, receipt: tail.receipt, vent: tail.vent,
-                        headerParsed, proseColors, cardHints, userName, mode: 'split', part: 'spatial_entity',
+                        headerParsed, proseColors, cardHints, userName, extraShapes, mode: 'split', part: 'spatial_entity',
                     });
                     const msgs2 = buildWorkerMessages({
                         prevState, exchange, earlier, receipt: tail.receipt, vent: tail.vent,
-                        headerParsed, proseColors, cardHints, userName, mode: 'split', part: 'narrative_sim',
+                        headerParsed, proseColors, cardHints, userName, extraShapes, mode: 'split', part: 'narrative_sim',
                     });
                     const r1 = await send(msgs1);
                     if (signal.aborted) return { aborted: true };
@@ -468,7 +492,7 @@ jQuery(() => {
 
                 const msgs = buildWorkerMessages({
                     prevState, exchange, earlier, receipt: tail.receipt, vent: tail.vent,
-                    headerParsed, proseColors, cardHints, userName, mode: 'combined',
+                    headerParsed, proseColors, cardHints, userName, extraShapes, mode: 'combined',
                 });
                 const res = await send(msgs);
                 return { combined: res.content, meta: [res] };
@@ -820,6 +844,7 @@ jQuery(() => {
         retryRuntime.syncButtons();
         syncSettingsUI(getSettings());
         const cur = getSettings();
+        syncInstalledExternalShapes(cur.modelLibrary?.installed);
         applyReadingFont(cur);
         if (!cur.enabled || !cur.rendererEnabled || shouldYieldRenderer(cur)) {
             cardRenderer.teardownAll();
@@ -847,6 +872,7 @@ jQuery(() => {
         saveSettings,
         getContextSafe,
         workerClient,
+        modelLibraryManager,
         getWorkerStatus: () => workerStatus,
         getRecentStoryText: () => recentStoryText(getContextSafe().chat || []),
         onImportChat: handleImportChat,
@@ -922,6 +948,7 @@ jQuery(() => {
     }
 
     function wireUi() {
+        syncInstalledExternalShapes(getSettings().modelLibrary?.installed);
         applyReadingFont(getSettings());
         retryRuntime.syncButtons();
         appPopup?.mount?.();
@@ -930,7 +957,9 @@ jQuery(() => {
             saveSettings,
             getContextSafe,
             workerClient,
+            modelLibraryManager,
             onOpenPopup: () => appPopup?.open?.(),
+            onOpenModelLibrary: () => appPopup?.open?.({ tab: 'models' }),
             onImportChat: handleImportChat,
             onOpenEditor: () => {
                 if (appPopup) {

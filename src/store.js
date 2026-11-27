@@ -156,6 +156,26 @@ function randomUid() {
     return 'lpe_' + Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4);
 }
 
+function cloneDefaultSettingValue(val) {
+    if (val === null || val === undefined || typeof val !== 'object') return val;
+    return JSON.parse(JSON.stringify(val));
+}
+
+function mergeMissingObjectDefaults(target, defaults) {
+    if (!target || typeof target !== 'object' || !defaults || typeof defaults !== 'object') return;
+    for (const [k, v] of Object.entries(defaults)) {
+        if (k === 'retry') continue;
+        if (target[k] === undefined || (v && typeof v === 'object' && Object.isFrozen(target[k]))) {
+            target[k] = cloneDefaultSettingValue(v);
+        } else if (
+            v && typeof v === 'object' && !Array.isArray(v)
+            && target[k] && typeof target[k] === 'object' && !Array.isArray(target[k])
+        ) {
+            mergeMissingObjectDefaults(target[k], v);
+        }
+    }
+}
+
 /**
  * One-time non-destructive migration from legacy `extensionSettings.vexa_state_engine`
  * to canonical `extensionSettings.lapis_philosophorum_engine`.
@@ -167,7 +187,7 @@ export function migrateLegacyExtensionSettings(
     { moduleName = 'lapis_philosophorum_engine', legacyModuleName = 'vexa_state_engine' } = {},
 ) {
     if (!extensionSettings || typeof extensionSettings !== 'object') {
-        return { ...defaultSettings, retry: { ...defaultRetrySettings } };
+        return { ...cloneDefaultSettingValue(defaultSettings), retry: { ...defaultRetrySettings } };
     }
     if (!extensionSettings[moduleName]) {
         const legacy = extensionSettings[legacyModuleName];
@@ -175,14 +195,11 @@ export function migrateLegacyExtensionSettings(
             const migrated = JSON.parse(JSON.stringify(legacy));
             extensionSettings[moduleName] = migrated;
         } else {
-            extensionSettings[moduleName] = { ...defaultSettings, retry: { ...defaultRetrySettings } };
+            extensionSettings[moduleName] = { ...cloneDefaultSettingValue(defaultSettings), retry: { ...defaultRetrySettings } };
         }
     }
     const stored = extensionSettings[moduleName];
-    for (const [k, v] of Object.entries(defaultSettings)) {
-        if (k === 'retry') continue;
-        if (stored[k] === undefined) stored[k] = v;
-    }
+    mergeMissingObjectDefaults(stored, defaultSettings);
     if (!stored.retry || typeof stored.retry !== 'object') {
         stored.retry = { ...defaultRetrySettings };
     } else {
@@ -217,6 +234,7 @@ function emptyRoot() {
         journal: [],
         swipeOf: {},
         cardVars: {},
+        modelCollection: '',
         imported: false,
     };
 }
@@ -794,6 +812,22 @@ export function createLpeStateStore({
         changed();
     }
 
+    function getModelCollection() {
+        const r = root();
+        return r && typeof r.modelCollection === 'string' ? r.modelCollection : '';
+    }
+
+    function setModelCollection(collectionId) {
+        const r = root();
+        if (!r) return '';
+        const next = String(collectionId ?? '').trim();
+        if (r.modelCollection !== next) {
+            r.modelCollection = next;
+            changed();
+        }
+        return r.modelCollection;
+    }
+
     return {
         root,
         stamp,
@@ -820,6 +854,8 @@ export function createLpeStateStore({
         patchCardVars,
         seedCardVarsIfEmpty,
         resetCardVars,
+        getModelCollection,
+        setModelCollection,
         get version() { return version; },
     };
 }

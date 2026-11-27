@@ -23,6 +23,7 @@ import {
 import { applyHealthDelta, normalizeHealthState } from './healthDoll.js';
 import { POLY_PREFABS, PREFAB_DEFAULT_SIZES } from './polyAssets.js';
 import { parseDimMeters, clampObjectToRoom } from './atlasTopology.js';
+import { isInstalledExternalShape } from './modelLibrary.js';
 
 export { parseDimMeters };
 
@@ -402,10 +403,13 @@ function parseVectorNumbers(raw) {
  * Normalize a worker/user 3D Atlas object into canonical PolyCSS shape data,
  * clamping coordinates and dimensions to optional room bounds.
  */
-export function normalizeAtlasObject(raw, roomDim = null) {
+export function normalizeAtlasObject(raw, roomDim = null, opts = {}) {
     const obj = raw && typeof raw === 'object' ? raw : {};
     const rawShape = String(obj.shape || obj.type || 'box').trim().toLowerCase();
-    let shape = ATLAS_OBJECT_SHAPES.includes(rawShape)
+    const isCustomExternalShape = /^[a-z][a-z0-9_]{0,63}$/.test(rawShape)
+        && !Object.hasOwn(Object.prototype, rawShape)
+        && (opts?.extraShapes?.has?.(rawShape) || isInstalledExternalShape(rawShape));
+    let shape = ATLAS_OBJECT_SHAPES.includes(rawShape) || isCustomExternalShape
         ? rawShape
         : (SHAPE_SYNONYMS[rawShape] || '');
     if (!shape) {

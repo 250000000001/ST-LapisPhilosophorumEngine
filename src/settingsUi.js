@@ -9,6 +9,14 @@ import { fetchModelsList, extractErrorMessage } from './workerClient.js';
 import { DEFAULT_END_MARKER } from './retryDetector.js';
 import { shouldYieldEjs } from './ejsEngine.js';
 import { shouldYieldRenderer } from './cardRenderer.js';
+import {
+    DEFAULT_COLLECTION_ID,
+    DEFAULT_LIBRARY_MANIFEST_URL,
+    COLLECTION_LABELS,
+    ensureModelLibrarySettings,
+    formatCollectionLabel,
+    normalizeCollectionSlug,
+} from './modelLibrary.js';
 
 function esc(s) {
     return String(s ?? '')
@@ -16,6 +24,26 @@ function esc(s) {
         .replace(/</g, '&lt;')
         .replace(/>/g, '&gt;')
         .replace(/"/g, '&quot;');
+}
+
+function buildModelLibCollectionOptions(s) {
+    const seen = new Set();
+    const ordered = [];
+    const ml = s?.modelLibrary;
+    const manifestCols = Array.isArray(ml?.cachedManifest?.collections) ? ml.cachedManifest.collections : [];
+    const addCol = (rawId) => {
+        const id = normalizeCollectionSlug(rawId);
+        if (!id || id === 'all' || id === 'installed' || seen.has(id)) return;
+        seen.add(id);
+        ordered.push({ id, label: formatCollectionLabel(id, manifestCols) });
+    };
+    for (const id of Object.keys(COLLECTION_LABELS)) addCol(id);
+    for (const col of manifestCols) addCol(col?.id ?? col?.slug ?? col);
+    for (const m of ml?.cachedManifest?.models || []) {
+        for (const c of m?.collections || []) addCol(c);
+    }
+    if (ml?.defaultCollection) addCol(ml.defaultCollection);
+    return ordered.map(({ id, label }) => `<option value="${esc(id)}">${esc(label)}</option>`).join('');
 }
 
 export function syncSettingsUI(s) {
@@ -38,6 +66,12 @@ export function syncSettingsUI(s) {
     $('#lpe_reading_font').val(resolveLpeFont(s.readingFont).id);
     $('#lpe_atlas_mode').val(s.atlasViewMode || 'webgl');
     $('#lpe_body_type').val(s.defaultBodyType || 'male');
+    $('#lpe_model_lib_url').val(s.modelLibrary?.manifestUrl || DEFAULT_LIBRARY_MANIFEST_URL);
+    const $libCol = $('#lpe_model_lib_collection');
+    if ($libCol.length) {
+        $libCol.html(buildModelLibCollectionOptions(s));
+    }
+    $libCol.val(s.modelLibrary?.defaultCollection || DEFAULT_COLLECTION_ID);
     $('#lpe_show_launcher').prop('checked', s.showLauncherButton !== false);
     $('#lpe_hud_collapsed').prop('checked', s.hudDefaultCollapsed !== false);
     $('#lpe_show_inline_changes').prop('checked', s.showInlineChanges !== false);
@@ -95,6 +129,7 @@ export function injectSettingsUI({
     onRetryToggleChanged,
     onAlignHudThemes,
     onSettingsChanged,
+    onOpenModelLibrary,
 }) {
     if ($('#lpe_settings_container').length) return;
     const $container = $('#extensions_settings2').length ? $('#extensions_settings2') : $('#extensions_settings');
@@ -258,6 +293,22 @@ export function injectSettingsUI({
                         <button type="button" id="lpe_align_hud_themes_btn" class="menu_button" title="Apply active HUD theme and style across all rendered chat HUD cards in-place">
                             <i class="fa-solid fa-wand-magic-sparkles"></i> Align All Chat HUDs to Current Theme
                         </button>
+                    </div>
+
+                    <hr class="lpe-sep" />
+                    <div class="lpe-sec-title"><i class="fa-solid fa-cubes"></i> 3D Model Library &amp; Collections</div>
+                    <div class="lpe-field">
+                        <label for="lpe_model_lib_url">External Manifest URL (<code>ST-LapisPhilosophorumEngineLibrary</code>)</label>
+                        <input id="lpe_model_lib_url" type="text" class="text_pole" placeholder="${esc(DEFAULT_LIBRARY_MANIFEST_URL)}" />
+                    </div>
+                    <div class="lpe-inline-row" style="align-items:flex-end;">
+                        <div class="lpe-field" style="flex:1 1 auto;">
+                            <label for="lpe_model_lib_collection">Global Default Collection</label>
+                            <select id="lpe_model_lib_collection" class="text_pole">
+                                ${buildModelLibCollectionOptions(getSettings?.())}
+                            </select>
+                        </div>
+                        <button id="lpe_open_model_library_btn" type="button" class="menu_button"><i class="fa-solid fa-cubes"></i> Browse Library</button>
                     </div>
                     <label class="checkbox_label" for="lpe_pin_rules">
                         <input id="lpe_pin_rules" type="checkbox" />
@@ -439,6 +490,12 @@ export function injectSettingsUI({
     $('#lpe_reading_font').val(resolveLpeFont(s.readingFont).id);
     $('#lpe_atlas_mode').val(s.atlasViewMode || 'webgl');
     $('#lpe_body_type').val(s.defaultBodyType || 'male');
+    $('#lpe_model_lib_url').val(s.modelLibrary?.manifestUrl || DEFAULT_LIBRARY_MANIFEST_URL);
+    const $libCol = $('#lpe_model_lib_collection');
+    if ($libCol.length) {
+        $libCol.html(buildModelLibCollectionOptions(s));
+    }
+    $libCol.val(s.modelLibrary?.defaultCollection || DEFAULT_COLLECTION_ID);
     $('#lpe_show_launcher').prop('checked', s.showLauncherButton !== false);
     $('#lpe_hud_collapsed').prop('checked', s.hudDefaultCollapsed !== false);
     $('#lpe_show_inline_changes').prop('checked', s.showInlineChanges !== false);
@@ -491,6 +548,23 @@ export function injectSettingsUI({
         const cur = getSettings();
         onAlignHudThemes?.(cur.hudTheme || 'Magnum Opus', cur.hudStyle || 'Afterglow');
     });
+    $('#lpe_model_lib_url').on('input change', function () {
+        const raw = String($(this).val() ?? '').trim();
+        if (raw && (/^(?:javascript|vbscript|data):/i.test(raw) || /^[\\/]{2}/.test(raw))) {
+            return;
+        }
+        const ml = ensureModelLibrarySettings(getSettings());
+        ml.manifestUrl = raw || DEFAULT_LIBRARY_MANIFEST_URL;
+        saveSettings();
+        onSettingsChanged?.();
+    });
+    $('#lpe_model_lib_collection').on('change', function () {
+        const ml = ensureModelLibrarySettings(getSettings());
+        ml.defaultCollection = normalizeCollectionSlug($(this).val()) || DEFAULT_COLLECTION_ID;
+        saveSettings();
+        onSettingsChanged?.();
+    });
+    $('#lpe_open_model_library_btn').on('click', () => onOpenModelLibrary?.());
     $('#lpe_open_popup_btn').on('click', () => onOpenPopup?.());
     $('#lpe_pin_rules').on('change', function () { getSettings().pinNotebookRules = $(this).prop('checked'); saveSettings(); onSettingsChanged?.(); });
     $('#lpe_matrix_cap').on('change', function () { getSettings().enforceMatrixStepCap = $(this).prop('checked'); saveSettings(); onSettingsChanged?.(); });

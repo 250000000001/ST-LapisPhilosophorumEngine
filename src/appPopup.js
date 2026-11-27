@@ -63,6 +63,14 @@ import { DEFAULT_END_MARKER } from './retryDetector.js';
 import { getChatCompletionProfiles, getActiveUserName } from './st.js';
 import { evaluateEjs, shouldYieldEjs } from './ejsEngine.js';
 import { shouldYieldRenderer } from './cardRenderer.js';
+import {
+    DEFAULT_COLLECTION_ID,
+    DEFAULT_LIBRARY_MANIFEST_URL,
+    createModelLibraryManager,
+    formatBytesMb,
+    formatCollectionLabel,
+    normalizeCollectionSlug,
+} from './modelLibrary.js';
 
 const FAB_POS_KEY = 'lpe_fab_pos';
 const LEGACY_FAB_POS_KEY = 'vexa_state_engine_fab_pos';
@@ -82,7 +90,10 @@ export const RAIL_TABS = Object.freeze([
         title: 'Atlas',
         kicker: 'Spatial Map & Locations',
         icon: 'fa-map',
-        subTabs: [{ id: 'atlas', label: 'Atlas Map' }],
+        subTabs: [
+            { id: 'atlas', label: 'Atlas Map' },
+            { id: 'models', label: '3D Library' },
+        ],
     },
     {
         id: 'health',
@@ -119,6 +130,7 @@ export const RAIL_TABS = Object.freeze([
         icon: 'fa-sliders',
         subTabs: [
             { id: 'appearance', label: 'Appearance' },
+            { id: 'models', label: '3D Library' },
             { id: 'worker', label: 'Clerk' },
             { id: 'retry', label: 'Guard' },
             { id: 'runtime', label: 'Runtime' },
@@ -144,6 +156,7 @@ export const APP_TABS = Object.freeze([
     { id: 'retry', group: 'engine', title: 'Refusal Retry', sub: 'Built-in safety refusal cleanup, GFX_END guard, and Non-Stream Continue.', icon: 'fa-shield-halved' },
     { id: 'runtime', group: 'engine', title: 'Card Runtime', sub: 'Scoped EJS templating, guarded Blob-URL renderer, sandboxed interactive bridge, and scoped card variables.', icon: 'fa-code' },
     { id: 'appearance', group: 'engine', title: 'HUD & Rules', sub: 'Visual themes, card styles, smart scoping, and deterministic engine caps.', icon: 'fa-palette' },
+    { id: 'models', group: 'engine', title: '3D Model Library', sub: 'Browse, download, and assign genre/card 3D model collections (CC0 / CC BY 4.0).', icon: 'fa-cubes' },
     { id: 'tools', bottom: true, title: 'Tools & JSON', sub: 'Chat import, compiled XML snapshot preview, and raw canonical JSON.', icon: 'fa-wrench' },
 ]);
 
@@ -297,6 +310,7 @@ export function createLpeAppPopup({
     onStateSaved,
     getRuntimeStats = () => ({}),
     onCardVarsChanged,
+    modelLibraryManager = null,
 }) {
     let activeTab = 'overview';
     const subTabs = {
@@ -350,6 +364,31 @@ export function createLpeAppPopup({
     let apiKeyVisible = false;
     let fabDragBound = false;
     let railDrawerRestoredOnce = false;
+    let fallbackLibMgr = null;
+    const modelLibraryUi = {
+        collectionFilter: 'all',
+        statusFilter: 'all',
+        searchQuery: '',
+        draftManifestUrl: null,
+        busyModelIds: new Set(),
+        busyCollection: null,
+        refreshing: false,
+        statusMessage: '',
+        statusError: '',
+    };
+
+    function libMgr() {
+        if (modelLibraryManager) return modelLibraryManager;
+        if (!fallbackLibMgr) {
+            fallbackLibMgr = createModelLibraryManager({
+                getSettings,
+                saveSettings,
+                getContextSafe,
+                store,
+            });
+        }
+        return fallbackLibMgr;
+    }
 
     function applyReadingFontVars() {
         if (typeof document === 'undefined' || !document.documentElement?.style?.setProperty) return;
@@ -1346,6 +1385,21 @@ export function createLpeAppPopup({
 
     function renderAtlasPopupTab($stage, state, settings) {
         const meta = tabMeta('atlas');
+        const mgr = libMgr();
+        const mlCfg = mgr.getConfig();
+        const colInfo = mgr.getEffectiveCollection();
+        const activeCollectionLabel = formatCollectionLabel(colInfo.effective, mlCfg.cachedManifest?.collections);
+        const installedExternalShapes = mgr.getActiveCustomShapes()
+            .filter((sh) => !POLY_PREFABS.includes(sh) && !POLY_SHAPES.includes(sh));
+        const installedForCollection = mgr.getCatalog({
+            collectionFilter: colInfo.effective === 'default' ? 'all' : colInfo.effective,
+            statusFilter: 'installed',
+        }).items.filter((it) => !it.bundled);
+        const externalCreditSummary = colInfo.effective !== 'default' && installedForCollection.length
+            ? installedForCollection.slice(0, 3).map((it) => `${it.name} (${it.author} · ${it.license})`).join('; ')
+                + (installedForCollection.length > 3 ? ` +${installedForCollection.length - 3} more` : '')
+            : '';
+
         const allRooms = state.locations?.rooms || [];
         const roomCount = allRooms.length;
         const mapCount = state.locations?.map_index?.maps?.length || 0;
@@ -1360,6 +1414,11 @@ export function createLpeAppPopup({
             <optgroup label="Diorama &amp; Textured 3D Prefabs (${POLY_PREFABS.length})">
                 ${POLY_PREFABS.map((sh) => `<option value="${esc(sh)}">${esc(sh)}</option>`).join('')}
             </optgroup>
+            ${installedExternalShapes.length ? `
+                <optgroup label="Installed External Models (${installedExternalShapes.length})">
+                    ${installedExternalShapes.map((sh) => `<option value="${esc(sh)}">${esc(sh)}</option>`).join('')}
+                </optgroup>
+            ` : ''}
             <optgroup label="Geometric Primitives (${POLY_SHAPES.length})">
                 ${POLY_SHAPES.map((sh) => `<option value="${esc(sh)}">${esc(sh)}</option>`).join('')}
             </optgroup>
@@ -1367,7 +1426,17 @@ export function createLpeAppPopup({
         const matDatalistHtml = Object.keys(POLY_MATERIALS).map((m) => `<option value="${esc(m)}">`).join('');
 
         $stage.html(`
-            ${renderPageHeader({ ...meta, badgeHtml: `<span class="lpe-head-badge ok">${mapCount} map${mapCount === 1 ? '' : 's'} · ${roomCount} room${roomCount === 1 ? '' : 's'}</span>` })}
+            ${renderPageHeader({
+                ...meta,
+                badgeHtml: `
+                    <div class="lpe-inline-actions" style="gap:6px;">
+                        <span class="lpe-head-badge ok lpe-tabular">${mapCount} map${mapCount === 1 ? '' : 's'} · ${roomCount} room${roomCount === 1 ? '' : 's'}</span>
+                        <button type="button" class="lpe-app-btn secondary lpe-btn-sm" id="lpe_pop_open_models_btn" title="Browse 3D Model Library &amp; change collection for this card">
+                            <i class="fa-solid fa-cubes"></i> ${esc(activeCollectionLabel)}
+                        </button>
+                    </div>
+                `,
+            })}
             ${historyBannerHtml(state)}
             <div class="lpe-glass-card">
                 <div class="lpe-atlas-mount" id="lpe_pop_atlas_mount"></div>
@@ -1467,6 +1536,8 @@ export function createLpeAppPopup({
                 svgCamera: atlasView.svgCamera,
                 allowWebgl: true,
                 userName: activeUserName,
+                activeCollectionLabel,
+                externalCreditSummary,
             }));
             if (effectiveMode === 'webgl') {
                 const vpEl = $mount.find('.lpe-webgl-viewport')[0];
@@ -1483,6 +1554,7 @@ export function createLpeAppPopup({
                             showLabels: atlasView.showLabels,
                             camera: atlasView.webglCamera,
                             userName: activeUserName,
+                            modelLibrary: mgr,
                             onCameraChange: (cam) => { atlasView.webglCamera = cam; },
                             onSelectRoom: (roomId) => {
                                 atlasView.roomId = roomId;
@@ -1563,6 +1635,17 @@ export function createLpeAppPopup({
 
         $stage.find('#lpe_pop_obj_room').on('change', function () {
             refreshObjList(String($(this).val() || ''));
+        });
+
+        $stage.on('click', '#lpe_pop_open_models_btn', () => {
+            activeTab = 'models';
+            railState.activeRailTab = findRailTabForAppTab('models');
+            updateDockActive();
+            if (isDrawerOpen()) {
+                railState.drawerSubTabs[railState.activeRailTab] = 'models';
+                buildDrawerHeaderMeta();
+            }
+            renderActiveTab({ resetScroll: true });
         });
 
         $stage.find('#lpe_pop_add_obj').on('click', () => {
@@ -4148,6 +4231,387 @@ export function createLpeAppPopup({
         });
     }
 
+    function renderModelLibraryTab($stage, _state, _settings) {
+        const meta = tabMeta('models');
+        const mgr = libMgr();
+        const cfg = mgr.getConfig();
+        const effCol = mgr.getEffectiveCollection();
+        const allCatalog = mgr.getCatalog({ collectionFilter: 'all', statusFilter: 'all' });
+        const filteredCatalog = mgr.getCatalog({
+            collectionFilter: modelLibraryUi.collectionFilter,
+            statusFilter: modelLibraryUi.statusFilter,
+            searchQuery: modelLibraryUi.searchQuery,
+        });
+        const manifestCols = cfg.cachedManifest?.collections || [];
+        const collectionChoices = [
+            DEFAULT_COLLECTION_ID,
+            'sci-fi',
+            'medieval',
+            'tavern',
+            'residential',
+            'exterior',
+            'industrial',
+            ...allCatalog.collections.map((c) => c.id),
+        ];
+        const uniqueChoiceIds = [...new Set(collectionChoices.map((c) => normalizeCollectionSlug(c)).filter((c) => c && c !== 'all' && c !== 'installed'))];
+
+        const badgeSummary = `${allCatalog.counts.bundledCount} Bundled · ${allCatalog.counts.installedCount} Downloaded${allCatalog.counts.installedBytes > 0 ? ` · ${formatBytesMb(allCatalog.counts.installedBytes)}` : ''}`;
+        const effLabel = formatCollectionLabel(effCol.effective, manifestCols);
+
+        const buildCollectionPillsHtml = (cat) => {
+            const pills = [
+                `<button type="button" class="lpe-mlib-pill ${modelLibraryUi.collectionFilter === 'all' ? 'active' : ''}" data-mlib-col="all">All <span class="lpe-tabular">${cat.counts.total}</span></button>`,
+                `<button type="button" class="lpe-mlib-pill ${modelLibraryUi.collectionFilter === 'installed' ? 'active' : ''}" data-mlib-col="installed">Downloaded <span class="lpe-tabular">${cat.counts.installedCount}</span></button>`,
+                ...cat.collections.map((c) => `<button type="button" class="lpe-mlib-pill ${modelLibraryUi.collectionFilter === c.id ? 'active' : ''}" data-mlib-col="${esc(c.id)}">${esc(c.label)} <span class="lpe-tabular">${c.count}</span></button>`),
+            ];
+            return pills.join('');
+        };
+
+        let currentPackAvailIds = [];
+        let currentPackInstIds = [];
+
+        const buildModelCardsHtml = (cat) => {
+            const activeCol = normalizeCollectionSlug(modelLibraryUi.collectionFilter);
+            const colRemoteItems = activeCol && activeCol !== 'all' && activeCol !== 'installed' && activeCol !== DEFAULT_COLLECTION_ID
+                ? cat.items.filter((x) => !x.bundled)
+                : [];
+            currentPackAvailIds = colRemoteItems.filter((x) => !x.installed).map((x) => x.id);
+            currentPackInstIds = colRemoteItems.filter((x) => x.installed).map((x) => x.id);
+
+            const bulkBarHtml = activeCol && activeCol !== 'all' && activeCol !== 'installed'
+                ? `
+                    <div class="lpe-mlib-bulk-bar">
+                        <span>Collection: <b>${esc(formatCollectionLabel(activeCol, manifestCols))}</b></span>
+                        <div class="lpe-inline-actions" style="gap:6px;">
+                            <button type="button" class="lpe-app-btn secondary lpe-btn-sm" id="lpe_mlib_assign_col_btn" data-mlib-assign="${esc(activeCol)}">
+                                <i class="fa-solid fa-check-double"></i> Use for ${esc(effCol.cardKey ? effCol.cardLabel : 'Global Default')}
+                            </button>
+                            ${currentPackAvailIds.length > 0 ? `
+                                <button type="button" class="lpe-app-btn primary lpe-btn-sm" id="lpe_mlib_install_col_btn" data-mlib-install-col="${esc(activeCol)}" ${modelLibraryUi.busyCollection === activeCol ? 'disabled' : ''}>
+                                    <i class="fa-solid ${modelLibraryUi.busyCollection === activeCol ? 'fa-spinner fa-spin' : 'fa-cloud-arrow-down'}"></i> Download Pack (${currentPackAvailIds.length})
+                                </button>
+                            ` : ''}
+                            ${currentPackInstIds.length > 0 ? `
+                                <button type="button" class="lpe-app-btn secondary lpe-btn-sm" id="lpe_mlib_remove_col_btn" data-mlib-remove-col="${esc(activeCol)}">
+                                    <i class="fa-solid fa-trash-can"></i> Remove Pack (${currentPackInstIds.length})
+                                </button>
+                            ` : ''}
+                        </div>
+                    </div>
+                `
+                : '';
+
+            if (!cat.items.length) {
+                return `${bulkBarHtml}<div class="lpe-empty">No 3D models match the current filter. Try &ldquo;Refresh Catalog&rdquo; or clear the search filter.</div>`;
+            }
+
+            const cardsHtml = cat.items.map((item) => {
+                const isBusy = modelLibraryUi.busyModelIds.has(item.id);
+                const statusBadge = item.bundled
+                    ? '<span class="lpe-pill ok"><i class="fa-solid fa-box-archive"></i> Bundled</span>'
+                    : item.installed
+                        ? '<span class="lpe-pill lpe-badge-staged"><i class="fa-solid fa-circle-check"></i> Installed</span>'
+                        : '<span class="lpe-pill"><i class="fa-solid fa-cloud"></i> Available</span>';
+                const sizeText = item.sizeBytes ? formatBytesMb(item.sizeBytes) : (item.bundled ? 'Bundled Pack' : 'Unknown');
+                const faceText = Number.isFinite(item.faceCount) ? `${item.faceCount.toLocaleString('en-US')} tris` : '';
+                const tagsHtml = [...new Set([...(item.collections || []), ...(item.tags || [])])]
+                    .map((t) => `<span class="lpe-pill">${esc(formatCollectionLabel(t, manifestCols))}</span>`)
+                    .join('');
+                const viewerHtml = item.viewerUrl
+                    ? `<a class="lpe-mlib-link" href="${esc(item.viewerUrl)}" target="_blank" rel="noopener noreferrer"><i class="fa-solid fa-arrow-up-right-from-square"></i> Source</a>`
+                    : '';
+                const actionHtml = item.bundled
+                    ? '<span class="lpe-pill ok"><i class="fa-solid fa-lock"></i> Core Default</span>'
+                    : item.installed
+                        ? `<button type="button" class="lpe-app-btn secondary lpe-btn-sm lpe-mlib-remove-btn" data-model-id="${esc(item.id)}" ${isBusy ? 'disabled' : ''}><i class="fa-solid fa-trash-can"></i> Remove</button>`
+                        : `<button type="button" class="lpe-app-btn primary lpe-btn-sm lpe-mlib-install-btn" data-model-id="${esc(item.id)}" ${isBusy ? 'disabled' : ''}><i class="fa-solid ${isBusy ? 'fa-spinner fa-spin' : 'fa-cloud-arrow-down'}"></i> ${isBusy ? 'Downloading...' : 'Download GLB'}</button>`;
+
+                return `
+                    <article class="lpe-mlib-card ${item.installed ? 'is-installed' : 'is-available'} ${item.bundled ? 'is-bundled' : ''}" data-model-id="${esc(item.id)}">
+                        <div class="lpe-mlib-card-head">
+                            <div class="lpe-mlib-title-wrap">
+                                <strong>${esc(item.name)}</strong>
+                                <span class="lpe-pill lpe-mono">shape:${esc(item.shape || item.id)}</span>
+                            </div>
+                            ${statusBadge}
+                        </div>
+                        ${item.description ? `<p class="lpe-mlib-desc">${esc(item.description)}</p>` : ''}
+                        <div class="lpe-mlib-metrics lpe-tabular">
+                            <span><i class="fa-solid fa-hard-drive"></i> ${esc(sizeText)}</span>
+                            ${faceText ? `<span><i class="fa-solid fa-shapes"></i> ${esc(faceText)}</span>` : ''}
+                            <span class="lpe-pill lpe-badge-merge">${esc(item.license || 'CC BY 4.0')}</span>
+                        </div>
+                        <div class="lpe-mlib-tags">${tagsHtml}</div>
+                        <div class="lpe-mlib-attrib">
+                            <span>Author: <b>${esc(item.author || 'Unknown')}</b> · UID: <code>${esc(item.uid || item.id)}</code></span>
+                            ${viewerHtml}
+                        </div>
+                        <div class="lpe-mlib-actions">
+                            ${actionHtml}
+                        </div>
+                    </article>
+                `;
+            }).join('');
+
+            return `${bulkBarHtml}<div class="lpe-mlib-grid">${cardsHtml}</div>`;
+        };
+
+        $stage.html(`
+            ${renderPageHeader({
+                title: meta.title,
+                sub: meta.sub,
+                icon: meta.icon,
+                badgeHtml: `<span class="lpe-head-badge ok lpe-tabular"><span class="lpe-ornament" aria-hidden="true">✦</span> ${esc(badgeSummary)}</span>`,
+            })}
+
+            <div class="lpe-glass-card lpe-mlib-assign-card">
+                <div class="lpe-card-title"><span class="lpe-ornament" aria-hidden="true">✦</span> Card &amp; Global 3D Collection Assignment</div>
+                <div class="lpe-mlib-assign-summary">
+                    <span>Active Context: <b>${esc(effCol.cardLabel)}</b></span>
+                    <span class="lpe-pill lpe-badge-staged">Effective: ${esc(effLabel)}</span>
+                </div>
+                <div class="lpe-form-grid">
+                    <label>${effCol.cardKey ? `Collection for "${esc(effCol.cardLabel)}"` : 'Active Card / Session Collection'}
+                        <select id="lpe_mlib_card_collection" class="lpe-app-input">
+                            ${effCol.cardKey ? `<option value="__inherit__" ${!effCol.cardCollection ? 'selected' : ''}>Inherit Global Default (${esc(formatCollectionLabel(effCol.defaultCollection, manifestCols))})</option>` : ''}
+                            ${uniqueChoiceIds.map((id) => `<option value="${esc(id)}" ${(effCol.cardKey ? effCol.cardCollection : effCol.defaultCollection) === id ? 'selected' : ''}>${esc(formatCollectionLabel(id, manifestCols))}</option>`).join('')}
+                        </select>
+                    </label>
+                    <label>Global Default Collection Fallback
+                        <select id="lpe_mlib_default_collection" class="lpe-app-input">
+                            ${uniqueChoiceIds.map((id) => `<option value="${esc(id)}" ${effCol.defaultCollection === id ? 'selected' : ''}>${esc(formatCollectionLabel(id, manifestCols))}</option>`).join('')}
+                        </select>
+                    </label>
+                </div>
+                <div class="lpe-muted" style="margin-top:6px;">
+                    Missing or undownloaded external props fall back cleanly to the bundled default GLB library and procedural 3D geometry.
+                </div>
+            </div>
+
+            <div class="lpe-glass-card">
+                <div class="lpe-card-title"><i class="fa-solid fa-cloud-arrow-down"></i> External Library Repository (ST-LapisPhilosophorumEngineLibrary)</div>
+                <div class="lpe-mlib-url-row">
+                    <input id="lpe_mlib_manifest_url" type="text" class="lpe-app-input lpe-mono" value="${esc(modelLibraryUi.draftManifestUrl !== null ? modelLibraryUi.draftManifestUrl : (cfg.manifestUrl || DEFAULT_LIBRARY_MANIFEST_URL))}" placeholder="${esc(DEFAULT_LIBRARY_MANIFEST_URL)}" />
+                    <button type="button" class="lpe-app-btn primary lpe-btn-sm" id="lpe_mlib_refresh_btn" ${modelLibraryUi.refreshing ? 'disabled' : ''}>
+                        <i class="fa-solid ${modelLibraryUi.refreshing ? 'fa-spinner fa-spin' : 'fa-rotate'}"></i> ${modelLibraryUi.refreshing ? 'Loading...' : 'Refresh Catalog'}
+                    </button>
+                    <button type="button" class="lpe-app-btn secondary lpe-btn-sm" id="lpe_mlib_reset_url_btn" title="Restore default ST-LapisPhilosophorumEngineLibrary GitHub manifest URL">Default URL</button>
+                    <button type="button" class="lpe-app-btn secondary lpe-btn-sm" id="lpe_mlib_clear_cache_btn" ${allCatalog.counts.installedCount === 0 ? 'disabled' : ''}>
+                        <i class="fa-solid fa-broom"></i> Clear Downloaded (${allCatalog.counts.installedCount})
+                    </button>
+                </div>
+                <div id="lpe_mlib_status" class="lpe-mlib-status ${modelLibraryUi.statusError ? 'is-error' : ''}">
+                    ${modelLibraryUi.statusError
+                        ? esc(modelLibraryUi.statusError)
+                        : modelLibraryUi.statusMessage
+                            ? esc(modelLibraryUi.statusMessage)
+                            : esc(cfg.cachedManifest
+                                ? `Catalog loaded: ${cfg.cachedManifest.models?.length || 0} remote model(s) ready${cfg.cachedManifest.updatedAt ? ` · Updated ${cfg.cachedManifest.updatedAt}` : ''}.`
+                                : 'Bundled defaults active. Click “Refresh Catalog” to browse downloadable external packs.')}
+                </div>
+            </div>
+
+            <div class="lpe-glass-card">
+                <div class="lpe-card-title"><i class="fa-solid fa-cubes-stacked"></i> Browse Models &amp; Collections</div>
+                <div class="lpe-mlib-filter-pills" id="lpe_mlib_filter_pills">${buildCollectionPillsHtml(allCatalog)}</div>
+                <div class="lpe-mlib-toolbar">
+                    <input id="lpe_mlib_search" type="search" class="lpe-app-input" value="${esc(modelLibraryUi.searchQuery)}" placeholder="Search by model name, shape ID, author, tag, or license..." />
+                    <select id="lpe_mlib_status_filter" class="lpe-app-input">
+                        <option value="all" ${modelLibraryUi.statusFilter === 'all' ? 'selected' : ''}>All Statuses</option>
+                        <option value="available" ${modelLibraryUi.statusFilter === 'available' ? 'selected' : ''}>Available (Remote)</option>
+                        <option value="installed" ${modelLibraryUi.statusFilter === 'installed' ? 'selected' : ''}>Downloaded</option>
+                        <option value="bundled" ${modelLibraryUi.statusFilter === 'bundled' ? 'selected' : ''}>Bundled Default</option>
+                    </select>
+                </div>
+                <div id="lpe_mlib_browser_body">${buildModelCardsHtml(filteredCatalog)}</div>
+            </div>
+
+            <details class="lpe-glass-card lpe-fold-card">
+                <summary class="lpe-fold-summary"><i class="fa-solid fa-scale-balanced"></i> CC0 &amp; CC BY 4.0 Attribution Records</summary>
+                <div class="lpe-fold-body">
+                    <div class="lpe-inline-actions" style="justify-content:flex-end;margin-bottom:6px;">
+                        <button type="button" class="lpe-app-btn secondary lpe-btn-sm" id="lpe_mlib_copy_credits_btn"><i class="fa-regular fa-copy"></i> Copy Credits</button>
+                    </div>
+                    <pre id="lpe_mlib_credits_pre" class="lpe-app-pre">${esc(mgr.getAttributionCredits())}</pre>
+                </div>
+            </details>
+        `);
+
+        const refreshBrowserOnly = () => {
+            if (activeTab !== 'models' || !isAnyUiOpen()) return;
+            const catFiltered = mgr.getCatalog({
+                collectionFilter: modelLibraryUi.collectionFilter,
+                statusFilter: modelLibraryUi.statusFilter,
+                searchQuery: modelLibraryUi.searchQuery,
+            });
+            const catAll = mgr.getCatalog({ collectionFilter: 'all', statusFilter: 'all' });
+            $stage.find('#lpe_mlib_filter_pills').html(buildCollectionPillsHtml(catAll));
+            $stage.find('#lpe_mlib_browser_body').html(buildModelCardsHtml(catFiltered));
+        };
+
+        const rerenderLibraryIfActive = () => {
+            if (activeTab === 'models' && isAnyUiOpen()) {
+                renderActiveTab({ resetScroll: false });
+            }
+        };
+
+        $stage.on('change', '#lpe_mlib_card_collection', function (e) {
+            const val = String(e?.target?.value ?? $(this).val() ?? '__inherit__');
+            mgr.setCardCollection(val);
+            modelLibraryUi.statusError = '';
+            modelLibraryUi.statusMessage = val === '__inherit__'
+                ? 'Active card now inherits global default 3D collection.'
+                : `Assigned "${formatCollectionLabel(val, manifestCols)}" to ${effCol.cardLabel}.`;
+            rerenderLibraryIfActive();
+        });
+
+        $stage.on('change', '#lpe_mlib_default_collection', function (e) {
+            const val = String(e?.target?.value ?? $(this).val() ?? DEFAULT_COLLECTION_ID);
+            mgr.setDefaultCollection(val);
+            modelLibraryUi.statusError = '';
+            modelLibraryUi.statusMessage = `Global default collection set to "${formatCollectionLabel(val, manifestCols)}".`;
+            rerenderLibraryIfActive();
+        });
+
+        $stage.on('input', '#lpe_mlib_manifest_url', (e) => {
+            modelLibraryUi.draftManifestUrl = String(e?.target?.value ?? $('#lpe_mlib_manifest_url').val() ?? '');
+        });
+
+        $stage.on('click', '#lpe_mlib_refresh_btn', async () => {
+            const url = String($stage.find('#lpe_mlib_manifest_url').val() || '').trim();
+            modelLibraryUi.draftManifestUrl = url;
+            modelLibraryUi.refreshing = true;
+            modelLibraryUi.statusError = '';
+            modelLibraryUi.statusMessage = 'Fetching external library catalog...';
+            rerenderLibraryIfActive();
+            try {
+                const parsed = await mgr.refreshCatalog({ manifestUrl: url });
+                modelLibraryUi.draftManifestUrl = null;
+                const warnSuffix = parsed.warnings?.length ? ` (${parsed.warnings.length} skipped)` : '';
+                modelLibraryUi.statusMessage = `Loaded ${parsed.models.length} external model(s) from ${parsed.name}${warnSuffix}.`;
+            } catch (err) {
+                modelLibraryUi.statusError = String(err?.message || err);
+            } finally {
+                modelLibraryUi.refreshing = false;
+                rerenderLibraryIfActive();
+            }
+        });
+
+        $stage.on('click', '#lpe_mlib_reset_url_btn', () => {
+            modelLibraryUi.draftManifestUrl = null;
+            mgr.resetManifestUrl();
+            modelLibraryUi.statusError = '';
+            modelLibraryUi.statusMessage = 'Restored default ST-LapisPhilosophorumEngineLibrary URL.';
+            rerenderLibraryIfActive();
+        });
+
+        $stage.on('click', '#lpe_mlib_clear_cache_btn', async () => {
+            const res = await mgr.clearCachedModels();
+            modelLibraryUi.statusError = '';
+            modelLibraryUi.statusMessage = `Cleared ${res.removedCount} downloaded external model(s). Bundled defaults preserved.`;
+            rerenderLibraryIfActive();
+        });
+
+        $stage.on('click', '.lpe-mlib-pill', function (e) {
+            const col = String(e?.currentTarget?.dataset?.mlibCol ?? $(this).data('mlib-col') ?? 'all');
+            modelLibraryUi.collectionFilter = col;
+            refreshBrowserOnly();
+        });
+
+        $stage.on('input', '#lpe_mlib_search', function (e) {
+            modelLibraryUi.searchQuery = String(e?.target?.value ?? $(this).val() ?? '');
+            refreshBrowserOnly();
+        });
+
+        $stage.on('change', '#lpe_mlib_status_filter', function (e) {
+            modelLibraryUi.statusFilter = String(e?.target?.value ?? $(this).val() ?? 'all');
+            refreshBrowserOnly();
+        });
+
+        $stage.on('click', '#lpe_mlib_assign_col_btn', function (e) {
+            const col = String(e?.currentTarget?.dataset?.mlibAssign ?? $(this).data('mlib-assign') ?? modelLibraryUi.collectionFilter);
+            if (!col || col === 'all' || col === 'installed') return;
+            mgr.setCardCollection(col);
+            modelLibraryUi.statusError = '';
+            modelLibraryUi.statusMessage = `Assigned "${formatCollectionLabel(col, manifestCols)}" to ${effCol.cardLabel}.`;
+            rerenderLibraryIfActive();
+        });
+
+        $stage.on('click', '.lpe-mlib-install-btn', async function (e) {
+            const id = String(e?.currentTarget?.dataset?.modelId ?? $(this).data('model-id') ?? '');
+            if (!id) return;
+            modelLibraryUi.busyModelIds.add(id);
+            modelLibraryUi.statusError = '';
+            modelLibraryUi.statusMessage = `Downloading "${id}"...`;
+            rerenderLibraryIfActive();
+            try {
+                const res = await mgr.installModel(id);
+                modelLibraryUi.statusMessage = `Downloaded "${res.item?.name || id}" (${res.item?.license || 'CC BY 4.0'}).`;
+            } catch (err) {
+                modelLibraryUi.statusError = String(err?.message || err);
+            } finally {
+                modelLibraryUi.busyModelIds.delete(id);
+                rerenderLibraryIfActive();
+            }
+        });
+
+        $stage.on('click', '.lpe-mlib-remove-btn', async function (e) {
+            const id = String(e?.currentTarget?.dataset?.modelId ?? $(this).data('model-id') ?? '');
+            if (!id) return;
+            const res = await mgr.removeModel(id);
+            if (res.ok) {
+                modelLibraryUi.statusError = '';
+                modelLibraryUi.statusMessage = `Removed cached external model "${id}".`;
+            } else {
+                modelLibraryUi.statusError = res.error || `Could not remove "${id}".`;
+            }
+            rerenderLibraryIfActive();
+        });
+
+        $stage.on('click', '#lpe_mlib_install_col_btn', async function (e) {
+            const col = String(e?.currentTarget?.dataset?.mlibInstallCol ?? $(this).data('mlib-install-col') ?? '');
+            if (!col) return;
+            const targetIds = [...currentPackAvailIds];
+            modelLibraryUi.busyCollection = col;
+            modelLibraryUi.statusError = '';
+            modelLibraryUi.statusMessage = `Downloading ${targetIds.length} model(s) from "${formatCollectionLabel(col, manifestCols)}"...`;
+            rerenderLibraryIfActive();
+            try {
+                const res = await mgr.installCollection(col, { modelIds: targetIds });
+                if (res.failed.length) {
+                    modelLibraryUi.statusError = `Downloaded ${res.installed.length}; ${res.failed.length} failed (${res.failed[0].error}).`;
+                } else {
+                    modelLibraryUi.statusMessage = `Downloaded ${res.installed.length} model(s) for "${formatCollectionLabel(col, manifestCols)}".`;
+                }
+            } finally {
+                modelLibraryUi.busyCollection = null;
+                rerenderLibraryIfActive();
+            }
+        });
+
+        $stage.on('click', '#lpe_mlib_remove_col_btn', async function (e) {
+            const col = String(e?.currentTarget?.dataset?.mlibRemoveCol ?? $(this).data('mlib-remove-col') ?? '');
+            if (!col) return;
+            const targetIds = [...currentPackInstIds];
+            const res = await mgr.removeCollection(col, { modelIds: targetIds });
+            modelLibraryUi.statusError = '';
+            modelLibraryUi.statusMessage = `Removed ${res.removed.length} cached model(s) from "${formatCollectionLabel(col, manifestCols)}".`;
+            rerenderLibraryIfActive();
+        });
+
+        $stage.on('click', '#lpe_mlib_copy_credits_btn', async () => {
+            try {
+                await navigator.clipboard?.writeText?.(mgr.getAttributionCredits());
+                modelLibraryUi.statusError = '';
+                modelLibraryUi.statusMessage = 'Copied model attribution credits to clipboard.';
+                rerenderLibraryIfActive();
+            } catch {
+                modelLibraryUi.statusError = 'Clipboard unavailable.';
+                rerenderLibraryIfActive();
+            }
+        });
+    }
+
     function renderActiveTab({ resetScroll = false } = {}) {
         const $stage = isOpen()
             ? $('#lpe_app_stage')
@@ -4194,6 +4658,9 @@ export function createLpeAppPopup({
                 break;
             case 'appearance':
                 renderAppearanceTab($stage, settings);
+                break;
+            case 'models':
+                renderModelLibraryTab($stage, state, settings);
                 break;
             case 'tools':
                 renderToolsTab($stage, state, settings);
