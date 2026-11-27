@@ -1010,7 +1010,7 @@ export function renderHealthDollSvg(health, { layer = 'body', selectedPart = nul
         ].filter(Boolean).join(' ');
 
         return `
-            <g class="${classes}" data-part-id="${esc(bp.id)}" tabindex="0">
+            <g class="${classes}" data-part="${esc(bp.id)}" data-part-id="${esc(bp.id)}" tabindex="0">
                 <title>${esc(title)}</title>
                 <clipPath id="${clipId}">${shapeMarkup}</clipPath>
                 <g fill="${st.fill}" stroke="${isSel ? '#facc15' : st.stroke}" stroke-width="${isSel ? '2.4' : '1.4'}" opacity="${st.opacity}" ${dashAttr}>
@@ -1069,6 +1069,72 @@ export function renderHealthDollSvg(health, { layer = 'body', selectedPart = nul
             ${internalAlertBadge}
         </svg>
     `;
+}
+
+/**
+ * Bind persistent, delegated health-doll clicks to a stable container.
+ * Re-rendering the doll or detail pane must never require rebinding.
+ */
+export function bindHealthDollInteractions(host, {
+    getSelectedPart = () => null,
+    onSelectPart = () => {},
+    onLayerChange = () => {},
+} = {}) {
+    if (!host?.addEventListener || !host?.dataset) return false;
+    if (host.dataset.lpeHealthDelegated === 'true') return false;
+    host.dataset.lpeHealthDelegated = 'true';
+
+    const belongsToHost = (el) => !el || typeof host.contains !== 'function' || host.contains(el);
+    host.addEventListener('click', (event) => {
+        const target = event.target;
+        if (!target || typeof target.closest !== 'function') return;
+
+        const showAll = target.closest('.lpe-health-clear-sel');
+        if (showAll && belongsToHost(showAll)) {
+            event.preventDefault?.();
+            onSelectPart(null);
+            return;
+        }
+
+        const partEl = target.closest('[data-part]');
+        if (partEl && belongsToHost(partEl)) {
+            const partId = String(partEl.getAttribute?.('data-part') ?? partEl.dataset?.part ?? '');
+            if (!BODY_PART_BY_ID[partId]) return;
+            event.preventDefault?.();
+            onSelectPart(partId === getSelectedPart() ? null : partId);
+            return;
+        }
+
+        const partChip = target.closest('.lpe-health-part-chip');
+        if (partChip && belongsToHost(partChip)) {
+            const partId = String(partChip.getAttribute?.('data-part-id') ?? partChip.dataset?.partId ?? '');
+            if (!BODY_PART_BY_ID[partId]) return;
+            event.preventDefault?.();
+            onSelectPart(partId);
+            return;
+        }
+
+        const layerEl = target.closest('.lpe-health-layer-btn, .lpe-doll-internal-alert');
+        if (layerEl && belongsToHost(layerEl)) {
+            const layer = String(
+                layerEl.getAttribute?.('data-health-layer')
+                ?? layerEl.getAttribute?.('data-layer-jump')
+                ?? layerEl.dataset?.healthLayer
+                ?? layerEl.dataset?.layerJump
+                ?? 'body',
+            );
+            event.preventDefault?.();
+            onLayerChange(layer);
+            return;
+        }
+
+        const svg = target.closest('.lpe-doll-svg');
+        if (svg && belongsToHost(svg)) {
+            event.preventDefault?.();
+            onSelectPart(null);
+        }
+    });
+    return true;
 }
 
 function barColorClass(pct, { invert = false } = {}) {

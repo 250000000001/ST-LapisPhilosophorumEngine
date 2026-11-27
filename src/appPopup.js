@@ -46,6 +46,7 @@ import { POLY_PREFABS } from './polyAssets.js';
 import { renderAetherMatrixList } from './matrixView.js';
 import {
     renderHealthTab,
+    bindHealthDollInteractions,
     BODY_TYPES,
     BODY_PARTS,
     BODY_PART_BY_ID,
@@ -1803,22 +1804,45 @@ export function createLpeAppPopup({
             commitEditedState(draft, 'Restored persona to full health.');
         });
 
-        $stage.on('click', '.lpe-doll-part', function () {
-            const pid = String($(this).data('part-id') || '');
-            healthView.selectedPart = healthView.selectedPart === pid ? null : (pid || null);
-            renderHealthPopupTab($stage, state, settings);
-        });
-        $stage.on('click', '.lpe-health-part-chip', function () {
-            healthView.selectedPart = String($(this).data('part-id') || '') || null;
-            renderHealthPopupTab($stage, state, settings);
-        });
-        $stage.on('click', '.lpe-health-clear-sel', () => {
-            healthView.selectedPart = null;
-            renderHealthPopupTab($stage, state, settings);
-        });
-        $stage.on('click', '.lpe-health-layer-btn, .lpe-doll-internal-alert', function () {
-            healthView.layer = String($(this).data('health-layer') || $(this).data('layer-jump') || 'body');
-            renderHealthPopupTab($stage, state, settings);
+        const syncHealthSelection = () => {
+            const currentState = activeState();
+            const currentSettings = getSettings();
+            const currentExplicit = hasExplicitHealthData(currentState.health);
+            const currentHealth = currentExplicit
+                ? normalizeHealthState({
+                    ...currentState.health,
+                    bodyType: currentState.health?.bodyType || currentSettings.defaultBodyType || 'male',
+                })
+                : inferHealthFromStatusText(currentState.inv?.status || '', currentSettings.defaultBodyType || currentState.health?.bodyType || 'male');
+            const partId = (healthView.selectedPart && BODY_PART_BY_ID[healthView.selectedPart])
+                ? healthView.selectedPart
+                : 'torso';
+            const rec = currentHealth.parts?.[partId] || null;
+
+            $stage.find('#lpe_pop_health_doll_wrap').html(renderHealthTab(currentState, {
+                layer: healthView.layer,
+                selectedPart: healthView.selectedPart,
+                bodyTypeOverride: currentSettings.defaultBodyType,
+                compact: false,
+                showActions: true,
+            }));
+            $stage.find('#lpe_pop_hp_part').val(partId);
+            $stage.find('#lpe_pop_hp_part_lbl').text(BODY_PART_BY_ID[partId]?.label || partId);
+            $stage.find('#lpe_pop_hp_prosthetic').val(rec?.prosthetic || '');
+            $stage.find('#lpe_pop_hp_armor').val(rec?.armor || '');
+            $stage.find('#lpe_pop_hp_missing').prop('checked', Boolean(rec?.missing));
+        };
+
+        bindHealthDollInteractions($stage[0], {
+            getSelectedPart: () => healthView.selectedPart,
+            onSelectPart: (partId) => {
+                healthView.selectedPart = partId;
+                syncHealthSelection();
+            },
+            onLayerChange: (layer) => {
+                healthView.layer = layer;
+                syncHealthSelection();
+            },
         });
 
         $stage.find('#lpe_pop_hp_part').on('change', function () {
