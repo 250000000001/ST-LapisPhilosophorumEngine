@@ -18,6 +18,8 @@ import {
     resolveLpeFont,
     normalizeNameKey,
     isPlayerPersonaName,
+    emptyState,
+    cloneState,
 } from './src/schema.js';
 import { parseInternalStates, serializeInternalStates } from './src/parser.js';
 import { parseWorkerDelta, approveTrackerProposal, dismissTrackerProposal } from './src/reducer.js';
@@ -1051,20 +1053,48 @@ jQuery(() => {
         const note = String(input?.note || '').trim();
         const zone = String(input?.zone || '').trim() || String(before.world?.loc || '').trim() || 'Off-screen';
         const status = String(input?.status || 'named').trim() || 'named';
-        const delta = {
-            entity_state: [{
-                name,
-                look: note,
-                voice: '',
-                persona: note,
-                private: note,
-                status,
-                manual: true,
-                pinned: true,
-            }],
+
+        // Build a normalized snapshot instead of a partial delta so promotion also
+        // works when the current chat carries a legacy partial user snapshot.
+        const next = cloneState(emptyState());
+        for (const [section, value] of Object.entries(before)) {
+            if (value === undefined || value === null) continue;
+            if (section === 'world') {
+                next.world = { ...next.world, ...(typeof value === 'object' ? value : {}) };
+            } else if (section === 'locations' && typeof value === 'object') {
+                next.locations = { ...next.locations, ...value };
+            } else if (Array.isArray(value)) {
+                next[section] = value.map((item) => (item && typeof item === 'object' ? cloneState(item) : item));
+            } else if (typeof value === 'object') {
+                next[section] = cloneState(value);
+            } else {
+                next[section] = value;
+            }
+        }
+        for (const keyName of ['entity_state', 'onscreen', 'offscreen_agendas', 'entityMem', 'thoughts']) {
+            if (!Array.isArray(next[keyName])) next[keyName] = [];
+        }
+
+        const entityIndex = next.entity_state.findIndex((e) => normalizeNameKey(e?.name) === key);
+        const previousEntity = entityIndex >= 0 ? next.entity_state[entityIndex] : {};
+        const promotedEntity = {
+            ...previousEntity,
+            name,
+            look: note || previousEntity.look || '',
+            voice: previousEntity.voice || '',
+            persona: note || previousEntity.persona || '',
+            private: note || previousEntity.private || '',
+            status,
+            manual: true,
+            pinned: true,
         };
+        if (entityIndex >= 0) next.entity_state[entityIndex] = promotedEntity;
+        else next.entity_state.push(promotedEntity);
+
+        next.onscreen = next.onscreen.filter((e) => normalizeNameKey(e?.name) !== key);
+        next.offscreen_agendas = next.offscreen_agendas.filter((e) => normalizeNameKey(e?.name) !== key);
         if (isOnscreen) {
-            delta.onscreen = [{
+            next.onscreen.push({
                 name,
                 parrott: '',
                 residualMood: '',
@@ -1074,9 +1104,9 @@ jQuery(() => {
                 why: 'Promoted from temporary filler',
                 end: '',
                 move: '',
-            }];
+            });
         } else {
-            delta.offscreen_agendas = [{
+            next.offscreen_agendas.push({
                 name,
                 loc: zone,
                 agenda: note,
@@ -1086,12 +1116,23 @@ jQuery(() => {
                 mood: '',
                 tfdy: 'T2 F2 D2 Y2',
                 salience: 'sal:5',
-            }];
+            });
         }
-        store.addUserEdit(delta, { kind: 'delta', ctx: { userName, isTurnAdvance: false } });
-        const after = store.getState();
+
+        const entry = store.addUserEdit(next, { kind: 'snapshot', ctx: { userName, isTurnAdvance: false } });
+        if (!entry) return { ok: false, error: 'no-active-state' };
+        let after;
+        try {
+            after = store.getState();
+        } catch (error) {
+            try { store.removeUserEntry(entry.id); } catch { /* ignore */ }
+            return { ok: false, error: 'state-apply-failed', detail: String(error?.message || error) };
+        }
         const entity = after?.entity_state?.find((e) => normalizeNameKey(e?.name) === key) || null;
-        if (!entity) return { ok: false, error: 'no-active-state' };
+        if (!entity) {
+            try { store.removeUserEntry(entry.id); } catch { /* ignore */ }
+            return { ok: false, error: 'promotion-not-applied' };
+        }
         try { appPopup?.syncChrome?.(); } catch { /* ignore */ }
         return { ok: true, entity, presence: isOnscreen ? 'onscreen' : 'offscreen' };
     };
@@ -1107,8 +1148,12 @@ jQuery(() => {
 
     window.__lpeApi = {
         version: 1,
-        getState: () => store.getState(),
-        hasState: () => store.hasState(),
+        getState: () => {
+            try { return store.getState(); } catch { return null; }
+        },
+        hasState: () => {
+            try { return store.hasState(); } catch { return false; }
+        },
         getUserName: () => getActiveUserName(),
         promoteEntity: promoteNamedEntity,
     };
