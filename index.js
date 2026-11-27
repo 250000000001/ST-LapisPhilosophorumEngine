@@ -16,6 +16,8 @@ import {
     extractLpeTail,
     stripGfxBlocks,
     resolveLpeFont,
+    normalizeNameKey,
+    isPlayerPersonaName,
 } from './src/schema.js';
 import { parseInternalStates, serializeInternalStates } from './src/parser.js';
 import { parseWorkerDelta, approveTrackerProposal, dismissTrackerProposal } from './src/reducer.js';
@@ -48,6 +50,10 @@ import {
     createModelLibraryManager,
     syncInstalledExternalShapes,
 } from './src/modelLibrary.js';
+import {
+    DEFAULT_EXTENSION_MANIFEST_URL,
+    createExtensionLibraryManager,
+} from './src/extensionLibrary.js';
 import {
     getContextSafe,
     saveSettingsDebounced,
@@ -121,6 +127,11 @@ const DEFAULT_SETTINGS = Object.freeze({
         cardCollections: Object.freeze({}),
         installed: Object.freeze({}),
         cachedManifest: null,
+    }),
+    extensionLibrary: Object.freeze({
+        manifestUrl: DEFAULT_EXTENSION_MANIFEST_URL,
+        cachedManifest: null,
+        installed: Object.freeze({}),
     }),
     retry: DEFAULT_RETRY_SETTINGS,
 });
@@ -245,6 +256,14 @@ jQuery(() => {
         saveSettings,
         getContextSafe,
         store,
+        onChanged: () => {
+            syncSettingsUI(getSettings());
+            appPopup?.refresh?.();
+        },
+    });
+    const extensionLibraryManager = createExtensionLibraryManager({
+        getSettings,
+        saveSettings,
         onChanged: () => {
             syncSettingsUI(getSettings());
             appPopup?.refresh?.();
@@ -873,6 +892,7 @@ jQuery(() => {
         getContextSafe,
         workerClient,
         modelLibraryManager,
+        extensionLibraryManager,
         getWorkerStatus: () => workerStatus,
         getRecentStoryText: () => recentStoryText(getContextSafe().chat || []),
         onImportChat: handleImportChat,
@@ -958,6 +978,7 @@ jQuery(() => {
             getContextSafe,
             workerClient,
             modelLibraryManager,
+            extensionLibraryManager,
             onOpenPopup: () => appPopup?.open?.(),
             onOpenModelLibrary: () => appPopup?.open?.({ tab: 'models' }),
             onImportChat: handleImportChat,
@@ -1014,6 +1035,84 @@ jQuery(() => {
         cardBridgeHost.destroy();
         uninstallHljsGuard();
     };
+
+    // Minimal public bridge for companion sub-extensions (e.g. ST-LPE-Temporary-NPCs).
+    // Companion extensions should read/promote through this instead of importing LPE internals.
+    const promoteNamedEntityImpl = (input = {}) => {
+        const name = String(input?.name || '').trim();
+        if (!name) return { ok: false, error: 'missing-name' };
+        const userName = getActiveUserName();
+        if (isPlayerPersonaName(name, userName)) return { ok: false, error: 'player-persona' };
+        const before = store.getState();
+        if (!before) return { ok: false, error: 'no-state' };
+        const key = normalizeNameKey(name);
+        const isOnscreen = Array.isArray(before.onscreen)
+            && before.onscreen.some((e) => normalizeNameKey(e?.name) === key);
+        const note = String(input?.note || '').trim();
+        const zone = String(input?.zone || '').trim() || String(before.world?.loc || '').trim() || 'Off-screen';
+        const status = String(input?.status || 'named').trim() || 'named';
+        const delta = {
+            entity_state: [{
+                name,
+                look: note,
+                voice: '',
+                persona: note,
+                private: note,
+                status,
+                manual: true,
+                pinned: true,
+            }],
+        };
+        if (isOnscreen) {
+            delta.onscreen = [{
+                name,
+                parrott: '',
+                residualMood: '',
+                tfdy: 'T2 F2 D2 Y2',
+                salience: 'sal:5',
+                agenda: note,
+                why: 'Promoted from temporary filler',
+                end: '',
+                move: '',
+            }];
+        } else {
+            delta.offscreen_agendas = [{
+                name,
+                loc: zone,
+                agenda: note,
+                why: 'Promoted from temporary filler',
+                goal: '',
+                end: '',
+                mood: '',
+                tfdy: 'T2 F2 D2 Y2',
+                salience: 'sal:5',
+            }];
+        }
+        store.addUserEdit(delta, { kind: 'delta', ctx: { userName, isTurnAdvance: false } });
+        const after = store.getState();
+        const entity = after?.entity_state?.find((e) => normalizeNameKey(e?.name) === key) || null;
+        if (!entity) return { ok: false, error: 'no-active-state' };
+        try { appPopup?.syncChrome?.(); } catch { /* ignore */ }
+        return { ok: true, entity, presence: isOnscreen ? 'onscreen' : 'offscreen' };
+    };
+
+    // Never let a companion bridge call throw into another extension.
+    const promoteNamedEntity = (input = {}) => {
+        try {
+            return promoteNamedEntityImpl(input);
+        } catch (error) {
+            return { ok: false, error: String(error?.message || error || 'promote-failed') };
+        }
+    };
+
+    window.__lpeApi = {
+        version: 1,
+        getState: () => store.getState(),
+        hasState: () => store.hasState(),
+        getUserName: () => getActiveUserName(),
+        promoteEntity: promoteNamedEntity,
+    };
+
     window.__lpeDispose = disposeAll;
     window.__vexaStateEngineDispose = disposeAll;
 });

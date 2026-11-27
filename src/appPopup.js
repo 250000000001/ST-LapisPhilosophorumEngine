@@ -71,6 +71,10 @@ import {
     formatCollectionLabel,
     normalizeCollectionSlug,
 } from './modelLibrary.js';
+import {
+    DEFAULT_EXTENSION_MANIFEST_URL,
+    createExtensionLibraryManager,
+} from './extensionLibrary.js';
 
 const FAB_POS_KEY = 'lpe_fab_pos';
 const LEGACY_FAB_POS_KEY = 'vexa_state_engine_fab_pos';
@@ -92,7 +96,7 @@ export const RAIL_TABS = Object.freeze([
         icon: 'fa-map',
         subTabs: [
             { id: 'atlas', label: 'Atlas Map' },
-            { id: 'models', label: '3D Library' },
+            { id: 'models', label: '3D & Extensions' },
         ],
     },
     {
@@ -130,7 +134,7 @@ export const RAIL_TABS = Object.freeze([
         icon: 'fa-sliders',
         subTabs: [
             { id: 'appearance', label: 'Appearance' },
-            { id: 'models', label: '3D Library' },
+            { id: 'models', label: '3D & Extensions' },
             { id: 'worker', label: 'Clerk' },
             { id: 'retry', label: 'Guard' },
             { id: 'runtime', label: 'Runtime' },
@@ -156,7 +160,7 @@ export const APP_TABS = Object.freeze([
     { id: 'retry', group: 'engine', title: 'Refusal Retry', sub: 'Built-in safety refusal cleanup, GFX_END guard, and Non-Stream Continue.', icon: 'fa-shield-halved' },
     { id: 'runtime', group: 'engine', title: 'Card Runtime', sub: 'Scoped EJS templating, guarded Blob-URL renderer, sandboxed interactive bridge, and scoped card variables.', icon: 'fa-code' },
     { id: 'appearance', group: 'engine', title: 'HUD & Rules', sub: 'Visual themes, card styles, smart scoping, and deterministic engine caps.', icon: 'fa-palette' },
-    { id: 'models', group: 'engine', title: '3D Model Library', sub: 'Browse, download, and assign genre/card 3D model collections (CC0 / CC BY 4.0).', icon: 'fa-cubes' },
+    { id: 'models', group: 'engine', title: '3D Model Library & Extensions', sub: 'Browse, install, enable/disable, and remove 3D model collections and modular extensions from one unified library.', icon: 'fa-cubes' },
     { id: 'tools', bottom: true, title: 'Tools & JSON', sub: 'Chat import, compiled XML snapshot preview, and raw canonical JSON.', icon: 'fa-wrench' },
 ]);
 
@@ -311,6 +315,7 @@ export function createLpeAppPopup({
     getRuntimeStats = () => ({}),
     onCardVarsChanged,
     modelLibraryManager = null,
+    extensionLibraryManager = null,
 }) {
     let activeTab = 'overview';
     const subTabs = {
@@ -365,13 +370,25 @@ export function createLpeAppPopup({
     let fabDragBound = false;
     let railDrawerRestoredOnce = false;
     let fallbackLibMgr = null;
+    let fallbackExtMgr = null;
     const modelLibraryUi = {
+        mode: 'all',
         collectionFilter: 'all',
         statusFilter: 'all',
         searchQuery: '',
         draftManifestUrl: null,
         busyModelIds: new Set(),
         busyCollection: null,
+        refreshing: false,
+        statusMessage: '',
+        statusError: '',
+    };
+    const extensionLibraryUi = {
+        categoryFilter: 'all',
+        statusFilter: 'all',
+        searchQuery: '',
+        draftManifestUrl: null,
+        busyIds: new Set(),
         refreshing: false,
         statusMessage: '',
         statusError: '',
@@ -388,6 +405,17 @@ export function createLpeAppPopup({
             });
         }
         return fallbackLibMgr;
+    }
+
+    function extMgr() {
+        if (extensionLibraryManager) return extensionLibraryManager;
+        if (!fallbackExtMgr) {
+            fallbackExtMgr = createExtensionLibraryManager({
+                getSettings,
+                saveSettings,
+            });
+        }
+        return fallbackExtMgr;
     }
 
     function applyReadingFontVars() {
@@ -4257,6 +4285,15 @@ export function createLpeAppPopup({
             statusFilter: modelLibraryUi.statusFilter,
             searchQuery: modelLibraryUi.searchQuery,
         });
+        const emgr = extMgr();
+        const extCfg = emgr.getConfig();
+        const extAllCatalog = emgr.getCatalog({ categoryFilter: 'all', statusFilter: 'all' });
+        const extFilteredCatalog = emgr.getCatalog({
+            categoryFilter: extensionLibraryUi.categoryFilter,
+            statusFilter: extensionLibraryUi.statusFilter,
+            searchQuery: extensionLibraryUi.searchQuery,
+        });
+        const extensionBadgeSummary = `${extAllCatalog.counts.installedCount} Installed · ${extAllCatalog.counts.enabledCount} Enabled${extAllCatalog.counts.installedBytes > 0 ? ` · ${formatBytesMb(extAllCatalog.counts.installedBytes)}` : ''}`;
         const manifestCols = cfg.cachedManifest?.collections || [];
         const collectionChoices = [
             DEFAULT_COLLECTION_ID,
@@ -4371,6 +4408,82 @@ export function createLpeAppPopup({
             return `${bulkBarHtml}<div class="lpe-mlib-grid">${cardsHtml}</div>`;
         };
 
+        const buildExtensionPillsHtml = (cat) => {
+            const pills = [
+                `<button type="button" class="lpe-ext-pill ${extensionLibraryUi.categoryFilter === 'all' ? 'active' : ''}" data-ext-cat="all">All <span class="lpe-tabular">${cat.counts.total}</span></button>`,
+                `<button type="button" class="lpe-ext-pill ${extensionLibraryUi.categoryFilter === 'installed' ? 'active' : ''}" data-ext-cat="installed">Installed <span class="lpe-tabular">${cat.counts.installedCount}</span></button>`,
+                ...cat.categories.map((c) => `<button type="button" class="lpe-ext-pill ${extensionLibraryUi.categoryFilter === c.id ? 'active' : ''}" data-ext-cat="${esc(c.id)}">${esc(c.label)} <span class="lpe-tabular">${c.count}</span></button>`),
+            ];
+            return pills.join('');
+        };
+
+        const buildExtensionCardsHtml = (cat) => {
+            if (!cat.items.length) {
+                return '<div class="lpe-empty">No extensions match the current filter. Try &ldquo;Refresh Catalog&rdquo; or clear the search filter.</div>';
+            }
+            return `<div class="lpe-ext-grid">${cat.items.map((item) => {
+                const isBusy = extensionLibraryUi.busyIds.has(item.id);
+                const statusBadge = item.status === 'enabled'
+                    ? '<span class="lpe-pill ok"><i class="fa-solid fa-toggle-on"></i> Enabled</span>'
+                    : item.status === 'disabled'
+                        ? '<span class="lpe-pill"><i class="fa-solid fa-toggle-off"></i> Disabled</span>'
+                        : '<span class="lpe-pill"><i class="fa-solid fa-cloud"></i> Available</span>';
+                const sizeText = Number.isFinite(item.sizeBytes) ? formatBytesMb(item.sizeBytes) : 'Lightweight';
+                const tagsHtml = [...new Set([item.category, ...(item.tags || [])].filter(Boolean))]
+                    .map((t) => `<span class="lpe-pill">${esc(t)}</span>`)
+                    .join('');
+                const hooksText = (item.requiredHooks || []).length
+                    ? `<div class="lpe-ext-hooks lpe-mono">Hooks: ${esc(item.requiredHooks.join(', '))}</div>`
+                    : '';
+                const repoHtml = item.repoUrl
+                    ? `<a class="lpe-mlib-link" href="${esc(item.repoUrl)}" target="_blank" rel="noopener noreferrer"><i class="fa-solid fa-arrow-up-right-from-square"></i> Repo</a>`
+                    : '';
+                const actionHtml = item.installed
+                    ? `
+                        <button type="button" class="lpe-app-btn secondary lpe-btn-sm lpe-ext-toggle-btn" data-ext-id="${esc(item.id)}" data-ext-enable="${item.enabled ? '0' : '1'}">
+                            <i class="fa-solid ${item.enabled ? 'fa-toggle-off' : 'fa-toggle-on'}"></i> ${item.enabled ? 'Disable' : 'Enable'}
+                        </button>
+                        <button type="button" class="lpe-app-btn secondary lpe-btn-sm lpe-ext-remove-btn" data-ext-id="${esc(item.id)}">
+                            <i class="fa-solid fa-trash-can"></i> Remove
+                        </button>
+                    `
+                    : `<button type="button" class="lpe-app-btn primary lpe-btn-sm lpe-ext-install-btn" data-ext-id="${esc(item.id)}" ${isBusy ? 'disabled' : ''}><i class="fa-solid ${isBusy ? 'fa-spinner fa-spin' : 'fa-puzzle-piece'}"></i> ${isBusy ? 'Installing...' : 'Install'}</button>`;
+
+                return `
+                    <article class="lpe-ext-card ${item.installed ? 'is-installed' : 'is-available'} ${item.enabled ? 'is-enabled' : ''}" data-ext-id="${esc(item.id)}">
+                        <div class="lpe-mlib-card-head">
+                            <div class="lpe-mlib-title-wrap">
+                                <strong>${esc(item.name)}</strong>
+                                <span class="lpe-pill lpe-mono">v${esc(item.version || '0.0.0')}</span>
+                            </div>
+                            ${statusBadge}
+                        </div>
+                        ${item.summary || item.description ? `<p class="lpe-mlib-desc">${esc(item.summary || item.description)}</p>` : ''}
+                        <div class="lpe-mlib-metrics lpe-tabular">
+                            <span><i class="fa-solid fa-hard-drive"></i> ${esc(sizeText)}</span>
+                            <span><i class="fa-solid fa-layer-group"></i> ${esc(item.category || 'general')}</span>
+                            <span class="lpe-pill">${esc(item.license || 'Unknown license')}</span>
+                        </div>
+                        <div class="lpe-mlib-tags">${tagsHtml}</div>
+                        ${hooksText}
+                        <div class="lpe-mlib-attrib">
+                            <span>Author: <b>${esc(item.author || 'Unknown')}</b>${item.compatibility ? ` · LPE ${esc(item.compatibility)}` : ''}</span>
+                            ${repoHtml}
+                        </div>
+                        <div class="lpe-mlib-actions">${actionHtml}</div>
+                    </article>
+                `;
+            }).join('')}</div>`;
+        };
+
+        const modePillsHtml = `
+            <div class="lpe-lib-mode-pills" id="lpe_lib_mode_pills">
+                <button type="button" class="lpe-lib-mode-pill ${modelLibraryUi.mode === 'all' ? 'active' : ''}" data-lib-mode="all"><span class="lpe-ornament" aria-hidden="true">✦</span> All <span class="lpe-tabular">${allCatalog.counts.total + extAllCatalog.counts.total}</span></button>
+                <button type="button" class="lpe-lib-mode-pill ${modelLibraryUi.mode === '3d' ? 'active' : ''}" data-lib-mode="3d"><i class="fa-solid fa-cubes"></i> 3D Models <span class="lpe-tabular">${allCatalog.counts.total}</span></button>
+                <button type="button" class="lpe-lib-mode-pill ${modelLibraryUi.mode === 'extensions' ? 'active' : ''}" data-lib-mode="extensions"><i class="fa-solid fa-puzzle-piece"></i> Extensions <span class="lpe-tabular">${extAllCatalog.counts.total}</span></button>
+            </div>
+        `;
+
         $stage.html(`
             ${renderPageHeader({
                 title: meta.title,
@@ -4379,6 +4492,16 @@ export function createLpeAppPopup({
                 badgeHtml: `<span class="lpe-head-badge ok lpe-tabular"><span class="lpe-ornament" aria-hidden="true">✦</span> ${esc(badgeSummary)}</span>`,
             })}
 
+            <div class="lpe-glass-card lpe-lib-mode-card">
+                <div class="lpe-card-title"><span class="lpe-ornament" aria-hidden="true">✦</span> Unified Library &mdash; 3D Models &amp; Modular Extensions</div>
+                ${modePillsHtml}
+                <div class="lpe-lib-mode-summary lpe-muted">
+                    <span>3D: ${esc(badgeSummary)}</span>
+                    <span>Extensions: ${esc(extensionBadgeSummary)}</span>
+                </div>
+            </div>
+
+            ${modelLibraryUi.mode !== 'extensions' ? `
             <div class="lpe-glass-card lpe-mlib-assign-card">
                 <div class="lpe-card-title"><span class="lpe-ornament" aria-hidden="true">✦</span> Card &amp; Global 3D Collection Assignment</div>
                 <div class="lpe-mlib-assign-summary">
@@ -4450,6 +4573,58 @@ export function createLpeAppPopup({
                     <pre id="lpe_mlib_credits_pre" class="lpe-app-pre">${esc(mgr.getAttributionCredits())}</pre>
                 </div>
             </details>
+            ` : ''}
+
+            ${modelLibraryUi.mode !== '3d' ? `
+            <div class="lpe-glass-card">
+                <div class="lpe-card-title"><i class="fa-solid fa-puzzle-piece"></i> Extension / Modular Component Repository</div>
+                <div class="lpe-mlib-url-row">
+                    <input id="lpe_ext_manifest_url" type="text" class="lpe-app-input lpe-mono" value="${esc(extensionLibraryUi.draftManifestUrl !== null ? extensionLibraryUi.draftManifestUrl : (extCfg.manifestUrl || DEFAULT_EXTENSION_MANIFEST_URL))}" placeholder="${esc(DEFAULT_EXTENSION_MANIFEST_URL)}" />
+                    <button type="button" class="lpe-app-btn primary lpe-btn-sm" id="lpe_ext_refresh_btn" ${extensionLibraryUi.refreshing ? 'disabled' : ''}>
+                        <i class="fa-solid ${extensionLibraryUi.refreshing ? 'fa-spinner fa-spin' : 'fa-rotate'}"></i> ${extensionLibraryUi.refreshing ? 'Loading...' : 'Refresh Catalog'}
+                    </button>
+                    <button type="button" class="lpe-app-btn secondary lpe-btn-sm" id="lpe_ext_reset_url_btn" title="Restore default extension catalog manifest URL">Default URL</button>
+                    <button type="button" class="lpe-app-btn secondary lpe-btn-sm" id="lpe_ext_clear_cache_btn" ${extAllCatalog.counts.installedCount === 0 ? 'disabled' : ''}>
+                        <i class="fa-solid fa-broom"></i> Clear Installed (${extAllCatalog.counts.installedCount})
+                    </button>
+                </div>
+                <div id="lpe_ext_status" class="lpe-mlib-status ${extensionLibraryUi.statusError ? 'is-error' : ''}">
+                    ${extensionLibraryUi.statusError
+                        ? esc(extensionLibraryUi.statusError)
+                        : extensionLibraryUi.statusMessage
+                            ? esc(extensionLibraryUi.statusMessage)
+                            : esc(extCfg.cachedManifest
+                                ? `Catalog loaded: ${extCfg.cachedManifest.extensions?.length || 0} extension(s) ready${extCfg.cachedManifest.updatedAt ? ` · Updated ${extCfg.cachedManifest.updatedAt}` : ''}.`
+                                : 'No extension catalog loaded. Install lightweight metadata from the repository or a local fixture.')}
+                </div>
+            </div>
+
+            <div class="lpe-glass-card">
+                <div class="lpe-card-title"><i class="fa-solid fa-puzzle-piece"></i> Browse Extensions &amp; Modular Components</div>
+                <div class="lpe-ext-filter-pills" id="lpe_ext_filter_pills">${buildExtensionPillsHtml(extAllCatalog)}</div>
+                <div class="lpe-mlib-toolbar">
+                    <input id="lpe_ext_search" type="search" class="lpe-app-input" value="${esc(extensionLibraryUi.searchQuery)}" placeholder="Search by extension name, id, author, category, hook, or license..." />
+                    <select id="lpe_ext_status_filter" class="lpe-app-input">
+                        <option value="all" ${extensionLibraryUi.statusFilter === 'all' ? 'selected' : ''}>All Statuses</option>
+                        <option value="available" ${extensionLibraryUi.statusFilter === 'available' ? 'selected' : ''}>Available (Not Installed)</option>
+                        <option value="installed" ${extensionLibraryUi.statusFilter === 'installed' ? 'selected' : ''}>Installed</option>
+                        <option value="enabled" ${extensionLibraryUi.statusFilter === 'enabled' ? 'selected' : ''}>Enabled</option>
+                        <option value="disabled" ${extensionLibraryUi.statusFilter === 'disabled' ? 'selected' : ''}>Disabled</option>
+                    </select>
+                </div>
+                <div id="lpe_ext_browser_body">${buildExtensionCardsHtml(extFilteredCatalog)}</div>
+            </div>
+
+            <details class="lpe-glass-card lpe-fold-card">
+                <summary class="lpe-fold-summary"><i class="fa-solid fa-scale-balanced"></i> Extension Author, License &amp; Source Records</summary>
+                <div class="lpe-fold-body">
+                    <div class="lpe-inline-actions" style="justify-content:flex-end;margin-bottom:6px;">
+                        <button type="button" class="lpe-app-btn secondary lpe-btn-sm" id="lpe_ext_copy_credits_btn"><i class="fa-regular fa-copy"></i> Copy Credits</button>
+                    </div>
+                    <pre id="lpe_ext_credits_pre" class="lpe-app-pre">${esc(emgr.getAttributionCredits())}</pre>
+                </div>
+            </details>
+            ` : ''}
         `);
 
         const refreshBrowserOnly = () => {
@@ -4462,6 +4637,18 @@ export function createLpeAppPopup({
             const catAll = mgr.getCatalog({ collectionFilter: 'all', statusFilter: 'all' });
             $stage.find('#lpe_mlib_filter_pills').html(buildCollectionPillsHtml(catAll));
             $stage.find('#lpe_mlib_browser_body').html(buildModelCardsHtml(catFiltered));
+        };
+
+        const refreshExtensionBrowserOnly = () => {
+            if (activeTab !== 'models' || !isAnyUiOpen()) return;
+            const catFiltered = emgr.getCatalog({
+                categoryFilter: extensionLibraryUi.categoryFilter,
+                statusFilter: extensionLibraryUi.statusFilter,
+                searchQuery: extensionLibraryUi.searchQuery,
+            });
+            const catAll = emgr.getCatalog({ categoryFilter: 'all', statusFilter: 'all' });
+            $stage.find('#lpe_ext_filter_pills').html(buildExtensionPillsHtml(catAll));
+            $stage.find('#lpe_ext_browser_body').html(buildExtensionCardsHtml(catFiltered));
         };
 
         const rerenderLibraryIfActive = () => {
@@ -4622,6 +4809,122 @@ export function createLpeAppPopup({
                 rerenderLibraryIfActive();
             } catch {
                 modelLibraryUi.statusError = 'Clipboard unavailable.';
+                rerenderLibraryIfActive();
+            }
+        });
+
+        $stage.on('click', '.lpe-lib-mode-pill', function (e) {
+            const mode = String(e?.currentTarget?.dataset?.libMode ?? $(this).data('lib-mode') ?? 'all');
+            modelLibraryUi.mode = ['all', '3d', 'extensions'].includes(mode) ? mode : 'all';
+            rerenderLibraryIfActive();
+        });
+
+        $stage.on('input', '#lpe_ext_manifest_url', (e) => {
+            extensionLibraryUi.draftManifestUrl = String(e?.target?.value ?? $('#lpe_ext_manifest_url').val() ?? '');
+        });
+
+        $stage.on('click', '#lpe_ext_refresh_btn', async () => {
+            const url = String($stage.find('#lpe_ext_manifest_url').val() || '').trim();
+            extensionLibraryUi.draftManifestUrl = url;
+            extensionLibraryUi.refreshing = true;
+            extensionLibraryUi.statusError = '';
+            extensionLibraryUi.statusMessage = 'Fetching extension catalog...';
+            rerenderLibraryIfActive();
+            try {
+                const parsed = await emgr.refreshCatalog({ manifestUrl: url });
+                extensionLibraryUi.draftManifestUrl = null;
+                const warnSuffix = parsed.warnings?.length ? ` (${parsed.warnings.length} skipped)` : '';
+                extensionLibraryUi.statusMessage = `Loaded ${parsed.extensions.length} extension(s) from ${parsed.name}${warnSuffix}.`;
+            } catch (err) {
+                extensionLibraryUi.statusError = String(err?.message || err);
+            } finally {
+                extensionLibraryUi.refreshing = false;
+                rerenderLibraryIfActive();
+            }
+        });
+
+        $stage.on('click', '#lpe_ext_reset_url_btn', () => {
+            extensionLibraryUi.draftManifestUrl = null;
+            emgr.resetManifestUrl();
+            extensionLibraryUi.statusError = '';
+            extensionLibraryUi.statusMessage = 'Restored default extension catalog URL.';
+            rerenderLibraryIfActive();
+        });
+
+        $stage.on('click', '#lpe_ext_clear_cache_btn', () => {
+            const res = emgr.clearInstalledExtensions();
+            extensionLibraryUi.statusError = '';
+            extensionLibraryUi.statusMessage = `Cleared ${res.removedCount} installed extension(s).`;
+            rerenderLibraryIfActive();
+        });
+
+        $stage.on('click', '.lpe-ext-pill', function (e) {
+            const cat = String(e?.currentTarget?.dataset?.extCat ?? $(this).data('ext-cat') ?? 'all');
+            extensionLibraryUi.categoryFilter = cat;
+            refreshExtensionBrowserOnly();
+        });
+
+        $stage.on('input', '#lpe_ext_search', function (e) {
+            extensionLibraryUi.searchQuery = String(e?.target?.value ?? $(this).val() ?? '');
+            refreshExtensionBrowserOnly();
+        });
+
+        $stage.on('change', '#lpe_ext_status_filter', function (e) {
+            extensionLibraryUi.statusFilter = String(e?.target?.value ?? $(this).val() ?? 'all');
+            refreshExtensionBrowserOnly();
+        });
+
+        $stage.on('click', '.lpe-ext-install-btn', function (e) {
+            const id = String(e?.currentTarget?.dataset?.extId ?? $(this).data('ext-id') ?? '');
+            if (!id) return;
+            extensionLibraryUi.busyIds.add(id);
+            extensionLibraryUi.statusError = '';
+            extensionLibraryUi.statusMessage = `Installing extension "${id}"...`;
+            rerenderLibraryIfActive();
+            try {
+                const res = emgr.installExtension(id);
+                extensionLibraryUi.statusMessage = `Installed "${res.item?.name || id}" (${res.item?.license || 'Unknown license'}).`;
+            } catch (err) {
+                extensionLibraryUi.statusError = String(err?.message || err);
+            } finally {
+                extensionLibraryUi.busyIds.delete(id);
+                rerenderLibraryIfActive();
+            }
+        });
+
+        $stage.on('click', '.lpe-ext-toggle-btn', function (e) {
+            const id = String(e?.currentTarget?.dataset?.extId ?? $(this).data('ext-id') ?? '');
+            const enable = String(e?.currentTarget?.dataset?.extEnable ?? $(this).data('ext-enable') ?? '1') === '1';
+            if (!id) return;
+            const res = emgr.setExtensionEnabled(id, enable);
+            if (res.ok) {
+                extensionLibraryUi.statusError = '';
+                extensionLibraryUi.statusMessage = `${enable ? 'Enabled' : 'Disabled'} extension "${res.item?.name || id}".`;
+            } else {
+                extensionLibraryUi.statusError = `Extension "${id}" is not installed.`;
+            }
+            rerenderLibraryIfActive();
+        });
+
+        $stage.on('click', '.lpe-ext-remove-btn', function (e) {
+            const id = String(e?.currentTarget?.dataset?.extId ?? $(this).data('ext-id') ?? '');
+            if (!id) return;
+            const res = emgr.removeExtension(id);
+            extensionLibraryUi.statusError = '';
+            extensionLibraryUi.statusMessage = res.existed
+                ? `Removed extension "${id}".`
+                : `Extension "${id}" was not installed.`;
+            rerenderLibraryIfActive();
+        });
+
+        $stage.on('click', '#lpe_ext_copy_credits_btn', async () => {
+            try {
+                await navigator.clipboard?.writeText?.(emgr.getAttributionCredits());
+                extensionLibraryUi.statusError = '';
+                extensionLibraryUi.statusMessage = 'Copied extension attribution credits to clipboard.';
+                rerenderLibraryIfActive();
+            } catch {
+                extensionLibraryUi.statusError = 'Clipboard unavailable.';
                 rerenderLibraryIfActive();
             }
         });

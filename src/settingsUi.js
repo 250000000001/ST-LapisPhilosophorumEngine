@@ -17,6 +17,10 @@ import {
     formatCollectionLabel,
     normalizeCollectionSlug,
 } from './modelLibrary.js';
+import {
+    DEFAULT_EXTENSION_MANIFEST_URL,
+    ensureExtensionLibrarySettings,
+} from './extensionLibrary.js';
 
 function esc(s) {
     return String(s ?? '')
@@ -72,6 +76,7 @@ export function syncSettingsUI(s) {
         $libCol.html(buildModelLibCollectionOptions(s));
     }
     $libCol.val(s.modelLibrary?.defaultCollection || DEFAULT_COLLECTION_ID);
+    $('#lpe_ext_lib_url').val(s.extensionLibrary?.manifestUrl || DEFAULT_EXTENSION_MANIFEST_URL);
     $('#lpe_show_launcher').prop('checked', s.showLauncherButton !== false);
     $('#lpe_hud_collapsed').prop('checked', s.hudDefaultCollapsed !== false);
     $('#lpe_show_inline_changes').prop('checked', s.showInlineChanges !== false);
@@ -296,10 +301,14 @@ export function injectSettingsUI({
                     </div>
 
                     <hr class="lpe-sep" />
-                    <div class="lpe-sec-title"><i class="fa-solid fa-cubes"></i> 3D Model Library &amp; Collections</div>
+                    <div class="lpe-sec-title"><i class="fa-solid fa-cubes"></i> 3D Model &amp; Extension Library</div>
                     <div class="lpe-field">
-                        <label for="lpe_model_lib_url">External Manifest URL (<code>ST-LapisPhilosophorumEngineLibrary</code>)</label>
+                        <label for="lpe_model_lib_url">External 3D Manifest URL (<code>ST-LapisPhilosophorumEngineLibrary</code>)</label>
                         <input id="lpe_model_lib_url" type="text" class="text_pole" placeholder="${esc(DEFAULT_LIBRARY_MANIFEST_URL)}" />
+                    </div>
+                    <div class="lpe-field">
+                        <label for="lpe_ext_lib_url">Extension / Modular Component Manifest URL</label>
+                        <input id="lpe_ext_lib_url" type="text" class="text_pole" placeholder="${esc(DEFAULT_EXTENSION_MANIFEST_URL)}" />
                     </div>
                     <div class="lpe-inline-row" style="align-items:flex-end;">
                         <div class="lpe-field" style="flex:1 1 auto;">
@@ -496,6 +505,7 @@ export function injectSettingsUI({
         $libCol.html(buildModelLibCollectionOptions(s));
     }
     $libCol.val(s.modelLibrary?.defaultCollection || DEFAULT_COLLECTION_ID);
+    $('#lpe_ext_lib_url').val(s.extensionLibrary?.manifestUrl || DEFAULT_EXTENSION_MANIFEST_URL);
     $('#lpe_show_launcher').prop('checked', s.showLauncherButton !== false);
     $('#lpe_hud_collapsed').prop('checked', s.hudDefaultCollapsed !== false);
     $('#lpe_show_inline_changes').prop('checked', s.showInlineChanges !== false);
@@ -561,6 +571,16 @@ export function injectSettingsUI({
     $('#lpe_model_lib_collection').on('change', function () {
         const ml = ensureModelLibrarySettings(getSettings());
         ml.defaultCollection = normalizeCollectionSlug($(this).val()) || DEFAULT_COLLECTION_ID;
+        saveSettings();
+        onSettingsChanged?.();
+    });
+    $('#lpe_ext_lib_url').on('input change', function () {
+        const raw = String($(this).val() ?? '').trim();
+        if (raw && (/^(?:javascript|vbscript|data|file|chrome):/i.test(raw) || /^[\\/]{2}/.test(raw))) {
+            return;
+        }
+        const el = ensureExtensionLibrarySettings(getSettings());
+        el.manifestUrl = raw || DEFAULT_EXTENSION_MANIFEST_URL;
         saveSettings();
         onSettingsChanged?.();
     });
