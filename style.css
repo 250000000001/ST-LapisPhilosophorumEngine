@@ -40,6 +40,11 @@
     line-height: var(--lpe-reading-line-height, 1.74);
 }
 
+/* Reserve the chat scrollbar gutter so height-only chrome changes cannot reflow text width. */
+#chat {
+    scrollbar-gutter: stable;
+}
+
 #chat .mes .mes_text code,
 #chat .mes .mes_text pre {
     font-family: var(--lpe-font-mono);
@@ -871,9 +876,14 @@
     to { transform: rotate(360deg); }
 }
 
-/* SillyTavern uses the same top bar size for its chat, panels and overlays. */
+/*
+ * Top-bar collapse is vertical-only. Do not mutate SillyTavern's global
+ * --topBarBlockSize token: native panels use it too, and a global height change
+ * can reflow the chat scrollbar/content box and alter message text wrapping.
+ * Instead, scope the reclaimed space to #sheld/#chat and LPE chrome.
+ */
 body.lpe-topbar-collapsed {
-    --topBarBlockSize: env(safe-area-inset-top, 0px);
+    --lpe-chrome-top: max(env(safe-area-inset-top, 0px), 0px);
 }
 
 body.lpe-topbar-collapsed #top-bar,
@@ -882,10 +892,15 @@ body.lpe-topbar-collapsed #top-settings-holder {
 }
 
 body.lpe-topbar-collapsed:not(.waifuMode) #sheld {
-    top: var(--topBarBlockSize);
-    height: calc(100vh - var(--topBarBlockSize) - 1px);
-    height: calc(100dvh - var(--topBarBlockSize) - 1px);
-    max-height: calc(100dvh - var(--topBarBlockSize) - 1px);
+    top: var(--lpe-chrome-top, env(safe-area-inset-top, 0px));
+    height: calc(100vh - var(--lpe-chrome-top, env(safe-area-inset-top, 0px)) - 1px);
+    height: calc(100dvh - var(--lpe-chrome-top, env(safe-area-inset-top, 0px)) - 1px);
+    max-height: calc(100dvh - var(--lpe-chrome-top, env(safe-area-inset-top, 0px)) - 1px);
+}
+
+body.lpe-topbar-collapsed:not(.waifuMode) #chat {
+    max-height: calc(100vh - var(--bottomFormBlockSize) - var(--lpe-chrome-top, env(safe-area-inset-top, 0px)));
+    max-height: calc(100dvh - var(--bottomFormBlockSize) - var(--lpe-chrome-top, env(safe-area-inset-top, 0px)));
 }
 
 body {
