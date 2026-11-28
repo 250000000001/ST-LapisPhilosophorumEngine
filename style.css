@@ -291,6 +291,50 @@
     font-weight: 600;
 }
 
+/* Dedicated Proposals tab: balanced ~half-width slot beside the game state HUD. */
+.lpe-tab-btn.lpe-proposals-tab {
+    flex: 1 1 46%;
+    min-width: 140px;
+    max-width: 52%;
+    justify-content: center;
+    color: var(--ist-yellow, var(--lpe-accent-2, #F1BE9A));
+    border: 1px solid color-mix(in srgb, var(--lpe-accent-2, #F1BE9A) 34%, transparent);
+    border-bottom: 2px solid color-mix(in srgb, var(--lpe-accent-2, #F1BE9A) 55%, transparent);
+    background: color-mix(in srgb, var(--lpe-accent-2, #F1BE9A) 9%, transparent);
+    font-weight: 600;
+}
+
+.lpe-tab-btn.lpe-proposals-tab:hover,
+.lpe-tab-btn.lpe-proposals-tab.active {
+    color: var(--lpe-accent-2, #F1BE9A);
+    border-color: color-mix(in srgb, var(--lpe-accent-2, #F1BE9A) 62%, transparent);
+    background: color-mix(in srgb, var(--lpe-accent-2, #F1BE9A) 18%, transparent);
+}
+
+.lpe-tab-btn.lpe-proposals-tab.active {
+    border-bottom-color: var(--lpe-accent-2, #F1BE9A);
+}
+
+.lpe-proposals-tab .lpe-proposals-count {
+    background: color-mix(in srgb, var(--lpe-accent-2, #F1BE9A) 28%, transparent);
+    color: var(--lpe-accent-2, #F1BE9A);
+}
+
+.lpe-proposal-stack {
+    margin-bottom: 0;
+}
+
+.lpe-proposal-card {
+    border-color: color-mix(in srgb, var(--lpe-accent-2, #F1BE9A) 45%, transparent);
+}
+
+.lpe-proposal-actions {
+    margin-left: auto;
+    display: inline-flex;
+    flex-wrap: wrap;
+    gap: 4px;
+}
+
 .lpe-diff-dot {
     width: 5px;
     height: 5px;
@@ -837,7 +881,7 @@ body.lpe-topbar-collapsed #top-settings-holder {
     display: none !important;
 }
 
-body.lpe-topbar-collapsed #sheld {
+body.lpe-topbar-collapsed:not(.waifuMode) #sheld {
     top: var(--topBarBlockSize);
     height: calc(100vh - var(--topBarBlockSize) - 1px);
     height: calc(100dvh - var(--topBarBlockSize) - 1px);
@@ -4647,6 +4691,8 @@ body.lpe-rail-docked-left .lpe-rail-tip {
     display: flex;
     flex-direction: column;
     gap: 7px;
+    min-width: 0;
+    overflow-wrap: anywhere;
     transition: border-color 0.16s ease, box-shadow 0.16s ease;
 }
 
@@ -4662,7 +4708,9 @@ body.lpe-rail-docked-left .lpe-rail-tip {
     display: flex;
     align-items: flex-start;
     justify-content: space-between;
+    flex-wrap: wrap;
     gap: 8px;
+    min-width: 0;
 }
 
 .lpe-mlib-title-wrap {
@@ -4670,6 +4718,7 @@ body.lpe-rail-docked-left .lpe-rail-tip {
     flex-direction: column;
     gap: 3px;
     min-width: 0;
+    flex: 1 1 120px;
 }
 
 .lpe-mlib-title-wrap strong {
@@ -4729,8 +4778,19 @@ body.lpe-rail-docked-left .lpe-rail-tip {
     padding-top: 4px;
     display: flex;
     align-items: center;
-    justify-content: flex-end;
+    justify-content: flex-start;
+    flex-wrap: wrap;
     gap: 6px;
+    min-width: 0;
+}
+
+.lpe-mlib-actions .lpe-app-btn,
+.lpe-ext-card .lpe-btn-sm {
+    flex: 0 1 auto;
+    min-width: 0;
+    max-width: 100%;
+    white-space: normal;
+    overflow-wrap: anywhere;
 }
 
 @media (max-width: 640px) {
@@ -4798,8 +4858,9 @@ body.lpe-rail-docked-left .lpe-rail-tip {
 
 .lpe-ext-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr));
     gap: 10px;
+    min-width: 0;
 }
 
 #lpe_drawer .lpe-ext-grid {
@@ -4810,6 +4871,8 @@ body.lpe-rail-docked-left .lpe-rail-tip {
     display: flex;
     flex-direction: column;
     gap: 7px;
+    min-width: 0;
+    overflow: hidden;
     padding: 11px 12px;
     border-radius: 13px;
     border: 1px solid var(--lpe-hairline, rgba(219, 219, 214, 0.12));

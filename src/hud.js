@@ -38,6 +38,7 @@ export const HUD_TABS = [
     { id: 'inv', label: 'Inv', icon: 'fa-suitcase' },
     { id: 'health', label: 'Health', icon: 'fa-kit-medical' },
     { id: 'custom_trackers', label: 'Trackers', icon: 'fa-chart-simple' },
+    { id: 'proposals', label: 'Proposals', icon: 'fa-clipboard-check' },
     { id: 'story_notes', label: 'Notes', icon: 'fa-note-sticky' },
     { id: 'notebook', label: 'Notebook', icon: 'fa-book' },
     { id: 'vent', label: 'Vent', icon: 'fa-fire' },
@@ -98,6 +99,34 @@ function hexFromFontColor(fc) {
     const low = String(fc || '').toLowerCase();
     const p = PALETTE.find((x) => low.includes(x.name));
     return p ? p.hex : 'var(--ist-blue)';
+}
+
+/** HUD tabs visible for the current state; Proposals appears only when pending. */
+export function getVisibleHudTabs(stateOrProposalCount) {
+    const count = typeof stateOrProposalCount === 'number'
+        ? stateOrProposalCount
+        : (stateOrProposalCount?.tracker_proposals?.length || 0);
+    return HUD_TABS.filter((t) => t.id !== 'proposals' || count > 0);
+}
+
+/** Pending tracker/state proposals shown only in the dedicated Proposals tab. */
+export function renderProposalCards(props) {
+    if (!Array.isArray(props) || !props.length) return '';
+    return `<div class="lpe-stack lpe-proposal-stack">${props.map((p) => {
+        const kv = Object.entries(p.fields || {}).map(([k, v]) => `<b>${esc(k)}</b>=${esc(v)}`).join(' · ');
+        return `<div class="lpe-subcard lpe-proposal-card">
+            <div class="lpe-subcard-head">
+                <span class="lpe-pill warn">Proposed Tracker</span>
+                <strong>${esc(p.title)}</strong>
+                <span class="lpe-proposal-actions">
+                    <button type="button" class="lpe-mini-btn lpe-hud-approve-prop" data-prop-id="${esc(p.id)}" title="Approve tracker"><i class="fa-solid fa-check"></i> Approve</button>
+                    <button type="button" class="lpe-mini-btn lpe-hud-dismiss-prop" data-prop-id="${esc(p.id)}" title="Dismiss proposal"><i class="fa-solid fa-xmark"></i> Dismiss</button>
+                </span>
+            </div>
+            <div class="lpe-line">${kv}</div>
+            ${p.reason ? `<div class="lpe-line"><span>Reason:</span> ${esc(p.reason)}</div>` : ''}
+        </div>`;
+    }).join('')}</div>`;
 }
 
 function renderTabBody(tabId, state, view, settings, prevState = null) {
@@ -283,25 +312,7 @@ function renderTabBody(tabId, state, view, settings, prevState = null) {
                 showActions: false,
             });
         case 'custom_trackers': {
-            const props = state.tracker_proposals || [];
             const active = (state.custom_trackers || []).filter((t) => t && !t.archived);
-            const propsHtml = props.length
-                ? `<div class="lpe-stack" style="margin-bottom:8px;">${props.map((p) => {
-                    const kv = Object.entries(p.fields || {}).map(([k, v]) => `<b>${esc(k)}</b>=${esc(v)}`).join(' · ');
-                    return `<div class="lpe-subcard" style="border-color:var(--ist-yellow);">
-                        <div class="lpe-subcard-head">
-                            <span class="lpe-pill warn">Proposed Tracker</span>
-                            <strong>${esc(p.title)}</strong>
-                            <span style="margin-left:auto;display:inline-flex;gap:4px;">
-                                <button type="button" class="lpe-mini-btn lpe-hud-approve-prop" data-prop-id="${esc(p.id)}" title="Approve tracker"><i class="fa-solid fa-check"></i> Approve</button>
-                                <button type="button" class="lpe-mini-btn lpe-hud-dismiss-prop" data-prop-id="${esc(p.id)}" title="Dismiss proposal"><i class="fa-solid fa-xmark"></i> Dismiss</button>
-                            </span>
-                        </div>
-                        <div class="lpe-line">${kv}</div>
-                        ${p.reason ? `<div class="lpe-line"><span>Reason:</span> ${esc(p.reason)}</div>` : ''}
-                    </div>`;
-                }).join('')}</div>`
-                : '';
             const activeHtml = active.length
                 ? `<div class="lpe-cards-grid">${active.map((t) => `
                     <div class="lpe-subcard">
@@ -315,8 +326,13 @@ function renderTabBody(tabId, state, view, settings, prevState = null) {
                         ${t.notes ? `<div class="lpe-line" style="margin-top:5px;"><span>Notes:</span> ${esc(t.notes)}</div>` : ''}
                     </div>
                 `).join('')}</div>`
-                : (props.length ? '' : `<div class="lpe-empty">No custom trackers active. Main model can propose trackers for recurring businesses, estates, ships, or ledgers when enabled.</div>`);
-            return `${propsHtml}${activeHtml}`;
+                : `<div class="lpe-empty">No custom trackers active. Main model can propose trackers for recurring businesses, estates, ships, or ledgers when enabled.</div>`;
+            return activeHtml;
+        }
+        case 'proposals': {
+            const props = state.tracker_proposals || [];
+            if (!props.length) return `<div class="lpe-empty">No pending proposals. Main-model tracker/state proposals appear here for review.</div>`;
+            return renderProposalCards(props);
         }
         case 'story_notes': {
             const sn = state.story_notes || {};
@@ -349,7 +365,7 @@ function renderTabBody(tabId, state, view, settings, prevState = null) {
     }
 }
 
-function parseReceiptSummaryPills(rc) {
+export function parseReceiptSummaryPills(rc) {
     if (!rc) return '';
     const pills = [];
     const ws = String(rc.world_sim || '').trim();
@@ -361,8 +377,7 @@ function parseReceiptSummaryPills(rc) {
     if (ch && !isEmptySentinel(ch) && ch !== '∅') {
         pills.push(`<span class="lpe-pill">${esc(ch.slice(0, 32))}</span>`);
     }
-    const propCount = Array.isArray(rc.tracker_proposals) ? rc.tracker_proposals.length : 0;
-    if (propCount) pills.push(`<span class="lpe-pill warn">+${propCount} Proposal${propCount > 1 ? 's' : ''}</span>`);
+    // Pending tracker/state proposals live in the dedicated Proposals tab, not here.
     return pills.join('');
 }
 
@@ -512,6 +527,7 @@ function refreshSingleHudCard($mes, ctx) {
     );
     const proposals = state.tracker_proposals || [];
     const proposalCount = proposals.length;
+    if (view.tab === 'proposals' && !proposalCount) view.tab = 'world';
     const proposalDigest = proposals.map((p) => `${p?.id || ''}:${p?.title || p?.label || ''}`).join(',');
     const trackerCount = (state.custom_trackers || []).filter((t) => t && !t.archived).length;
     const effectiveAtlasMode = view.atlasMode || '2d';
@@ -611,16 +627,20 @@ function refreshSingleHudCard($mes, ctx) {
         `<option value="${esc(t)}" ${t === view.theme ? 'selected' : ''}>${esc(t)}</option>`,
     ).join('');
 
-    const tabsHtml = HUD_TABS.map((t) => {
-        const tabCnt = changeLog?.byTab?.[t.id] || 0;
-        const hasDiff = diffSet.has(t.id);
-        const badge = tabCnt > 0
-            ? `<span class="lpe-tab-diff-cnt" title="${tabCnt} change${tabCnt === 1 ? '' : 's'} this turn">${tabCnt}</span>`
-            : (hasDiff ? '<span class="lpe-diff-dot" title="Changed this turn"></span>' : '');
-        return `<button type="button" class="lpe-tab-btn ${view.tab === t.id ? 'active' : ''}" data-tab="${t.id}">
+    const tabsHtml = getVisibleHudTabs(proposalCount)
+        .map((t) => {
+            const isProposals = t.id === 'proposals';
+            const tabCnt = changeLog?.byTab?.[t.id] || 0;
+            const hasDiff = diffSet.has(t.id);
+            const badge = isProposals
+                ? `<span class="lpe-tab-diff-cnt lpe-proposals-count" title="${proposalCount} pending proposal${proposalCount === 1 ? '' : 's'}">${proposalCount}</span>`
+                : (tabCnt > 0
+                    ? `<span class="lpe-tab-diff-cnt" title="${tabCnt} change${tabCnt === 1 ? '' : 's'} this turn">${tabCnt}</span>`
+                    : (hasDiff ? '<span class="lpe-diff-dot" title="Changed this turn"></span>' : ''));
+            return `<button type="button" class="lpe-tab-btn ${isProposals ? 'lpe-proposals-tab' : ''} ${view.tab === t.id ? 'active' : ''}" data-tab="${t.id}">
             <i class="fa-solid ${t.icon}"></i> ${esc(t.label)}${badge}
         </button>`;
-    }).join('');
+        }).join('');
 
     const changeHeaderBadge = entry?.disabled
         ? '<span class="lpe-pill warn" title="Changes from this reply are reverted">Reverted</span>'
@@ -657,7 +677,6 @@ function refreshSingleHudCard($mes, ctx) {
             </button>
             <div class="lpe-hud-actions">
                 ${changeHeaderBadge}
-                ${proposalCount ? `<span class="lpe-pill warn" title="Pending custom tracker proposal"><i class="fa-solid fa-sparkles"></i> ${proposalCount} Proposal</span>` : ''}
                 ${healthPillHtml}
                 ${statusBadge}
                 <button type="button" class="lpe-icon-btn lpe-reread-btn" title="Re-run worker on this reply"><i class="fa-solid fa-rotate"></i></button>
