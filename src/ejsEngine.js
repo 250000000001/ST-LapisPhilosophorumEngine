@@ -1061,10 +1061,336 @@ function stripMetaKeysDeep(val, depth = 0) {
     return val;
 }
 
+// Matches an exact `[InitVar]`/`[LPEInitVar]`/`[VexaInitVar]` tag at the start of a
+// label plus any trailing note (`[InitVar]请勿打开`), but not `[InitVarFoo]` because the
+// closing bracket must immediately follow the token.
+const INITVAR_LABEL_PREFIX_RE = /^\[(?:InitVar|(?:LPE|Vexa)InitVars?)\]/i;
+const INITVAR_KEY_RE = /\[(?:InitVar|(?:LPE|Vexa)InitVars?)\]/i;
+
+// Defensive bounds for the zero-dependency YAML fallback.
+const INITVAR_YAML_MAX_CHARS = 262144;
+const INITVAR_YAML_MAX_LINES = 20000;
+const INITVAR_YAML_MAX_DEPTH = 40;
+const INITVAR_YAML_MAX_NODES = 50000;
+const INITVAR_YAML_MAX_KEY = 512;
+const INITVAR_YAML_MAX_SCALAR = 1000000;
+
+function stripYamlComment(line) {
+    let inSingle = false;
+    let inDouble = false;
+    let escaped = false;
+    for (let i = 0; i < line.length; i++) {
+        const c = line[i];
+        if (escaped) { escaped = false; continue; }
+        if (inDouble) {
+            if (c === '\\') escaped = true;
+            else if (c === '"') inDouble = false;
+            continue;
+        }
+        if (inSingle) {
+            if (c === "'") inSingle = false;
+            continue;
+        }
+        if (c === '"') { inDouble = true; continue; }
+        if (c === "'") { inSingle = true; continue; }
+        if (c === '#' && (i === 0 || /\s/.test(line[i - 1]))) return line.slice(0, i);
+    }
+    return line;
+}
+
+// Split a flow sequence/mapping body on `sep`, honoring quotes and nested [] {}.
+function splitYamlFlow(inner, sep) {
+    const parts = [];
+    let start = 0;
+    let inSingle = false;
+    let inDouble = false;
+    let escaped = false;
+    let depth = 0;
+    for (let i = 0; i < inner.length; i++) {
+        const c = inner[i];
+        if (escaped) { escaped = false; continue; }
+        if (inDouble) {
+            if (c === '\\') escaped = true;
+            else if (c === '"') inDouble = false;
+            continue;
+        }
+        if (inSingle) {
+            if (c === "'") inSingle = false;
+            continue;
+        }
+        if (c === '"') { inDouble = true; continue; }
+        if (c === "'") { inSingle = true; continue; }
+        if (c === '[' || c === '{') { depth++; continue; }
+        if (c === ']' || c === '}') {
+            depth--;
+            if (depth < 0) throw new Error('Unbalanced YAML flow collection');
+            continue;
+        }
+        if (c === sep && depth === 0) { parts.push(inner.slice(start, i)); start = i + 1; }
+    }
+    if (depth !== 0) throw new Error('Unbalanced YAML flow collection');
+    parts.push(inner.slice(start));
+    return parts;
+}
+
+function parseYamlKey(raw) {
+    const key = String(raw || '').trim();
+    if (!key) throw new Error('Empty YAML key');
+    if (key.length > INITVAR_YAML_MAX_KEY) throw new Error('YAML key too long');
+    if ((key[0] === '"' || key[0] === "'") && (key.length < 2 || key[key.length - 1] !== key[0])) {
+        throw new Error('Unterminated YAML quoted key');
+    }
+    if (key[0] === '"' && key[key.length - 1] === '"') {
+        try { return JSON.parse(key); } catch { return key.slice(1, -1); }
+    }
+    if (key[0] === "'" && key[key.length - 1] === "'") return key.slice(1, -1).replace(/''/g, "'");
+    return key;
+}
+
+function setYamlKey(obj, key, value) {
+    if (FORBIDDEN_PROTO_TOKENS.has(key)) return;
+    Object.defineProperty(obj, key, {
+        value, enumerable: true, writable: true, configurable: true,
+    });
+}
+
+function splitYamlKeyValue(text) {
+    let inSingle = false;
+    let inDouble = false;
+    let escaped = false;
+    let depth = 0;
+    for (let i = 0; i < text.length; i++) {
+        const c = text[i];
+        if (escaped) { escaped = false; continue; }
+        if (inDouble) {
+            if (c === '\\') escaped = true;
+            else if (c === '"') inDouble = false;
+            continue;
+        }
+        if (inSingle) {
+            if (c === "'") inSingle = false;
+            continue;
+        }
+        if (c === '"') { inDouble = true; continue; }
+        if (c === "'") { inSingle = true; continue; }
+        if (c === '[' || c === '{') { depth++; continue; }
+        if (c === ']' || c === '}') { depth--; continue; }
+        if (c === ':' && depth === 0) {
+            const next = text[i + 1];
+            if (next === undefined || next === ' ' || next === '\t' || next === '#') {
+                const key = text.slice(0, i).trim();
+                if (!key) return null;
+                return { key, value: text.slice(i + 1).trim() };
+            }
+        }
+    }
+    return null;
+}
+
+// Flow mappings separate on the first top-level colon regardless of trailing space,
+// so `{a:1}` and `{a: 1}` both parse while quoted keys keep their colons.
+function splitYamlFlowKeyValue(text) {
+    let inSingle = false;
+    let inDouble = false;
+    let escaped = false;
+    let depth = 0;
+    for (let i = 0; i < text.length; i++) {
+        const c = text[i];
+        if (escaped) { escaped = false; continue; }
+        if (inDouble) {
+            if (c === '\\') escaped = true;
+            else if (c === '"') inDouble = false;
+            continue;
+        }
+        if (inSingle) {
+            if (c === "'") inSingle = false;
+            continue;
+        }
+        if (c === '"') { inDouble = true; continue; }
+        if (c === "'") { inSingle = true; continue; }
+        if (c === '[' || c === '{') { depth++; continue; }
+        if (c === ']' || c === '}') { depth--; continue; }
+        if (c === ':' && depth === 0) {
+            const key = text.slice(0, i).trim();
+            if (!key) return null;
+            return { key, value: text.slice(i + 1).trim() };
+        }
+    }
+    return null;
+}
+
+function isYamlSeqItem(content) {
+    return content[0] === '-' && (content.length === 1 || /\s/.test(content[1]));
+}
+
+function parseYamlScalar(text, depth = 0) {
+    const t = String(text == null ? '' : text).trim();
+    if (t === '') return null;
+    if (t === '~' || t === '∅' || /^null$/i.test(t)) return null;
+    if (/^true$/i.test(t)) return true;
+    if (/^false$/i.test(t)) return false;
+    if (/^[+-]?\d+$/.test(t)) return Number(t);
+    if (/^[+-]?(?:\d+\.\d+|\d+)(?:[eE][+-]?\d+)?$/.test(t)) return Number(t);
+    if ((t[0] === '"' || t[0] === "'") && (t.length < 2 || t[t.length - 1] !== t[0])) {
+        throw new Error('Unterminated YAML quoted scalar');
+    }
+    if (t[0] === '"' && t[t.length - 1] === '"') {
+        try { return JSON.parse(t); } catch { return t.slice(1, -1); }
+    }
+    if (t[0] === "'" && t[t.length - 1] === "'") return t.slice(1, -1).replace(/''/g, "'");
+    if (t[0] === '[' && t[t.length - 1] !== ']') throw new Error('Unterminated YAML flow sequence');
+    if (t[0] === '{' && t[t.length - 1] !== '}') throw new Error('Unterminated YAML flow mapping');
+    if (t[0] === ']' || t[0] === '}') throw new Error('Unexpected YAML flow terminator');
+    if (t[0] === '[' && t[t.length - 1] === ']') {
+        if (depth >= INITVAR_YAML_MAX_DEPTH) throw new Error('YAML flow nesting too deep');
+        const inner = t.slice(1, -1).trim();
+        if (!inner) return [];
+        return splitYamlFlow(inner, ',').map((part) => parseYamlScalar(part, depth + 1));
+    }
+    if (t[0] === '{' && t[t.length - 1] === '}') {
+        if (depth >= INITVAR_YAML_MAX_DEPTH) throw new Error('YAML flow nesting too deep');
+        const inner = t.slice(1, -1).trim();
+        if (!inner) return {};
+        const obj = {};
+        for (const part of splitYamlFlow(inner, ',')) {
+            const kv = splitYamlFlowKeyValue(part.trim());
+            if (!kv) throw new Error('Invalid YAML flow mapping');
+            setYamlKey(obj, parseYamlKey(kv.key), parseYamlScalar(kv.value, depth + 1));
+        }
+        return obj;
+    }
+    if (/^[&*!|>%@`]/.test(t)) throw new Error('Unsupported YAML construct');
+    if (t.length > INITVAR_YAML_MAX_SCALAR) throw new Error('YAML scalar too long');
+    return t;
+}
+
+function bumpYamlNode(state) {
+    state.nodes++;
+    if (state.nodes > INITVAR_YAML_MAX_NODES) throw new Error('YAML node budget exceeded');
+}
+
+function parseYamlMapping(lines, i, indent, depth, state, firstContent) {
+    if (depth > INITVAR_YAML_MAX_DEPTH) throw new Error('YAML nesting too deep');
+    const obj = {};
+    let content;
+    if (firstContent !== undefined) {
+        content = firstContent;
+    } else {
+        content = lines[i].content;
+        i++;
+    }
+    for (;;) {
+        bumpYamlNode(state);
+        const kv = splitYamlKeyValue(content);
+        if (!kv) throw new Error('Invalid YAML mapping entry');
+        const key = parseYamlKey(kv.key);
+        if (kv.value === '') {
+            const hasChild = i < lines.length
+                && (lines[i].indent > indent || (lines[i].indent === indent && isYamlSeqItem(lines[i].content)));
+            if (hasChild) {
+                const r = parseYamlNode(lines, i, lines[i].indent, depth + 1, state);
+                setYamlKey(obj, key, r.value);
+                i = r.next;
+            } else {
+                setYamlKey(obj, key, null);
+            }
+        } else {
+            setYamlKey(obj, key, parseYamlScalar(kv.value));
+        }
+        if (i < lines.length && lines[i].indent === indent && !isYamlSeqItem(lines[i].content)) {
+            content = lines[i].content;
+            i++;
+        } else {
+            break;
+        }
+    }
+    return { value: obj, next: i };
+}
+
+function parseYamlSequence(lines, i, indent, depth, state) {
+    if (depth > INITVAR_YAML_MAX_DEPTH) throw new Error('YAML nesting too deep');
+    const arr = [];
+    while (i < lines.length && lines[i].indent === indent && isYamlSeqItem(lines[i].content)) {
+        bumpYamlNode(state);
+        const rawAfterDash = lines[i].content.slice(1);
+        const leadingSpaces = rawAfterDash.length - rawAfterDash.replace(/^[ \t]+/, '').length;
+        const after = rawAfterDash.replace(/^[ \t]+/, '');
+        i++;
+        if (after === '') {
+            if (i < lines.length && lines[i].indent > indent) {
+                const r = parseYamlNode(lines, i, lines[i].indent, depth + 1, state);
+                arr.push(r.value);
+                i = r.next;
+            } else {
+                arr.push(null);
+            }
+        } else if (splitYamlKeyValue(after)) {
+            // `- key: value` starts a mapping item; its sibling keys align with the
+            // first key's column (after the dash and any extra spaces).
+            const childIndent = indent + 1 + Math.max(1, leadingSpaces);
+            const r = parseYamlMapping(lines, i, childIndent, depth + 1, state, after);
+            arr.push(r.value);
+            i = r.next;
+        } else {
+            arr.push(parseYamlScalar(after));
+            if (i < lines.length && lines[i].indent > indent) throw new Error('Unexpected block after YAML scalar');
+        }
+    }
+    return { value: arr, next: i };
+}
+
+function parseYamlNode(lines, i, indent, depth, state) {
+    if (depth > INITVAR_YAML_MAX_DEPTH) throw new Error('YAML nesting too deep');
+    if (i >= lines.length) throw new Error('Unexpected end of YAML');
+    if (isYamlSeqItem(lines[i].content)) return parseYamlSequence(lines, i, indent, depth, state);
+    return parseYamlMapping(lines, i, indent, depth, state);
+}
+
 /**
- * Scan World Info entries for `[InitVar]`, `[LPEInitVar]`, or legacy `[VexaInitVar]` JSON variable seeds.
- * Cleans `$meta` schema markers and wraps flat roots under `{ stat_data }` when absent
- * so `getvar('stat_data.x')` and `getvar('x')` both resolve cleanly.
+ * Bounded, zero-dependency YAML fallback for `[InitVar]` seeds.
+ * Supports block mappings/sequences, simple flow `[]`/`{}`, quoted/plain strings,
+ * numbers, booleans, `null`/`~`/`∅`, and `#` comments outside quotes.
+ * Throws on unsupported or malformed input; callers must catch and fail safe.
+ */
+function parseYamlInitVars(text) {
+    if (typeof text !== 'string') throw new Error('Not text');
+    if (text.length > INITVAR_YAML_MAX_CHARS) throw new Error('YAML input too large');
+    const lines = [];
+    for (const rawLine of text.split(/\r?\n/)) {
+        if (lines.length > INITVAR_YAML_MAX_LINES) throw new Error('Too many YAML lines');
+        if (/^[ ]*\t/.test(rawLine)) throw new Error('Tab indentation is unsupported');
+        const withoutComment = stripYamlComment(rawLine);
+        if (!withoutComment.trim()) continue;
+        const trimmed = withoutComment.trim();
+        if (trimmed === '---' || trimmed === '...' || trimmed.startsWith('%YAML')) continue;
+        const indent = withoutComment.length - withoutComment.trimStart().length;
+        lines.push({ indent, content: trimmed });
+    }
+    if (!lines.length) throw new Error('Empty YAML document');
+    const state = { nodes: 0 };
+    const { value, next } = parseYamlNode(lines, 0, lines[0].indent, 0, state);
+    if (next !== lines.length) throw new Error('Unparsed trailing YAML content');
+    return value;
+}
+
+function finalizeInitVarsSeed(parsed) {
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+    const cleaned = stripMetaKeysDeep(parsed);
+    if (!cleaned || typeof cleaned !== 'object' || Array.isArray(cleaned)) return null;
+    if (cleaned.stat_data && typeof cleaned.stat_data === 'object' && !Array.isArray(cleaned.stat_data)) {
+        return cleaned;
+    }
+    if (cleaned.card_vars && typeof cleaned.card_vars === 'object' && !Array.isArray(cleaned.card_vars)) {
+        return { stat_data: stripMetaKeysDeep(cleaned.card_vars) };
+    }
+    return { stat_data: cleaned };
+}
+
+/**
+ * Scan World Info entries for `[InitVar]`, `[LPEInitVar]`, or legacy `[VexaInitVar]` variable seeds.
+ * Labels may carry a trailing note (`[InitVar]请勿打开`). Content is parsed as JSON first, then a
+ * bounded YAML fallback is attempted. Cleans `$meta` schema markers and wraps flat roots under
+ * `{ stat_data }` when absent so `getvar('stat_data.x')` and `getvar('x')` both resolve cleanly.
  */
 export function tryParseInitVarsFromEntries(entries) {
     const list = Array.isArray(entries)
@@ -1076,24 +1402,28 @@ export function tryParseInitVarsFromEntries(entries) {
         const label = String(e.comment || '').trim();
         const rawKey = e.key ?? e.keys;
         const keyStr = Array.isArray(rawKey) ? rawKey.join(' ') : String(rawKey || '');
-        const isInit = /^\[(?:InitVar|(?:LPE|Vexa)InitVars?)\]$/i.test(label)
-            || /\[(?:InitVar|(?:LPE|Vexa)InitVars?)\]/i.test(keyStr);
+        const isInit = INITVAR_LABEL_PREFIX_RE.test(label) || INITVAR_KEY_RE.test(keyStr);
         if (!isInit) continue;
 
         let raw = e.content.trim();
-        const fence = raw.match(/```(?:json)?\s*([\s\S]*?)```/i);
+        const fence = raw.match(/```(?:json|yaml|yml)?\s*([\s\S]*?)```/i);
         if (fence) raw = fence[1].trim();
+
+        let parsed = null;
         try {
-            const parsed = JSON.parse(raw);
-            if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) continue;
-            const cleaned = stripMetaKeysDeep(parsed);
-            if (cleaned.stat_data && typeof cleaned.stat_data === 'object') {
-                return cleaned;
-            }
-            return { stat_data: cleaned };
+            parsed = JSON.parse(raw);
         } catch {
-            // Skip invalid JSON InitVar entry
+            parsed = null;
         }
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+            try {
+                parsed = parseYamlInitVars(raw);
+            } catch {
+                parsed = null;
+            }
+        }
+        const seed = finalizeInitVarsSeed(parsed);
+        if (seed) return seed;
     }
     return null;
 }

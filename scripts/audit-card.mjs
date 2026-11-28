@@ -205,22 +205,18 @@ export function auditCardFile(inputPath) {
         add('WARN', 'DUPLICATE_CCV3_CHUNK', 'png.tEXt', `Both chara and ccv3 chunks exist (${(loaded.ccv3B64Bytes / 1024).toFixed(0)} KB base64 duplicated)`);
     }
 
-    // 2. Validate [InitVar] / [LPEInitVar] / [VexaInitVar]
+    // 2. Validate [InitVar] / [LPEInitVar] / [VexaInitVar] (prefix labels and JSON/YAML seeds)
     let parsedInitVars = null;
     for (const e of rawEntries) {
         if (!e || typeof e.content !== 'string') continue;
         const label = String(e.comment || '').trim();
-        const keyStr = Array.isArray(e.keys) ? e.keys.join(' ') : String(e.key || '');
+        const rawKey = e.key ?? e.keys;
+        const keyStr = Array.isArray(rawKey) ? rawKey.join(' ') : String(rawKey || '');
         noteLegacyVexa(`wi[${e.id ?? e.uid ?? label}]`, `${label}\n${keyStr}`);
-        if (/^\[(?:InitVar|(?:LPE|Vexa)InitVars?)\]$/i.test(label) || /\[(?:InitVar|(?:LPE|Vexa)InitVars?)\]/i.test(keyStr)) {
-            let raw = e.content.trim();
-            const fence = raw.match(/```(?:json)?\s*([\s\S]*?)```/i);
-            if (fence) raw = fence[1].trim();
-            try {
-                JSON.parse(raw);
-            } catch (err) {
-                add('BLOCKER', 'INVALID_INITVAR_JSON', `wi[${e.id ?? e.uid ?? label}]`, `Invalid JSON in [InitVar]: ${err.message}`);
-            }
+        const isInit = /^\[(?:InitVar|(?:LPE|Vexa)InitVars?)\]/i.test(label)
+            || /\[(?:InitVar|(?:LPE|Vexa)InitVars?)\]/i.test(keyStr);
+        if (isInit && !tryParseInitVarsFromEntries([e])) {
+            add('BLOCKER', 'INVALID_INITVAR_JSON', `wi[${e.id ?? e.uid ?? label}]`, 'Invalid [InitVar] seed: content is not a parseable JSON/YAML object.');
         }
     }
     parsedInitVars = tryParseInitVarsFromEntries(rawEntries);
