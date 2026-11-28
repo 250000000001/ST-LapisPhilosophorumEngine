@@ -82,7 +82,7 @@ The companion external-state preset (**Magnum Opus**, [`Presets/Magnum Opus.json
    node scripts/build-preset.mjs /path/to/your-vexa-preset.json Presets/Magnum\ Opus.json
    ```
 
-See [`docs/card-adaptation/`](docs/card-adaptation/01-overview-and-offloading.md) for the full card-conversion & scripting playbook.
+See [`docs/card-adaptation/`](docs/card-adaptation/README.md) for the full card-conversion & scripting playbook, including the [creator guide and adaptation patterns](docs/card-adaptation/06-creator-guide-and-patterns.md).
 
 Build and preview sandboxed card panels with the [LPE Card Authoring Kit](templates/lpe-card-template/README.md). For existing cards, follow the [migration workflow](templates/lpe-card-template/migration/MIGRATION_WORKFLOW.md) and run the [headless EJS validator](scripts/verify-ejs-headless.mjs).
 
