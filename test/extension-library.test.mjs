@@ -1,15 +1,19 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 
 import { createLpeStateStore } from '../src/store.js';
 import { createModelLibraryManager } from '../src/modelLibrary.js';
 import {
+    BUNDLED_EXTENSION_CATALOG,
     DEFAULT_EXTENSION_BASE_URL,
+    DEFAULT_EXTENSION_CATALOG_PATH,
     DEFAULT_EXTENSION_MANIFEST_URL,
     DEFAULT_EXTENSION_REPO_URL,
     createExtensionLibraryManager,
     ensureExtensionLibrarySettings,
     formatExtensionAttributionMarkdown,
+    getBundledExtensionManifest,
     isSafeExtensionUrl,
     listExtensionEntries,
     normalizeExtensionCategory,
@@ -122,6 +126,56 @@ test('extension catalog parsing keeps attribution metadata, normalizes schema, a
     assert.throws(() => parseExtensionManifest('not json'), /Invalid extension manifest JSON/);
 });
 
+test('default extension catalog URL points at the bundled repo manifest path', () => {
+    assert.equal(DEFAULT_EXTENSION_CATALOG_PATH, 'assets/extensions/manifest.json');
+    assert.equal(DEFAULT_EXTENSION_MANIFEST_URL, `${DEFAULT_EXTENSION_BASE_URL}manifest.json`);
+    assert.match(DEFAULT_EXTENSION_MANIFEST_URL, /\/ST-LapisPhilosophorumEngine\/main\/assets\/extensions\/manifest\.json$/);
+    assert.equal(DEFAULT_EXTENSION_REPO_URL, 'https://github.com/250000000001/ST-LapisPhilosophorumEngine');
+});
+
+test('repo manifest JSON validates and matches the bundled fallback catalog', async () => {
+    const manifestPath = new URL(`../${DEFAULT_EXTENSION_CATALOG_PATH}`, import.meta.url);
+    const raw = await readFile(manifestPath, 'utf8');
+    const parsed = parseExtensionManifest(raw, { manifestUrl: DEFAULT_EXTENSION_MANIFEST_URL });
+    assert.equal(parsed.extensions.length, 3);
+    assert.deepEqual(parsed.warnings, []);
+
+    const temp = parsed.extensions.find((x) => x.id === 'st-lpe-temporary-npcs');
+    assert.ok(temp);
+    assert.equal(temp.repoUrl, 'https://github.com/250000000001/ST-LPE-Temporary-NPCs');
+    assert.match(temp.summary, /3-turn decay/);
+    assert.match(temp.summary, /same-name refresh/);
+    assert.match(temp.summary, /despawn on move-on/);
+    assert.match(temp.summary, /Promote to Named Cast/);
+
+    const memory = parsed.extensions.find((x) => x.id === 'st-lpe-dynamic-memory');
+    assert.ok(memory);
+    assert.equal(memory.repoUrl, 'https://github.com/250000000001/ST-LPE-Dynamic-Memory');
+    assert.match(memory.version, /preview/);
+    assert.ok(memory.tags.includes('preview'));
+    assert.match(memory.summary, /lorebook/i);
+    assert.match(memory.summary, /fading memory/i);
+
+    const creator = parsed.extensions.find((x) => x.id === 'st-lpe-creator-studio');
+    assert.ok(creator);
+    assert.equal(creator.name, 'LPE Creator Studio');
+    assert.equal(creator.version, '1.0.0');
+    assert.equal(creator.author, '250000000001');
+    assert.equal(creator.repoUrl, 'https://github.com/250000000001/ST-LPE-Creator-Studio');
+    assert.equal(creator.category, 'authoring');
+    assert.ok(creator.tags.includes('card-making'));
+    assert.match(creator.summary, /Card Making/);
+    assert.match(creator.summary, /AI Review & Improvement/);
+    assert.equal(creator.license, 'CC BY-NC 4.0');
+
+    const bundled = getBundledExtensionManifest({ manifestUrl: DEFAULT_EXTENSION_MANIFEST_URL });
+    assert.deepEqual(
+        bundled.extensions.map((x) => [x.id, x.repoUrl]),
+        parsed.extensions.map((x) => [x.id, x.repoUrl]),
+    );
+    assert.equal(BUNDLED_EXTENSION_CATALOG.extensions.length, 3);
+});
+
 test('extension entries merge catalog and installed state with offline fallback', () => {
     const manifest = parseExtensionManifest(SAMPLE_CATALOG, { manifestUrl: DEFAULT_EXTENSION_MANIFEST_URL });
     const installed = {
@@ -219,8 +273,14 @@ test('extension manager installs, toggles, removes, and survives an unreachable 
     });
 
     const before = mgr.getCatalog({ categoryFilter: 'all', statusFilter: 'all' });
-    assert.equal(before.counts.total, 0);
-    await assert.rejects(() => mgr.refreshCatalog(), /network down/);
+    assert.equal(before.counts.total, 3);
+    assert.equal(before.counts.availableCount, 3);
+
+    const fallback = await mgr.refreshCatalog();
+    assert.equal(fallback.fallback, true);
+    assert.match(fallback.fallbackReason, /network down/);
+    assert.equal(fallback.extensions.length, 3);
+    assert.equal(settings.extensionLibrary.cachedManifest.fallback, true);
 
     const entry = parseExtensionManifest(SAMPLE_CATALOG).extensions[0];
     const installed = mgr.installExtension(entry);
@@ -232,13 +292,16 @@ test('extension manager installs, toggles, removes, and survives an unreachable 
     assert.equal(installed.item.enabled, true);
     assert.ok(settings.extensionLibrary.installed['temp-npcs']);
 
-    // Offline catalog still exposes installed metadata safely.
+    // Offline catalog still exposes installed metadata safely alongside bundled entries.
     const offlineCatalog = mgr.getCatalog({ categoryFilter: 'all', statusFilter: 'all' });
     assert.equal(offlineCatalog.counts.installedCount, 1);
-    assert.equal(offlineCatalog.items[0].status, 'enabled');
+    assert.equal(offlineCatalog.items.find((x) => x.id === 'temp-npcs').status, 'enabled');
 
     assert.equal(mgr.setExtensionEnabled('temp-npcs', false).item.enabled, false);
-    assert.equal(mgr.getCatalog({ categoryFilter: 'all', statusFilter: 'all' }).items[0].status, 'disabled');
+    assert.equal(
+        mgr.getCatalog({ categoryFilter: 'all', statusFilter: 'all' }).items.find((x) => x.id === 'temp-npcs').status,
+        'disabled',
+    );
     assert.equal(mgr.setExtensionEnabled('temp-npcs', true).ok, true);
     assert.equal(mgr.setExtensionEnabled('missing', true).ok, false);
 
@@ -251,6 +314,41 @@ test('extension manager installs, toggles, removes, and survives an unreachable 
     const thawed = ensureExtensionLibrarySettings(frozen);
     assert.equal(thawed.manifestUrl, DEFAULT_EXTENSION_MANIFEST_URL);
     assert.deepEqual(thawed.installed, {});
+});
+
+test('extension manager falls back to bundled catalog on HTTP 404 and supports install', async () => {
+    const settings = {};
+    let fetches = 0;
+    const mgr = createExtensionLibraryManager({
+        getSettings: () => settings,
+        saveSettings: () => {},
+        fetchImpl: async () => {
+            fetches++;
+            return { ok: false, status: 404, text: async () => '' };
+        },
+    });
+
+    const parsed = await mgr.refreshCatalog();
+    assert.equal(fetches, 1);
+    assert.equal(parsed.fallback, true);
+    assert.match(parsed.fallbackReason, /HTTP 404/);
+    assert.equal(parsed.extensions.length, 3);
+    assert.deepEqual(
+        parsed.extensions.map((x) => x.id),
+        ['st-lpe-temporary-npcs', 'st-lpe-dynamic-memory', 'st-lpe-creator-studio'],
+    );
+    assert.equal(settings.extensionLibrary.cachedManifest.fallback, true);
+
+    const available = mgr.getCatalog({ categoryFilter: 'all', statusFilter: 'all' });
+    assert.equal(available.counts.total, 3);
+    assert.equal(available.counts.availableCount, 3);
+
+    const installed = mgr.installExtension('st-lpe-temporary-npcs');
+    assert.equal(installed.ok, true);
+    assert.equal(installed.item.repoUrl, 'https://github.com/250000000001/ST-LPE-Temporary-NPCs');
+    const after = mgr.getCatalog({ categoryFilter: 'all', statusFilter: 'all' });
+    assert.equal(after.counts.installedCount, 1);
+    assert.equal(after.items.find((x) => x.id === 'st-lpe-temporary-npcs').status, 'enabled');
 });
 
 test('unified Control Center tab renders 3D models and extensions, switches modes, and manages extension lifecycle', async (t) => {
@@ -389,6 +487,8 @@ test('unified Control Center tab renders 3D models and extensions, switches mode
     assert.match(stage.html(), /Example Author/);
     assert.match(stage.html(), /CC BY 4\.0/);
     assert.match(stage.html(), /2\.50 MB/);
+    assert.match(stage.html(), /Copy Git URL/);
+    assert.match(stage.html(), /data-ext-repo="https:\/\/github\.com\/example\/ST-LPE-Temporary-NPCs"/);
 
     // Install / disable / re-enable / remove through the unified UI.
     stage.fire('.lpe-ext-install-btn', { currentTarget: { dataset: { extId: 'temp-npcs' } } });

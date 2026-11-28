@@ -28,6 +28,19 @@
             "homepage": "https://github.com/250000000001/ST-LPE-Dynamic-Memory",
             "author": "250000000001",
             "license": "See repository"
+        },
+        {
+            "id": "st-lpe-creator-studio",
+            "name": "LPE Creator Studio",
+            "version": "1.0.0",
+            "summary": "Card Making sidebar tab with section toggles, compiled card requests, and optional AI Review & Improvement.",
+            "description": "Adds a focused Card Making workspace for choosing the exact sections of a character card, saving a compiled request, and optionally queueing an AI review with targeted improvement focus areas and notes. Integrates with the LPE sidebar when available and works with its own compact launcher otherwise.",
+            "category": "authoring",
+            "tags": ["creator", "card-making", "character-cards", "ai-review", "authoring"],
+            "repoUrl": "https://github.com/250000000001/ST-LPE-Creator-Studio",
+            "homepage": "https://github.com/250000000001/ST-LPE-Creator-Studio",
+            "author": "250000000001",
+            "license": "CC BY-NC 4.0"
         }
     ]
 }
